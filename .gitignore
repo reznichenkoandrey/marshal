@@ -6,3 +6,5 @@ test-results/
 agent/.auth/
 dist/agent/.auth/
 agent/memory/*.tmp
+agent/.chrome-profile/
+agent/.chrome-profile-login/

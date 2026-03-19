@@ -1,0 +1,225 @@
+const POLL_INTERVAL_MS = 1500;
+void sendTick();
+window.setInterval(() => {
+    void sendTick();
+}, POLL_INTERVAL_MS);
+function sendTick() {
+    return chrome.runtime.sendMessage({
+        type: "marshal-tick",
+        state: collectPageState()
+    });
+}
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "marshal-command") {
+        return;
+    }
+    void executeCommand(message.command)
+        .then((result) => sendResponse(result))
+        .catch((error) => {
+        const text = error instanceof Error ? error.message : "Unknown content script error.";
+        sendResponse({ ok: false, error: text });
+    });
+    return true;
+});
+async function executeCommand(command) {
+    switch (command.kind) {
+        case "reset_conversation":
+            await resetConversation();
+            return { ok: true, data: { state: collectPageState().state } };
+        case "send_prompt": {
+            const prompt = String(command.payload.prompt ?? "").trim();
+            if (!prompt) {
+                return { ok: false, error: "Prompt is empty." };
+            }
+            if (collectPageState().state !== "ready") {
+                return { ok: false, error: "ChatGPT is not on a ready composer surface." };
+            }
+            const previous = extractLatestAssistantText();
+            const composer = resolveComposer();
+            if (!composer) {
+                return { ok: false, error: "Unable to resolve the ChatGPT composer." };
+            }
+            setComposerText(composer, prompt);
+            await submitComposer(composer);
+            const responseText = await waitForStableAssistantText(previous);
+            return { ok: true, data: { responseText } };
+        }
+        default:
+            return { ok: false, error: `Unsupported extension command: ${command.kind}` };
+    }
+}
+function collectPageState() {
+    return {
+        url: window.location.href,
+        title: document.title,
+        state: detectPageState()
+    };
+}
+function detectPageState() {
+    if (/auth\.openai\.com|accounts\.google\.com/.test(window.location.href)) {
+        return "auth";
+    }
+    if (isLoggedOutHomepage()) {
+        return "logged-out";
+    }
+    if (resolveComposer({ throwOnFailure: false })) {
+        return "ready";
+    }
+    return "unknown";
+}
+function isLoggedOutHomepage() {
+    const loginButtons = findElementsWithText("button, a", /(log in|sign in|увійти)/i);
+    const signupButtons = findElementsWithText("button, a", /(sign up|зареєструватися)/i);
+    return loginButtons.length > 0 && signupButtons.length > 0;
+}
+function resolveComposer(options = {}) {
+    const candidates = [
+        ...queryVisible('[role="textbox"][contenteditable="true"]'),
+        ...queryVisible('[role="textbox"]'),
+        ...queryVisible('textarea'),
+        ...queryVisible('[contenteditable="true"]'),
+        ...queryVisible('input[placeholder]')
+    ]
+        .filter(isPromptLikeComposer)
+        .sort((left, right) => scoreComposerCandidate(right) - scoreComposerCandidate(left));
+    const composer = candidates[0] ?? null;
+    if (!composer && options.throwOnFailure !== false) {
+        throw new Error("Unable to resolve the ChatGPT composer.");
+    }
+    return composer;
+}
+function isPromptLikeComposer(element) {
+    const label = getElementLabelText(element);
+    if (/(message|ask|chat|anything|запитайте|повідомлення)/i.test(label)) {
+        return true;
+    }
+    const container = element.closest("form, main, [role='main']");
+    if (!container) {
+        return false;
+    }
+    const actionButtons = Array.from(container.querySelectorAll("button,[role='button']")).filter((candidate) => isVisible(candidate));
+    return actionButtons.length > 0;
+}
+function scoreComposerCandidate(element) {
+    const label = getElementLabelText(element);
+    let score = 0;
+    if (/(message|ask|chat|anything|запитайте|повідомлення)/i.test(label)) {
+        score += 10;
+    }
+    if (element instanceof HTMLTextAreaElement) {
+        score += 4;
+    }
+    if (element.getAttribute("contenteditable") === "true") {
+        score += 3;
+    }
+    if (element.closest("form")) {
+        score += 3;
+    }
+    if (element.closest("main, [role='main']")) {
+        score += 2;
+    }
+    return score;
+}
+function getElementLabelText(element) {
+    return [
+        element.getAttribute("aria-label") ?? "",
+        element.getAttribute("placeholder") ?? "",
+        element.textContent ?? ""
+    ]
+        .join(" ")
+        .toLowerCase();
+}
+function queryVisible(selector) {
+    return Array.from(document.querySelectorAll(selector)).filter(isVisible);
+}
+function isVisible(element) {
+    const node = element;
+    const style = window.getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+}
+function setComposerText(composer, text) {
+    composer.focus();
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+        composer.value = text;
+        composer.dispatchEvent(new Event("input", { bubbles: true }));
+        composer.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+    }
+    composer.textContent = text;
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
+}
+async function submitComposer(composer) {
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true }));
+    await sleep(250);
+    const sendButton = findElementsWithText('button,[role="button"]', /(send|submit|надіслати|відправити)/i).find((element) => !element.hasAttribute("disabled"));
+    sendButton?.click();
+}
+async function resetConversation() {
+    const newChat = findElementsWithText('a,button,[role="button"]', /(new chat|new conversation|новий чат)/i)[0];
+    if (!newChat) {
+        throw new Error("Unable to locate the New chat control.");
+    }
+    newChat.click();
+    await sleep(500);
+}
+function extractLatestAssistantText() {
+    const assistantMessages = Array.from(document.querySelectorAll("[data-message-author-role='assistant']"))
+        .map((element) => normalizeText(element.innerText || element.textContent || ""))
+        .filter(Boolean);
+    if (assistantMessages.length > 0) {
+        return assistantMessages[assistantMessages.length - 1];
+    }
+    const main = document.querySelector("main");
+    if (!main) {
+        return "";
+    }
+    const articles = Array.from(main.querySelectorAll("article"))
+        .map((element) => normalizeText(element.innerText || element.textContent || ""))
+        .filter(Boolean);
+    return articles[articles.length - 1] ?? "";
+}
+async function waitForStableAssistantText(previousText) {
+    let stableReads = 0;
+    let lastValue = "";
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 60_000) {
+        const current = extractLatestAssistantText();
+        if (current && current !== previousText && current === lastValue) {
+            stableReads += 1;
+            if (stableReads >= 3) {
+                return current;
+            }
+        }
+        else {
+            stableReads = 1;
+            lastValue = current;
+        }
+        await sleep(400);
+    }
+    if (lastValue) {
+        return lastValue;
+    }
+    throw new Error("Timed out while waiting for a stable assistant response.");
+}
+function findElementsWithText(selector, pattern) {
+    return Array.from(document.querySelectorAll(selector)).filter((element) => {
+        if (!isVisible(element)) {
+            return false;
+        }
+        const text = [
+            element.textContent ?? "",
+            element.getAttribute("aria-label") ?? "",
+            element.getAttribute("title") ?? ""
+        ].join(" ");
+        return pattern.test(text);
+    });
+}
+function normalizeText(value) {
+    return value.replace(/\u200b/g, "").replace(/\s+\n/g, "\n").replace(/\s+/g, " ").trim();
+}
+function sleep(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+}

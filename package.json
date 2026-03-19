@@ -7,13 +7,14 @@
   "scripts": {
     "start": "node index.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "check": "npm run typecheck"
   },
   "dependencies": {
     "playwright": "^1.54.2"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.24",
     "@types/node": "^24.3.0",
     "typescript": "^5.9.2"
   }

@@ -12,7 +12,7 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "noEmitOnError": true,
-    "types": ["node"]
+    "types": ["node", "chrome"]
   },
-  "include": ["main.ts", "agent/**/*.ts"]
+  "include": ["main.ts", "agent/**/*.ts", "chrome-extension/src/**/*.ts"]
 }

@@ -2,7 +2,7 @@
 
 ## Objective
 
-Build a local autonomous AI agent that uses the ChatGPT web UI through Playwright as the reasoning engine, executes local tools safely, preserves memory, and recovers from selector and formatting failures.
+Build a local autonomous AI agent that uses the ChatGPT web UI as the reasoning engine, executes local tools safely, preserves memory, and recovers from selector and formatting failures. Playwright remains available for browser tools and as a legacy bridge path, while the primary authenticated ChatGPT path may use a local Chrome extension bridge when browser automation is blocked.
 
 ## Delivery Rules
 
@@ -62,6 +62,7 @@ Done when:
 - The composer can be found with resilient locators.
 - Streaming responses are stabilized before parsing.
 - Selector failures can fall back to self-healing.
+- The authenticated ChatGPT session has a live-supported bridge path even if Playwright login is blocked by Cloudflare or Chrome protections.
 
 Checklist:
 - [x] Add Playwright ChatGPT bridge.
@@ -69,7 +70,8 @@ Checklist:
 - [x] Add selector cache and fallback strategy.
 - [x] Add self-heal ranking logic.
 - [x] Capture and fix live selector/auth regressions discovered during smoke tests.
-- [ ] Validate the composer locator against the live ChatGPT UI after login.
+- [x] Add extension-based bridge path for real logged-in Chrome sessions.
+- [x] Validate the composer locator against the live ChatGPT UI after login.
 
 ### Phase 4. Tooling and Sandbox Validation
 
