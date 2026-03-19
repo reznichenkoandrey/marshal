@@ -124,6 +124,75 @@ Checklist:
 - [ ] Run a multi-step planning task end-to-end.
 - [ ] Document remaining defects and follow-up phases if needed.
 
+### Phase 7. Andrii Session Launcher
+
+Goal:
+- Make the real Chrome profile `Andrii` the default authenticated ChatGPT workspace for Marshal.
+
+Done when:
+- One command starts Marshal login mode.
+- Chrome opens `chatgpt.com` in the `Andrii` profile.
+- The unpacked extension is injected automatically for that session.
+- New ChatGPT projects and history stay inside the `Andrii` profile.
+
+Checklist:
+- [x] Add a single startup script for Marshal login mode.
+- [x] Resolve the Chrome profile by visible name `Andrii`.
+- [x] Open ChatGPT in the real `Andrii` Chrome profile.
+- [x] Auto-load the unpacked bridge extension for the session.
+- [ ] Validate the launcher end-to-end against the live `Andrii` profile.
+
+### Phase 8. Operator Web Console
+
+Goal:
+- Add a separate web interface for chatting with Marshal, sending files, and routing work to local tools or browser automation.
+
+Done when:
+- A local web app exists for operator conversations.
+- Files can be uploaded from the UI and attached to a task.
+- The operator can choose or imply whether work should happen on the local computer or in an internet browser.
+- Conversation state is preserved independently from the raw ChatGPT tab UI.
+
+Checklist:
+- [ ] Define the operator API contract and session model.
+- [ ] Add a web chat UI with file upload support.
+- [ ] Add backend task routing to local tools and browser tools.
+- [ ] Add conversation persistence for operator sessions.
+- [ ] Validate a full UI-driven task with file attachment.
+
+### Phase 9. Telegram Control Surface
+
+Goal:
+- Add Telegram as a remote control and messaging channel for Marshal.
+
+Done when:
+- A Telegram bot can receive messages and files.
+- The bot can forward tasks into the same execution pipeline as the web UI.
+- Responses, progress updates, and artifacts return to Telegram cleanly.
+
+Checklist:
+- [ ] Define Telegram bot webhook or polling runtime.
+- [ ] Add Telegram message and file ingestion.
+- [ ] Reuse the shared task/session orchestration layer.
+- [ ] Add outbound status and result delivery to Telegram.
+- [ ] Validate a full Telegram-driven task end-to-end.
+
+### Phase 10. Unified Control Plane
+
+Goal:
+- Unify Chrome-profile execution, web UI, and Telegram into one operator-facing system.
+
+Done when:
+- Web UI and Telegram share the same task queue and permission model.
+- Local computer actions and browser actions can be requested from either channel.
+- Session routing is explicit and auditable.
+
+Checklist:
+- [ ] Define a shared orchestration layer for all control surfaces.
+- [ ] Add task audit log and artifact storage.
+- [ ] Add permission gates for local shell, filesystem, and live browser actions.
+- [ ] Validate cross-channel continuity between web UI and Telegram.
+
 ## Current Exit Criteria
 
-The project is not complete until Phases 3, 4, and 6 are closed with live validation, not only static implementation.
+The project is not complete until Phases 4, 6, 7, 8, 9, and 10 are closed with live validation, not only static implementation.

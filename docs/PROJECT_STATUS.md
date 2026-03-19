@@ -20,6 +20,10 @@
 ## Pending Phases
 
 - `Phase 6. End-to-End Acceptance`
+- `Phase 7. Andrii Session Launcher`
+- `Phase 8. Operator Web Console`
+- `Phase 9. Telegram Control Surface`
+- `Phase 10. Unified Control Plane`
 
 ## Completed Items
 
@@ -33,11 +37,16 @@
 - The build now emits a loadable unpacked Chrome extension artifact.
 - Live validation succeeded against a real authenticated ChatGPT tab through the extension bridge.
 - The bridge can reset the conversation and receive a stabilized response from the live ChatGPT UI.
+- A one-command startup flow now exists for the real Chrome profile `Andrii`.
+- The launcher can resolve the visible Chrome profile name `Andrii` to the real profile directory automatically.
+- The launcher can start Chrome with the unpacked bridge extension and open `chatgpt.com` in the `Andrii` profile.
 
 ## Open Issues
 
 - Phase 4 tool-path smoke validation is still required through the agent loop.
 - End-to-end acceptance remains open for filesystem, shell, browser, and multi-step tasks.
+- Live validation of the new `Andrii` launcher flow is still required.
+- The operator web UI and Telegram control surface are planned but not implemented yet.
 
 ## Phase Close Checklist
 
