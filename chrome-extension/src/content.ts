@@ -1,6 +1,6 @@
 type BridgeCommand = {
   id: string;
-  kind: "send_prompt" | "reset_conversation";
+  kind: "send_prompt" | "reset_conversation" | "debug_snapshot";
   payload: Record<string, unknown>;
 };
 
@@ -73,6 +73,13 @@ async function executeCommand(command: BridgeCommand): Promise<CommandResult> {
       const responseText = await waitForStableAssistantText(previous);
       return { ok: true, data: { responseText } };
     }
+    case "debug_snapshot":
+      return {
+        ok: true,
+        data: {
+          snapshot: collectDebugSnapshot()
+        }
+      };
     default:
       return { ok: false, error: `Unsupported extension command: ${command.kind}` };
   }
@@ -208,6 +215,8 @@ function setComposerText(composer: HTMLElement, text: string): void {
 
 async function submitComposer(composer: HTMLElement, prompt: string): Promise<void> {
   const previousValue = readComposerText(composer);
+  const previousUrl = window.location.href;
+  await sleep(150);
   composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
   composer.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", bubbles: true }));
   composer.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true }));
@@ -218,7 +227,7 @@ async function submitComposer(composer: HTMLElement, prompt: string): Promise<vo
     return;
   }
 
-  const sendButton = resolveSendButton();
+  const sendButton = await waitForSendButton(composer);
   sendButton?.click();
   await sleep(250);
 
@@ -228,9 +237,17 @@ async function submitComposer(composer: HTMLElement, prompt: string): Promise<vo
 
   const enclosingForm = composer.closest("form");
   if (enclosingForm && typeof enclosingForm.requestSubmit === "function") {
-    enclosingForm.requestSubmit();
+    const submitter =
+      sendButton instanceof HTMLButtonElement && sendButton.type === "submit" ? sendButton : undefined;
+    enclosingForm.requestSubmit(submitter);
     await sleep(250);
   }
+
+  if (await waitForPromptSubmission(composer, previousValue, prompt, previousUrl)) {
+    return;
+  }
+
+  throw new Error("The ChatGPT composer did not submit the prompt.");
 }
 
 async function resetConversation(): Promise<void> {
@@ -269,24 +286,18 @@ async function ensureProjectSelected(projectName: string): Promise<void> {
 }
 
 function extractLatestAssistantText(): string {
-  const assistantMessages = Array.from(
-    document.querySelectorAll("[data-message-author-role='assistant']")
-  )
-    .map((element) => normalizeText((element as HTMLElement).innerText || element.textContent || ""))
-    .filter(Boolean);
+  const main = document.querySelector("main");
+  const assistantMessages = getVisibleConversationTexts(main, "[data-message-author-role='assistant']");
 
   if (assistantMessages.length > 0) {
     return assistantMessages[assistantMessages.length - 1];
   }
 
-  const main = document.querySelector("main");
   if (!main) {
     return "";
   }
 
-  const articles = Array.from(main.querySelectorAll("article"))
-    .map((element) => normalizeText((element as HTMLElement).innerText || element.textContent || ""))
-    .filter(Boolean);
+  const articles = getVisibleConversationTexts(main, "article");
 
   return articles[articles.length - 1] ?? "";
 }
@@ -409,8 +420,11 @@ function normalizeComparableText(value: string): string {
   return normalizeText(value).toLowerCase();
 }
 
-function resolveSendButton(): HTMLElement | null {
+function resolveSendButton(composer?: HTMLElement | null): HTMLElement | null {
+  const scopedContainers = [composer?.closest("form"), composer?.parentElement, composer?.closest("main"), document]
+    .filter(Boolean) as ParentNode[];
   const selectors = [
+    'button[type="submit"]',
     '[data-testid*="send"]',
     'button[aria-label*="Send"]',
     'button[aria-label*="send"]',
@@ -420,15 +434,20 @@ function resolveSendButton(): HTMLElement | null {
     'button[aria-label*="Відправ"]'
   ];
 
-  for (const selector of selectors) {
-    const candidate = queryVisible(selector).find((element) => !element.hasAttribute("disabled"));
-    if (candidate) {
-      return candidate;
+  for (const container of scopedContainers) {
+    for (const selector of selectors) {
+      const candidate = Array.from(container.querySelectorAll(selector))
+        .filter((element) => isVisible(element))
+        .map((element) => element as HTMLElement)
+        .find((element) => !isDisabledElement(element));
+      if (candidate) {
+        return candidate;
+      }
     }
   }
 
-  return findElementsWithText("button,[role='button']", /(send|submit|надіслати|відправити)/i).find(
-    (element) => !element.hasAttribute("disabled")
+  return findElementsWithText("main button,main [role='button']", /(send|submit|надіслати|відправити)/i).find(
+    (element) => !isDisabledElement(element)
   ) ?? null;
 }
 
@@ -457,6 +476,105 @@ function didComposerSubmit(composer: HTMLElement, previousValue: string, prompt:
   return false;
 }
 
+async function waitForSendButton(composer: HTMLElement, timeoutMs = 3_000): Promise<HTMLElement | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const button = resolveSendButton(composer);
+    if (button) {
+      return button;
+    }
+
+    await sleep(100);
+  }
+
+  return null;
+}
+
+async function waitForPromptSubmission(
+  composer: HTMLElement,
+  previousValue: string,
+  prompt: string,
+  previousUrl: string,
+  timeoutMs = 5_000
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (window.location.href !== previousUrl || didComposerSubmit(composer, previousValue, prompt)) {
+      return true;
+    }
+
+    await sleep(100);
+  }
+
+  return false;
+}
+
+function isDisabledElement(element: HTMLElement): boolean {
+  return element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function collectDebugSnapshot(): Record<string, unknown> {
+  const main = document.querySelector("main");
+  const assistantMessages = getVisibleConversationTexts(main, "[data-message-author-role='assistant']");
+  const articles = getVisibleConversationTexts(main, "article");
+  const composer = resolveComposer({ throwOnFailure: false });
+  const composerContainer = composer?.closest("form") ?? composer?.parentElement ?? null;
+  const buttons = queryVisible("button,[role='button']")
+    .map((element) => normalizeText([
+      element.textContent ?? "",
+      element.getAttribute("aria-label") ?? "",
+      element.getAttribute("title") ?? ""
+    ].join(" ")))
+    .filter(Boolean)
+    .slice(0, 30);
+  const composerButtons = composerContainer
+    ? Array.from(composerContainer.querySelectorAll("button,[role='button']"))
+        .filter((element) => isVisible(element))
+        .map((element) => {
+          const node = element as HTMLElement;
+          return {
+            text: normalizeText([
+              node.textContent ?? "",
+              node.getAttribute("aria-label") ?? "",
+              node.getAttribute("title") ?? ""
+            ].join(" ")),
+            type: node instanceof HTMLButtonElement ? node.type || "button" : node.getAttribute("role") || "",
+            disabled: isDisabledElement(node),
+            testId: node.getAttribute("data-testid") ?? ""
+          };
+        })
+        .slice(0, 10)
+    : [];
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    state: detectPageState(),
+    composerText: composer ? readComposerText(composer) : "",
+    composerTag: composer?.tagName ?? "",
+    composerAriaLabel: composer?.getAttribute("aria-label") ?? "",
+    composerContainerTag: composerContainer instanceof HTMLElement ? composerContainer.tagName : "",
+    composerButtons,
+    assistantMessagesCount: assistantMessages.length,
+    lastAssistantMessage: assistantMessages.at(-1) ?? "",
+    articlesCount: articles.length,
+    lastArticle: articles.at(-1) ?? "",
+    mainTextSample: normalizeText((main as HTMLElement | null)?.innerText || "").slice(0, 2000),
+    visibleButtons: buttons
+  };
+}
+
+function getVisibleConversationTexts(root: ParentNode | null, selector: string): string[] {
+  if (!root) {
+    return [];
+  }
+
+  return Array.from(root.querySelectorAll(selector))
+    .filter((element) => isVisible(element))
+    .map((element) => normalizeText((element as HTMLElement).innerText || element.textContent || ""))
+    .filter(Boolean);
 }

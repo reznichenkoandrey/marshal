@@ -129,20 +129,31 @@ export class ChatGPTBridge {
     async extractLatestAssistantText() {
         const page = await this.getPage();
         const text = (await page.evaluate(() => {
-            const clean = (value) => value.replace(/\u200b/g, "").replace(/\s+\n/g, "\n").trim();
-            const assistantMessages = Array.from(document.querySelectorAll("[data-message-author-role='assistant']"))
-                .map((element) => clean(element.innerText || element.textContent || ""))
-                .filter(Boolean);
+            const clean = (value) => value.replace(/\u200b/g, "").replace(/\s+\n/g, "\n").replace(/\s+/g, " ").trim();
+            const isVisible = (element) => {
+                const node = element;
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+            };
+            const getVisibleTexts = (root, selector) => {
+                if (!root) {
+                    return [];
+                }
+                return Array.from(root.querySelectorAll(selector))
+                    .filter((element) => isVisible(element))
+                    .map((element) => clean(element.innerText || element.textContent || ""))
+                    .filter(Boolean);
+            };
+            const main = document.querySelector("main");
+            const assistantMessages = getVisibleTexts(main, "[data-message-author-role='assistant']");
             if (assistantMessages.length > 0) {
                 return assistantMessages[assistantMessages.length - 1];
             }
-            const main = document.querySelector("main");
             if (!main) {
                 return "";
             }
-            const articleTexts = Array.from(main.querySelectorAll("article"))
-                .map((element) => clean(element.innerText || element.textContent || ""))
-                .filter(Boolean);
+            const articleTexts = getVisibleTexts(main, "article");
             if (articleTexts.length > 0) {
                 return articleTexts[articleTexts.length - 1];
             }

@@ -11,7 +11,7 @@ export type ExtensionState = {
   updatedAt: number;
 };
 
-type BridgeCommandKind = "send_prompt" | "reset_conversation";
+export type BridgeCommandKind = "send_prompt" | "reset_conversation" | "debug_snapshot";
 
 type BridgeCommand = {
   id: string;

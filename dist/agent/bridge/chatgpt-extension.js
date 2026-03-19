@@ -32,9 +32,8 @@ export class ExtensionChatGPTBridge {
         await this.initialize();
         const result = await this.server.sendCommand("send_prompt", {
             prompt: initialPrompt,
-            responseMode: "ready_surface",
             ...this.getProjectPayload()
-        });
+        }, 180_000);
         if (!result.ok) {
             throw new Error(result.error ?? "Extension failed to prime the ChatGPT conversation.");
         }
