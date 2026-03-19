@@ -4,7 +4,13 @@ import { limits } from "../config/limits.ts";
 import { healSelector } from "../resilience/self-heal.ts";
 
 type CachedKey = "composer" | "new-chat";
-type StrategyName = "role-textbox" | "placeholder-message" | "textarea" | "heal";
+type StrategyName =
+  | "role-textbox"
+  | "placeholder-message"
+  | "contenteditable-role"
+  | "contenteditable"
+  | "textarea"
+  | "heal";
 
 type SelectorCache = Map<CachedKey, StrategyName>;
 
@@ -14,8 +20,24 @@ export function createSelectorCache(): SelectorCache {
 
 async function isUsable(locator: Locator): Promise<boolean> {
   try {
-    await locator.waitFor({ state: "visible", timeout: 1_000 });
-    return await locator.isEnabled();
+    const candidate = locator.first();
+    await candidate.waitFor({ state: "visible", timeout: 1_000 });
+    return await candidate.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+
+      if (element.getAttribute("aria-disabled") === "true") {
+        return false;
+      }
+
+      if ("disabled" in element && typeof element.disabled === "boolean" && element.disabled) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(element);
+      return style.visibility !== "hidden" && style.display !== "none";
+    });
   } catch {
     return false;
   }
@@ -78,14 +100,18 @@ function buildComposerStrategies(page: Page): Record<StrategyName, () => Promise
   return {
     "role-textbox": async () =>
       pickFirstUsable([
-        page.getByRole("textbox", { name: /message|ask|chat/i }).last(),
+        page.getByRole("textbox", { name: /message|ask|chat|anything/i }).last(),
         page.getByRole("textbox").last()
       ]),
     "placeholder-message": async () =>
       pickFirstUsable([
-        page.getByPlaceholder(/message/i).last(),
-        page.getByPlaceholder(/send a message/i).last()
+        page.getByPlaceholder(/message|anything/i).last(),
+        page.getByPlaceholder(/send a message|ask anything/i).last()
       ]),
+    "contenteditable-role": async () =>
+      pickFirstUsable([page.locator('[role="textbox"][contenteditable="true"]').last()]),
+    contenteditable: async () =>
+      pickFirstUsable([page.locator('[contenteditable="true"]').last()]),
     textarea: async () => pickFirstUsable([page.locator("textarea").last()]),
     heal: async () => {
       const healed = await healSelector(page, "message chat input");
@@ -99,7 +125,7 @@ function buildComposerStrategies(page: Page): Record<StrategyName, () => Promise
         case "role":
           return page.getByRole(healed.role as Parameters<Page["getByRole"]>[0], {
             name: healed.name
-          });
+          }).first();
         case "text":
           return page.getByText(healed.value).last();
         default:

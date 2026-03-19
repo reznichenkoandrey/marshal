@@ -27,11 +27,13 @@
 - Core loop, planner, parser, protocol, guard, memory, and tool dispatch are implemented.
 - ChatGPT bridge, stabilizer, selector fallback, and self-heal modules are implemented.
 - Project planning and phase-close workflow are now tracked in-repo.
+- The bridge now distinguishes logged-out/public ChatGPT surfaces from an authenticated reusable session.
+- The bridge now handles `contenteditable` textbox variants more safely.
 
 ## Open Issues
 
-- Live ChatGPT smoke run still fails on composer resolution after login.
-- End-to-end validation is incomplete until the live bridge issue is fixed.
+- Authenticated live smoke validation is still required after a real ChatGPT login.
+- End-to-end validation is incomplete until the authenticated bridge path is confirmed.
 
 ## Phase Close Checklist
 

@@ -33,6 +33,7 @@ export class ChatGPTBridge {
         this.context = await this.browser.newContext(storageState ? { storageState } : {});
         this.page = await this.context.newPage();
         await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
+        await this.waitForChatGPTSurface();
         await clickNewChatIfAvailable(this.page, this.selectorCache);
         if (!storageState) {
             await this.captureStorageStateAfterManualLogin();
@@ -41,6 +42,7 @@ export class ChatGPTBridge {
     async resetConversation() {
         const page = await this.getPage();
         await page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
+        await this.waitForChatGPTSurface();
         await clickNewChatIfAvailable(page, this.selectorCache);
         this.primed = false;
     }
@@ -72,10 +74,15 @@ export class ChatGPTBridge {
     }
     async sendPrompt(prompt) {
         const page = await this.getPage();
+        await this.ensureReadyForPrompt();
         const composer = await withRetry(async () => resolveComposer(page, this.selectorCache), { retries: limits.maxRetries, initialDelayMs: 500 });
         const previousAssistantText = await this.extractLatestAssistantText();
         await composer.click({ timeout: limits.selectorTimeoutMs });
-        await composer.fill(prompt, { timeout: limits.selectorTimeoutMs });
+        await composer.fill(prompt, { timeout: limits.selectorTimeoutMs }).catch(async () => {
+            await composer.press("Control+A").catch(() => undefined);
+            await composer.press("Meta+A").catch(() => undefined);
+            await composer.type(prompt, { timeout: limits.selectorTimeoutMs });
+        });
         await composer.press("Enter");
         return waitForStableText(() => this.extractLatestAssistantText(), {
             mustDifferFrom: previousAssistantText
@@ -116,10 +123,9 @@ export class ChatGPTBridge {
         if (this.options.headless) {
             throw new Error(`Storage state not found at ${this.options.storageStatePath}. Run once with CHATGPT_HEADLESS=false to log in.`);
         }
-        const page = await this.getPage();
-        console.log("No ChatGPT storage state found. Log in in the opened browser window. Waiting for the message box...");
+        console.log("No ChatGPT storage state found. Log in in the opened browser window. Waiting for an authenticated ChatGPT page...");
         await withRetry(async () => {
-            await resolveComposer(page, this.selectorCache);
+            await this.waitForAuthenticatedPromptReadiness();
         }, {
             retries: Math.ceil(limits.loginWaitTimeoutMs / 5_000),
             initialDelayMs: 5_000
@@ -136,10 +142,52 @@ export class ChatGPTBridge {
             return undefined;
         }
     }
+    async waitForChatGPTSurface() {
+        const page = await this.getPage();
+        await page.waitForLoadState("domcontentloaded");
+        await page.waitForURL(/chatgpt\.com|chat\.openai\.com|auth\.openai\.com|accounts\.google\.com/, {
+            timeout: limits.toolPageTimeoutMs
+        });
+    }
+    async ensureReadyForPrompt() {
+        const page = await this.getPage();
+        await this.waitForChatGPTSurface();
+        if (await isExternalAuthPage(page)) {
+            throw new Error("ChatGPT is currently on an external authentication page. Complete login and return to ChatGPT.");
+        }
+        if (await isLoggedOutHomepage(page)) {
+            throw new Error("ChatGPT is showing the logged-out homepage. Complete login to reuse a real session.");
+        }
+    }
+    async waitForAuthenticatedPromptReadiness() {
+        const page = await this.getPage();
+        await this.waitForChatGPTSurface();
+        if (await isExternalAuthPage(page)) {
+            throw new Error("Still waiting for ChatGPT to return from the external authentication page.");
+        }
+        if (await isLoggedOutHomepage(page)) {
+            throw new Error("Still on the logged-out ChatGPT homepage.");
+        }
+        await resolveComposer(page, this.selectorCache);
+    }
 }
 function parseBoolean(value, fallback) {
     if (value === undefined) {
         return fallback;
     }
     return value.toLowerCase() === "true";
+}
+async function isExternalAuthPage(page) {
+    const url = page.url();
+    return /accounts\.google\.com|auth\.openai\.com/.test(url);
+}
+async function isLoggedOutHomepage(page) {
+    if (await isExternalAuthPage(page)) {
+        return false;
+    }
+    const loginCount = (await page.getByRole("button", { name: /log in|sign in|увійти/i }).count()) +
+        (await page.getByRole("link", { name: /log in|sign in|увійти/i }).count());
+    const signupCount = (await page.getByRole("button", { name: /sign up|зареєструватися/i }).count()) +
+        (await page.getByRole("link", { name: /sign up|зареєструватися/i }).count());
+    return loginCount > 0 && signupCount > 0;
 }
