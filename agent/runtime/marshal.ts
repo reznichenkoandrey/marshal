@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { createReasoningBridge } from "../bridge/factory.ts";
+import type { ReasoningBridge } from "../bridge/types.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
 import { Planner } from "../core/planner.ts";
 import { ALL_TOOL_NAMES, createInitialSystemPrompt, type ToolName } from "../core/protocol.ts";
@@ -25,15 +26,17 @@ export type RunMarshalTaskOptions = {
   workspaceRoot?: string;
   memoryDir?: string;
   chatProjectName?: string;
+  bridge?: ReasoningBridge;
+  browserHeadless?: boolean;
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
 };
 
 export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<string> {
   const route = options.route ?? "auto";
-  const bridge = createReasoningBridge({ projectName: options.chatProjectName });
+  const bridge = options.bridge ?? createReasoningBridge({ projectName: options.chatProjectName });
   const memory = new MemoryStore(options.memoryDir);
   const sandbox = new FileSandbox(options.workspaceRoot);
-  const browserManager = new PlaywrightBrowserManager(false);
+  const browserManager = new PlaywrightBrowserManager(options.browserHeadless ?? false);
   const allowedTools = ROUTE_TOOL_MAP[route];
   const task = buildExecutionTask(options.task, route, options.attachments ?? [], sandbox.root);
 

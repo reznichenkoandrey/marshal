@@ -2,7 +2,7 @@
 
 ## Current Stage
 
-- Active stage: `Phase 4. Tooling and Sandbox Validation`
+- Active stage: `Phase 6. End-to-End Acceptance`
 - Overall state: `In Progress`
 - Last updated: `2026-03-19`
 
@@ -11,15 +11,15 @@
 - `Phase 1. Repository Foundation`
 - `Phase 2. Core Agent Runtime`
 - `Phase 3. ChatGPT Bridge Hardening`
+- `Phase 4. Tooling and Sandbox Validation`
 - `Phase 5. Delivery Workflow`
 
 ## In-Progress Phases
 
-- `Phase 4. Tooling and Sandbox Validation`
+- `Phase 6. End-to-End Acceptance`
 
 ## Pending Phases
 
-- `Phase 6. End-to-End Acceptance`
 - `Phase 7. Andrii Session Launcher`
 - `Phase 8. Operator Web Console`
 - `Phase 9. Telegram Control Surface`
@@ -45,10 +45,10 @@
 - Operator tasks can include uploaded files, which are persisted into per-session workspaces.
 - Operator sessions can route tasks through `auto`, `local`, or `browser` execution modes.
 - A dedicated architecture and implementation plan now exists for the macOS menu bar app in `docs/MENUBAR_APP_PLAN.md`.
+- A deterministic Phase 4 smoke harness now validates filesystem, shell, and browser tool paths through the full agent loop.
 
 ## Open Issues
 
-- Phase 4 tool-path smoke validation is still required through the agent loop.
 - End-to-end acceptance remains open for filesystem, shell, browser, and multi-step tasks.
 - Live validation of the new `Andrii` launcher flow is still required.
 - Phase 8 still needs a live UI-driven run against a connected ChatGPT session with a real file attachment.

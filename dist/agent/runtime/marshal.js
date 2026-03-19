@@ -16,10 +16,10 @@ const ROUTE_TOOL_MAP = {
 };
 export async function runMarshalTask(options) {
     const route = options.route ?? "auto";
-    const bridge = createReasoningBridge({ projectName: options.chatProjectName });
+    const bridge = options.bridge ?? createReasoningBridge({ projectName: options.chatProjectName });
     const memory = new MemoryStore(options.memoryDir);
     const sandbox = new FileSandbox(options.workspaceRoot);
-    const browserManager = new PlaywrightBrowserManager(false);
+    const browserManager = new PlaywrightBrowserManager(options.browserHeadless ?? false);
     const allowedTools = ROUTE_TOOL_MAP[route];
     const task = buildExecutionTask(options.task, route, options.attachments ?? [], sandbox.root);
     try {

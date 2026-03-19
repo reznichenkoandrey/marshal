@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node index.ts",
     "operator": "npm run build && node dist/operator-main.js",
+    "smoke:phase4": "npm run build && node dist/agent/smoke/phase4.js",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "check": "npm run typecheck"

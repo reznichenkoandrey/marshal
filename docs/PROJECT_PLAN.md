@@ -87,7 +87,7 @@ Checklist:
 - [x] Add workspace sandbox.
 - [x] Add restricted shell runner.
 - [x] Add browser tool wrapper.
-- [ ] Smoke-test each tool path against the live loop.
+- [x] Smoke-test each tool path against the live loop.
 
 ### Phase 5. Delivery Workflow
 
@@ -214,4 +214,4 @@ Checklist:
 
 ## Current Exit Criteria
 
-The project is not complete until Phases 4, 6, 7, 8, 9, 10, and 11 are closed with live validation, not only static implementation.
+The project is not complete until Phases 6, 7, 8, 9, 10, and 11 are closed with live validation, not only static implementation.
