@@ -57,6 +57,7 @@ async function bootstrap() {
 }
 function registerIpcHandlers() {
     handleIpc("marshal:get-health", () => backendClient.invoke("getHealth"));
+    handleIpc("marshal:get-bridge-health", () => backendClient.invoke("getBridgeHealth"));
     handleIpc("marshal:list-projects", () => backendClient.invoke("listProjects"));
     handleIpc("marshal:create-project", (_event, name) => backendClient.invoke("createProject", name));
     handleIpc("marshal:list-sessions", (_event, projectId) => backendClient.invoke("listSessions", projectId));
@@ -152,12 +153,16 @@ async function refreshTrayState() {
         return;
     }
     const health = await backendClient.invoke("getHealth").catch(() => null);
+    const bridgeHealth = await backendClient
+        .invoke("getBridgeHealth")
+        .catch(() => null);
     const label = health
-        ? `Marshal Desktop\n${health.runningTasks} running, ${health.queuedTasks} queued`
+        ? `Marshal Desktop\n${health.runningTasks} running, ${health.queuedTasks} queued\nBridge: ${bridgeHealth?.status ?? "unknown"}`
         : "Marshal Desktop\nUnavailable";
     tray.setToolTip(label);
     if (process.platform === "darwin") {
-        tray.setTitle(health ? `${health.runningTasks}/${health.queuedTasks}` : "!");
+        const bridgeBadge = bridgeHealth?.status === "ready" ? "R" : bridgeHealth?.status === "connected" ? "C" : "W";
+        tray.setTitle(health ? `${health.runningTasks}/${health.queuedTasks}/${bridgeBadge}` : "!");
     }
     tray.setContextMenu(Menu.buildFromTemplate([
         {

@@ -1,4 +1,5 @@
 import "electron";
+import { getBridgeHealth, initializeBridgeHealthSurface } from "../agent/bridge/health.js";
 import { OperatorTaskService } from "../operator/task-service.js";
 const service = new OperatorTaskService();
 const parentPort = process.parentPort;
@@ -7,6 +8,7 @@ if (!parentPort) {
 }
 const handlers = {
     getHealth: async () => service.getHealth(),
+    getBridgeHealth: async () => getBridgeHealth(),
     listProjects: async () => service.listProjects(),
     createProject: async (name) => service.createProject(typeof name === "string" ? name : undefined),
     listSessions: async (projectId) => service.listSessions(typeof projectId === "string" ? projectId : undefined),
@@ -41,6 +43,7 @@ const handlers = {
 void bootstrap();
 async function bootstrap() {
     await service.initialize();
+    await initializeBridgeHealthSurface();
     parentPort.on("message", async (event) => {
         const message = event.data;
         if (!message || message.kind !== "invoke") {

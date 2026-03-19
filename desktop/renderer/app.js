@@ -2,6 +2,7 @@ const PROJECT_STORAGE_KEY = "marshal-desktop-active-project";
 
 const state = {
   health: null,
+  bridgeHealth: null,
   projects: [],
   sessions: [],
   activeSessionId: null,
@@ -214,10 +215,16 @@ async function handleProjectChange(projectId) {
 
 async function refreshHealth() {
   try {
-    state.health = await window.marshalDesktop.getHealth();
+    const [health, bridgeHealth] = await Promise.all([
+      window.marshalDesktop.getHealth(),
+      window.marshalDesktop.getBridgeHealth()
+    ]);
+    state.health = health;
+    state.bridgeHealth = bridgeHealth;
     renderHealth("Connected");
   } catch (error) {
     state.health = null;
+    state.bridgeHealth = null;
     renderHealth("Unavailable");
     throw error;
   }
@@ -307,6 +314,31 @@ function renderHealth(backendLabel = state.health ? "Connected" : "Unavailable")
   document.querySelector("#health-running").textContent = String(state.health?.runningTasks ?? 0);
   document.querySelector("#health-queued").textContent = String(state.health?.queuedTasks ?? 0);
   document.querySelector("#health-backend").textContent = backendLabel;
+  renderBridgeHealth();
+}
+
+function renderBridgeHealth() {
+  const bridgeHealth = state.bridgeHealth;
+  document.querySelector("#bridge-mode").textContent = String(bridgeHealth?.mode ?? "unknown");
+  document.querySelector("#bridge-status").textContent = String(bridgeHealth?.status ?? "unknown");
+
+  if (!bridgeHealth) {
+    document.querySelector("#bridge-detail").textContent = "Bridge telemetry is unavailable.";
+    document.querySelector("#bridge-client").textContent = "No active client.";
+    return;
+  }
+
+  if (bridgeHealth.mode === "extension") {
+    const client = bridgeHealth.client;
+    document.querySelector("#bridge-detail").textContent = `Port ${bridgeHealth.port}, ${bridgeHealth.clientCount} client(s), queue ${bridgeHealth.queueSize}.`;
+    document.querySelector("#bridge-client").textContent = client
+      ? `${client.state} · ${client.title || client.url}`
+      : "No active ChatGPT extension client.";
+    return;
+  }
+
+  document.querySelector("#bridge-detail").textContent = bridgeHealth.details;
+  document.querySelector("#bridge-client").textContent = bridgeHealth.cdpUrl || "No CDP endpoint configured.";
 }
 
 function renderProjects() {

@@ -1,5 +1,6 @@
 import "electron";
 
+import { getBridgeHealth, initializeBridgeHealthSurface } from "../agent/bridge/health.ts";
 import { OperatorTaskService } from "../operator/task-service.ts";
 import type { DesktopBackendMethod, DesktopBackendRequest, DesktopBackendResponse } from "./backend-types.ts";
 
@@ -12,6 +13,7 @@ if (!parentPort) {
 
 const handlers: Record<DesktopBackendMethod, (...params: unknown[]) => Promise<unknown>> = {
   getHealth: async () => service.getHealth(),
+  getBridgeHealth: async () => getBridgeHealth(),
   listProjects: async () => service.listProjects(),
   createProject: async (name?: unknown) => service.createProject(typeof name === "string" ? name : undefined),
   listSessions: async (projectId?: unknown) => service.listSessions(typeof projectId === "string" ? projectId : undefined),
@@ -48,6 +50,7 @@ void bootstrap();
 
 async function bootstrap(): Promise<void> {
   await service.initialize();
+  await initializeBridgeHealthSurface();
 
   parentPort.on("message", async (event) => {
     const message = event.data as DesktopBackendRequest;

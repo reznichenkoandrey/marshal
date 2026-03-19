@@ -177,6 +177,16 @@ export class LocalBridgeServer {
         }
     }
 }
+const sharedServers = new Map();
+export function getSharedLocalBridgeServer(port = Number(process.env.CHATGPT_EXTENSION_BRIDGE_PORT ?? "3210")) {
+    const existing = sharedServers.get(port);
+    if (existing) {
+        return existing;
+    }
+    const server = new LocalBridgeServer(port);
+    sharedServers.set(port, server);
+    return server;
+}
 function getSessionKey(clientId, tabId) {
     return `${clientId}:${tabId ?? "none"}`;
 }

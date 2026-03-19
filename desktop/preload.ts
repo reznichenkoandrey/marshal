@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const desktopApi = {
   getHealth: () => ipcRenderer.invoke("marshal:get-health"),
+  getBridgeHealth: () => ipcRenderer.invoke("marshal:get-bridge-health"),
   listProjects: () => ipcRenderer.invoke("marshal:list-projects"),
   createProject: (name: string) => ipcRenderer.invoke("marshal:create-project", name),
   listSessions: (projectId?: string) => ipcRenderer.invoke("marshal:list-sessions", projectId),

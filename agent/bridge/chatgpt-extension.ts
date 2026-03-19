@@ -1,4 +1,4 @@
-import { LocalBridgeServer } from "./local-bridge-server.ts";
+import { getSharedLocalBridgeServer, LocalBridgeServer } from "./local-bridge-server.ts";
 import type { ReasoningBridge, ReasoningBridgeOptions } from "./types.ts";
 
 export class ExtensionChatGPTBridge implements ReasoningBridge {
@@ -6,7 +6,7 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
   primed = false;
   projectName: string | null;
 
-  constructor(options: ReasoningBridgeOptions = {}, server = new LocalBridgeServer()) {
+  constructor(options: ReasoningBridgeOptions = {}, server = getSharedLocalBridgeServer()) {
     this.server = server;
     this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
   }

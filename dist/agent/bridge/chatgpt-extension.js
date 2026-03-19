@@ -1,9 +1,9 @@
-import { LocalBridgeServer } from "./local-bridge-server.js";
+import { getSharedLocalBridgeServer } from "./local-bridge-server.js";
 export class ExtensionChatGPTBridge {
     server;
     primed = false;
     projectName;
-    constructor(options = {}, server = new LocalBridgeServer()) {
+    constructor(options = {}, server = getSharedLocalBridgeServer()) {
         this.server = server;
         this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
     }
