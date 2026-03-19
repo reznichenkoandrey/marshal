@@ -1,12 +1,14 @@
 import { LocalBridgeServer } from "./local-bridge-server.ts";
-import type { ReasoningBridge } from "./types.ts";
+import type { ReasoningBridge, ReasoningBridgeOptions } from "./types.ts";
 
 export class ExtensionChatGPTBridge implements ReasoningBridge {
   server: LocalBridgeServer;
   primed = false;
+  projectName: string | null;
 
-  constructor(server = new LocalBridgeServer()) {
+  constructor(options: ReasoningBridgeOptions = {}, server = new LocalBridgeServer()) {
     this.server = server;
+    this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
   }
 
   async initialize(): Promise<void> {
@@ -24,7 +26,7 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
 
   async resetConversation(): Promise<void> {
     await this.initialize();
-    const result = await this.server.sendCommand("reset_conversation", {});
+    const result = await this.server.sendCommand("reset_conversation", this.getProjectPayload());
     if (!result.ok) {
       throw new Error(result.error ?? "Extension failed to reset the ChatGPT conversation.");
     }
@@ -41,7 +43,10 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
 
   async ask(prompt: string): Promise<string> {
     await this.initialize();
-    const result = await this.server.sendCommand("send_prompt", { prompt });
+    const result = await this.server.sendCommand("send_prompt", {
+      prompt,
+      ...this.getProjectPayload()
+    });
     if (!result.ok) {
       throw new Error(result.error ?? "Extension failed to send the prompt to ChatGPT.");
     }
@@ -57,5 +62,9 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
   async close(): Promise<void> {
     await this.server.close();
     this.primed = false;
+  }
+
+  private getProjectPayload(): Record<string, unknown> {
+    return this.projectName ? { projectName: this.projectName } : {};
   }
 }

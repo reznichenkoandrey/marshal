@@ -46,6 +46,8 @@ export function createPlannerPrompt(task, options) {
         "Create a concise execution plan for the task below.",
         'Return JSON only in the form {"steps":["step 1","step 2"]}.',
         "Keep steps concrete, sequential, and tool-oriented.",
+        "Each step must name the exact tool to use whenever a tool is required.",
+        "Do not include purely mental steps for filesystem, shell, or browser work.",
         options?.routeMode ? `Execution route: ${options.routeMode}.` : null,
         options?.availableTools?.length
             ? `Available tools:\n${getToolSchemas(options.availableTools)}`
@@ -61,20 +63,33 @@ export function createStepPrompt(input) {
         : input.priorStepSummaries.map((item, index) => `${index + 1}. ${item}`).join("\n");
     const lastToolResult = input.lastToolResult ?? "None";
     const toolSchemas = getToolSchemas(input.availableTools ?? ALL_TOOL_NAMES);
+    const recentFacts = input.recentFacts && input.recentFacts.length > 0 ? input.recentFacts.map((item) => `- ${item}`).join("\n") : "None";
+    const recentFailures = input.recentFailures && input.recentFailures.length > 0
+        ? input.recentFailures.map((item) => `- ${item}`).join("\n")
+        : "None";
     return [
         `Main task: ${input.task}`,
         `Current plan step (${input.stepIndex + 1}/${input.totalSteps}): ${input.step}`,
+        input.workspaceRoot ? `Workspace root: ${input.workspaceRoot}` : null,
         `Completed step summaries:\n${completed}`,
         `Memory summary:\n${input.memorySummary}`,
+        `Recent verified facts:\n${recentFacts}`,
+        `Recent failures:\n${recentFailures}`,
         `Latest tool result:\n${lastToolResult}`,
         "Available tools:",
         toolSchemas,
         "Rules:",
         "- Use exactly one ACTION at a time.",
         "- Prefer inspecting state before mutating files.",
+        "- Only return FINAL when the current step is proven complete by successful tool results.",
+        "- Never claim a file was created, modified, read, verified, or listed unless a tool result in this task confirms it.",
+        "- If a tool failed, report the limitation accurately instead of claiming success.",
+        "- Filesystem and shell tools can only access paths inside the workspace root.",
         "- When the current step is complete, respond with FINAL: short step summary.",
         "- Do not include markdown fences or extra commentary."
-    ].join("\n\n");
+    ]
+        .filter(Boolean)
+        .join("\n\n");
 }
 export function createFormatErrorPrompt(error) {
     return [
@@ -90,14 +105,26 @@ export function createFormatErrorPrompt(error) {
         "FINAL: result"
     ].join("\n");
 }
-export function createFinalSynthesisPrompt(task, stepSummaries) {
-    const lines = stepSummaries.map((item, index) => `${index + 1}. ${item}`).join("\n");
+export function createFinalSynthesisPrompt(input) {
+    const lines = input.stepSummaries.map((item, index) => `${index + 1}. ${item}`).join("\n");
+    const recentFacts = input.recentFacts && input.recentFacts.length > 0 ? input.recentFacts.map((item) => `- ${item}`).join("\n") : "None";
+    const recentFailures = input.recentFailures && input.recentFailures.length > 0
+        ? input.recentFailures.map((item) => `- ${item}`).join("\n")
+        : "None";
     return [
-        `Task: ${task}`,
+        `Task: ${input.task}`,
+        input.workspaceRoot ? `Workspace root: ${input.workspaceRoot}` : null,
         `Completed step summaries:\n${lines || "None"}`,
+        `Verified facts:\n${recentFacts}`,
+        `Failures and limits:\n${recentFailures}`,
+        "Use only the verified facts and failures above.",
+        "Do not claim filesystem or shell side effects unless they were confirmed by a successful tool result.",
+        "If the task could not be completed because a requested path was outside the workspace root, say that explicitly.",
         "Return the final answer as:",
         "FINAL: concise result"
-    ].join("\n\n");
+    ]
+        .filter(Boolean)
+        .join("\n\n");
 }
 export function formatToolResult(result) {
     return JSON.stringify({

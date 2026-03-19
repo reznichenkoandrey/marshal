@@ -193,6 +193,25 @@ Checklist:
 - [ ] Add permission gates for local shell, filesystem, and live browser actions.
 - [ ] Validate cross-channel continuity between web UI and Telegram.
 
+### Phase 11. macOS Menu Bar App
+
+Goal:
+- Add a native-feeling macOS menu bar control surface on top of the existing Marshal runtime.
+
+Done when:
+- Marshal can be controlled from a menu bar app without the browser-hosted operator console.
+- The app exposes backend and ChatGPT bridge health clearly.
+- Sessions, tasks, attachments, and execution logs are usable from the menu bar UI.
+- The desktop shell owns lifecycle actions like start, restart, open ChatGPT, and open workspace/logs.
+
+Checklist:
+- [ ] Extract transport-neutral operator orchestration from the HTTP server.
+- [ ] Preserve structured runtime events for native progress UI.
+- [ ] Add a desktop shell scaffold for the menu bar app.
+- [ ] Add a native session/task panel with attachments and execution log.
+- [ ] Add Chrome and extension bridge lifecycle controls.
+- [ ] Package and validate the app on macOS.
+
 ## Current Exit Criteria
 
-The project is not complete until Phases 4, 6, 7, 8, 9, and 10 are closed with live validation, not only static implementation.
+The project is not complete until Phases 4, 6, 7, 8, 9, 10, and 11 are closed with live validation, not only static implementation.

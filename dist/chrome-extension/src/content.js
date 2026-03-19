@@ -24,6 +24,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function executeCommand(command) {
     switch (command.kind) {
         case "reset_conversation":
+            await ensureProjectSelected(typeof command.payload.projectName === "string" ? command.payload.projectName : "");
             await resetConversation();
             return { ok: true, data: { state: collectPageState().state } };
         case "send_prompt": {
@@ -31,6 +32,7 @@ async function executeCommand(command) {
             if (!prompt) {
                 return { ok: false, error: "Prompt is empty." };
             }
+            await ensureProjectSelected(typeof command.payload.projectName === "string" ? command.payload.projectName : "");
             if (collectPageState().state !== "ready") {
                 return { ok: false, error: "ChatGPT is not on a ready composer surface." };
             }
@@ -165,6 +167,22 @@ async function resetConversation() {
     newChat.click();
     await sleep(500);
 }
+async function ensureProjectSelected(projectName) {
+    const normalizedProjectName = normalizeComparableText(projectName);
+    if (!normalizedProjectName) {
+        return;
+    }
+    if (isProjectCurrentlySelected(normalizedProjectName)) {
+        return;
+    }
+    expandProjectsSectionIfNeeded();
+    const projectEntry = findSidebarProjectEntry(normalizedProjectName);
+    if (!projectEntry) {
+        throw new Error(`ChatGPT project "${projectName}" was not found in the sidebar.`);
+    }
+    projectEntry.click();
+    await waitForReadySurface();
+}
 function extractLatestAssistantText() {
     const assistantMessages = Array.from(document.querySelectorAll("[data-message-author-role='assistant']"))
         .map((element) => normalizeText(element.innerText || element.textContent || ""))
@@ -217,8 +235,58 @@ function findElementsWithText(selector, pattern) {
         return pattern.test(text);
     });
 }
+function findSidebarProjectEntry(normalizedProjectName) {
+    const candidates = Array.from(document.querySelectorAll("a,button,[role='button']")).filter((element) => {
+        if (!isVisible(element)) {
+            return false;
+        }
+        const container = element.closest("nav, aside, [data-testid*='sidebar'], [class*='sidebar']");
+        if (!container) {
+            return false;
+        }
+        const text = normalizeComparableText([
+            element.textContent ?? "",
+            element.getAttribute("aria-label") ?? "",
+            element.getAttribute("title") ?? ""
+        ].join(" "));
+        return text === normalizedProjectName;
+    });
+    return candidates[0] ?? null;
+}
+function isProjectCurrentlySelected(normalizedProjectName) {
+    const candidates = Array.from(document.querySelectorAll("main h1, main h2, nav a, nav button, aside a, aside button"));
+    return candidates.some((element) => {
+        if (!isVisible(element)) {
+            return false;
+        }
+        const text = normalizeComparableText([element.textContent ?? "", element.getAttribute("aria-label") ?? ""].join(" "));
+        return text === normalizedProjectName && element.getAttribute("aria-current") === "page";
+    });
+}
+function expandProjectsSectionIfNeeded() {
+    const toggle = findElementsWithText("button,[role='button']", /(projects|проекти|проєкти)/i)[0];
+    if (!toggle) {
+        return;
+    }
+    if (toggle.getAttribute("aria-expanded") === "false") {
+        toggle.click();
+    }
+}
+async function waitForReadySurface(timeoutMs = 15_000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        if (detectPageState() === "ready") {
+            return;
+        }
+        await sleep(250);
+    }
+    throw new Error("Timed out while waiting for the selected ChatGPT project to load.");
+}
 function normalizeText(value) {
     return value.replace(/\u200b/g, "").replace(/\s+\n/g, "\n").replace(/\s+/g, " ").trim();
+}
+function normalizeComparableText(value) {
+    return normalizeText(value).toLowerCase();
 }
 function sleep(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));

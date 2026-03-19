@@ -1,5 +1,9 @@
 import type { BrowserContext } from "playwright";
 
+export type ReasoningBridgeOptions = {
+  projectName?: string;
+};
+
 export type ReasoningBridge = {
   initialize(): Promise<void>;
   openLoginWindow(): Promise<void>;

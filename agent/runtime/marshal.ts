@@ -24,17 +24,18 @@ export type RunMarshalTaskOptions = {
   attachments?: RuntimeAttachment[];
   workspaceRoot?: string;
   memoryDir?: string;
+  chatProjectName?: string;
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
 };
 
 export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<string> {
   const route = options.route ?? "auto";
-  const bridge = createReasoningBridge();
+  const bridge = createReasoningBridge({ projectName: options.chatProjectName });
   const memory = new MemoryStore(options.memoryDir);
   const sandbox = new FileSandbox(options.workspaceRoot);
   const browserManager = new PlaywrightBrowserManager(false);
   const allowedTools = ROUTE_TOOL_MAP[route];
-  const task = buildExecutionTask(options.task, route, options.attachments ?? []);
+  const task = buildExecutionTask(options.task, route, options.attachments ?? [], sandbox.root);
 
   try {
     await Promise.all([bridge.initialize(), memory.initialize(), sandbox.initialize()]);
@@ -68,6 +69,7 @@ export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<st
     );
     const agentLoop = new AgentLoop(bridge, memory, tools, {
       availableTools: allowedTools,
+      workspaceRoot: sandbox.root,
       onEvent: options.onEvent
     });
     const result = await agentLoop.runTask(task, plan.steps);
@@ -101,13 +103,26 @@ export function getDefaultSessionMemory(sessionId: string): string {
   return path.resolve(process.cwd(), "operator-data", "sessions", sessionId, "memory");
 }
 
-function buildExecutionTask(task: string, route: ExecutionRoute, attachments: RuntimeAttachment[]): string {
+function buildExecutionTask(
+  task: string,
+  route: ExecutionRoute,
+  attachments: RuntimeAttachment[],
+  workspaceRoot: string
+): string {
   const routeInstructions =
     route === "auto"
       ? "Execution route: auto. Use the available tools that best fit the task."
       : route === "local"
         ? "Execution route: local only. Do not rely on browser automation."
         : "Execution route: browser only. Do not rely on local filesystem or shell tools.";
+  const workspaceInstructions =
+    route === "browser"
+      ? "Local workspace access is disabled for this task."
+      : [
+          `Workspace root: ${workspaceRoot}`,
+          "Filesystem and shell tools can only access paths inside this workspace root.",
+          "If the user requests an absolute path or any location outside this workspace root, do not claim success there. State the limitation clearly."
+        ].join("\n");
 
   const attachmentBlock =
     attachments.length === 0
@@ -120,5 +135,5 @@ function buildExecutionTask(task: string, route: ExecutionRoute, attachments: Ru
           )
         ].join("\n");
 
-  return [routeInstructions, attachmentBlock, "User request:", task].join("\n\n");
+  return [routeInstructions, workspaceInstructions, attachmentBlock, "User request:", task].join("\n\n");
 }
