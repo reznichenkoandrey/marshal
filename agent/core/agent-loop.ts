@@ -25,7 +25,10 @@ export class AgentLoop {
   memory: MemoryStore;
   tools: Toolbox;
   availableTools: ToolName[];
+  workspaceRoot?: string;
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
+  verifiedFacts: string[];
+  recentFailures: string[];
 
   constructor(
     bridge: LoopBridge,
@@ -33,6 +36,7 @@ export class AgentLoop {
     tools: Toolbox,
     options?: {
       availableTools?: ToolName[];
+      workspaceRoot?: string;
       onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
     }
   ) {
@@ -40,7 +44,10 @@ export class AgentLoop {
     this.memory = memory;
     this.tools = tools;
     this.availableTools = options?.availableTools ?? ALL_TOOL_NAMES;
+    this.workspaceRoot = options?.workspaceRoot;
     this.onEvent = options?.onEvent;
+    this.verifiedFacts = [];
+    this.recentFailures = [];
   }
 
   async runTask(task: string, planSteps: string[]): Promise<string> {
@@ -68,7 +75,18 @@ export class AgentLoop {
     }
 
     const finalResponse = await withRetry(
-      async () => parseModelResponse(await this.bridge.ask(createFinalSynthesisPrompt(task, stepSummaries))),
+      async () =>
+        parseModelResponse(
+          await this.bridge.ask(
+            createFinalSynthesisPrompt({
+              task,
+              stepSummaries,
+              workspaceRoot: this.workspaceRoot,
+              recentFacts: this.verifiedFacts.slice(-6),
+              recentFailures: this.recentFailures.slice(-6)
+            })
+          )
+        ),
       {
         retries: limits.maxRetries,
         initialDelayMs: 500
@@ -112,6 +130,9 @@ export class AgentLoop {
         priorStepSummaries: input.stepSummaries,
         lastToolResult,
         memorySummary: await this.memory.summarize(),
+        workspaceRoot: this.workspaceRoot,
+        recentFacts: this.verifiedFacts.slice(-6),
+        recentFailures: this.recentFailures.slice(-6),
         availableTools: this.availableTools
       });
 
@@ -155,6 +176,7 @@ export class AgentLoop {
 
         const toolResult = await this.tools.execute(parsed.action, parsed.input);
         lastToolResult = formatToolResult(toolResult);
+        this.recordToolSuccess(toolResult);
         await this.memory.recordToolResult(lastToolResult);
         await this.learnFiles(toolResult);
         await this.emitEvent({
@@ -171,6 +193,7 @@ export class AgentLoop {
           ? createSelectorErrorMessage(message)
           : createToolErrorMessage(message);
         lastToolResult = JSON.stringify({ ok: false, error: message }, null, 2);
+        this.recordToolFailure(parsed.action, message);
         await this.memory.recordToolResult(lastToolResult);
         await this.emitEvent({
           type: "tool_failed",
@@ -205,5 +228,55 @@ export class AgentLoop {
 
   private async emitEvent(event: MarshalRuntimeEvent): Promise<void> {
     await this.onEvent?.(event);
+  }
+
+  private recordToolSuccess(result: { tool: string; data: Record<string, unknown>; summary: string }): void {
+    const detail = this.describeToolOutcome(result.tool, result.data, result.summary);
+    this.verifiedFacts.push(detail);
+    if (this.verifiedFacts.length > 20) {
+      this.verifiedFacts.shift();
+    }
+  }
+
+  private recordToolFailure(action: ToolName, error: string): void {
+    this.recentFailures.push(`${action} failed: ${error}`);
+    if (this.recentFailures.length > 20) {
+      this.recentFailures.shift();
+    }
+  }
+
+  private describeToolOutcome(tool: string, data: Record<string, unknown>, summary: string): string {
+    if (tool === "write_file") {
+      const filePath = String(data.path ?? "");
+      const bytes = Number(data.bytes ?? 0);
+      return `write_file succeeded for ${filePath || "unknown path"} (${bytes} bytes)`;
+    }
+
+    if (tool === "read_file") {
+      const filePath = String(data.path ?? "");
+      return `read_file succeeded for ${filePath || "unknown path"}`;
+    }
+
+    if (tool === "list_dir") {
+      const dirPath = String(data.path ?? ".");
+      const entries = Array.isArray(data.entries) ? data.entries.length : 0;
+      return `list_dir succeeded for ${dirPath} (${entries} entries)`;
+    }
+
+    if (tool === "run_shell") {
+      const cmd = String(data.cmd ?? "");
+      const exitCode = Number(data.exitCode ?? 0);
+      return `run_shell succeeded for "${cmd}" (exit ${exitCode})`;
+    }
+
+    if (tool === "browser_navigate") {
+      return `browser_navigate succeeded for ${String(data.url ?? "")}`;
+    }
+
+    if (tool === "browser_click" || tool === "browser_type") {
+      return `${tool} succeeded for selector ${String(data.selector ?? "")}`;
+    }
+
+    return summary;
   }
 }

@@ -244,6 +244,11 @@ input[type="file"] {
   font-size: 14px;
 }
 
+.field small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .compact-field {
   min-width: 220px;
 }

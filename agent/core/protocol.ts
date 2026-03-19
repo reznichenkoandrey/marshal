@@ -114,6 +114,9 @@ export function createStepPrompt(input: {
   priorStepSummaries: string[];
   lastToolResult: string | null;
   memorySummary: string;
+  workspaceRoot?: string;
+  recentFacts?: string[];
+  recentFailures?: string[];
   availableTools?: ToolName[];
 }): string {
   const completed =
@@ -123,21 +126,36 @@ export function createStepPrompt(input: {
 
   const lastToolResult = input.lastToolResult ?? "None";
   const toolSchemas = getToolSchemas(input.availableTools ?? ALL_TOOL_NAMES);
+  const recentFacts =
+    input.recentFacts && input.recentFacts.length > 0 ? input.recentFacts.map((item) => `- ${item}`).join("\n") : "None";
+  const recentFailures =
+    input.recentFailures && input.recentFailures.length > 0
+      ? input.recentFailures.map((item) => `- ${item}`).join("\n")
+      : "None";
 
   return [
     `Main task: ${input.task}`,
     `Current plan step (${input.stepIndex + 1}/${input.totalSteps}): ${input.step}`,
+    input.workspaceRoot ? `Workspace root: ${input.workspaceRoot}` : null,
     `Completed step summaries:\n${completed}`,
     `Memory summary:\n${input.memorySummary}`,
+    `Recent verified facts:\n${recentFacts}`,
+    `Recent failures:\n${recentFailures}`,
     `Latest tool result:\n${lastToolResult}`,
     "Available tools:",
     toolSchemas,
     "Rules:",
     "- Use exactly one ACTION at a time.",
     "- Prefer inspecting state before mutating files.",
+    "- Only return FINAL when the current step is proven complete by successful tool results.",
+    "- Never claim a file was created, modified, read, verified, or listed unless a tool result in this task confirms it.",
+    "- If a tool failed, report the limitation accurately instead of claiming success.",
+    "- Filesystem and shell tools can only access paths inside the workspace root.",
     "- When the current step is complete, respond with FINAL: short step summary.",
     "- Do not include markdown fences or extra commentary."
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function createFormatErrorPrompt(error: string): string {
@@ -155,15 +173,35 @@ export function createFormatErrorPrompt(error: string): string {
   ].join("\n");
 }
 
-export function createFinalSynthesisPrompt(task: string, stepSummaries: string[]): string {
-  const lines = stepSummaries.map((item, index) => `${index + 1}. ${item}`).join("\n");
+export function createFinalSynthesisPrompt(input: {
+  task: string;
+  stepSummaries: string[];
+  workspaceRoot?: string;
+  recentFacts?: string[];
+  recentFailures?: string[];
+}): string {
+  const lines = input.stepSummaries.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  const recentFacts =
+    input.recentFacts && input.recentFacts.length > 0 ? input.recentFacts.map((item) => `- ${item}`).join("\n") : "None";
+  const recentFailures =
+    input.recentFailures && input.recentFailures.length > 0
+      ? input.recentFailures.map((item) => `- ${item}`).join("\n")
+      : "None";
 
   return [
-    `Task: ${task}`,
+    `Task: ${input.task}`,
+    input.workspaceRoot ? `Workspace root: ${input.workspaceRoot}` : null,
     `Completed step summaries:\n${lines || "None"}`,
+    `Verified facts:\n${recentFacts}`,
+    `Failures and limits:\n${recentFailures}`,
+    "Use only the verified facts and failures above.",
+    "Do not claim filesystem or shell side effects unless they were confirmed by a successful tool result.",
+    "If the task could not be completed because a requested path was outside the workspace root, say that explicitly.",
     "Return the final answer as:",
     "FINAL: concise result"
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function formatToolResult(result: ToolExecutionResult): string {

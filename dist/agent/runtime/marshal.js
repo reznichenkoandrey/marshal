@@ -21,7 +21,7 @@ export async function runMarshalTask(options) {
     const sandbox = new FileSandbox(options.workspaceRoot);
     const browserManager = new PlaywrightBrowserManager(false);
     const allowedTools = ROUTE_TOOL_MAP[route];
-    const task = buildExecutionTask(options.task, route, options.attachments ?? []);
+    const task = buildExecutionTask(options.task, route, options.attachments ?? [], sandbox.root);
     try {
         await Promise.all([bridge.initialize(), memory.initialize(), sandbox.initialize()]);
         await options.onEvent?.({
@@ -47,6 +47,7 @@ export async function runMarshalTask(options) {
         const tools = new Toolbox(sandbox, new ShellTool(sandbox.root), new BrowserTool(browserManager), allowedTools);
         const agentLoop = new AgentLoop(bridge, memory, tools, {
             availableTools: allowedTools,
+            workspaceRoot: sandbox.root,
             onEvent: options.onEvent
         });
         const result = await agentLoop.runTask(task, plan.steps);
@@ -78,17 +79,24 @@ export function getDefaultSessionWorkspace(sessionId) {
 export function getDefaultSessionMemory(sessionId) {
     return path.resolve(process.cwd(), "operator-data", "sessions", sessionId, "memory");
 }
-function buildExecutionTask(task, route, attachments) {
+function buildExecutionTask(task, route, attachments, workspaceRoot) {
     const routeInstructions = route === "auto"
         ? "Execution route: auto. Use the available tools that best fit the task."
         : route === "local"
             ? "Execution route: local only. Do not rely on browser automation."
             : "Execution route: browser only. Do not rely on local filesystem or shell tools.";
+    const workspaceInstructions = route === "browser"
+        ? "Local workspace access is disabled for this task."
+        : [
+            `Workspace root: ${workspaceRoot}`,
+            "Filesystem and shell tools can only access paths inside this workspace root.",
+            "If the user requests an absolute path or any location outside this workspace root, do not claim success there. State the limitation clearly."
+        ].join("\n");
     const attachmentBlock = attachments.length === 0
         ? "Attachments: none."
         : [
             "Attachments:",
             ...attachments.map((attachment, index) => `${index + 1}. ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes) at workspace path ${attachment.relativePath}`)
         ].join("\n");
-    return [routeInstructions, attachmentBlock, "User request:", task].join("\n\n");
+    return [routeInstructions, workspaceInstructions, attachmentBlock, "User request:", task].join("\n\n");
 }
