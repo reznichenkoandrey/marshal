@@ -96,6 +96,8 @@ export function createPlannerPrompt(
     "Create a concise execution plan for the task below.",
     'Return JSON only in the form {"steps":["step 1","step 2"]}.',
     "Keep steps concrete, sequential, and tool-oriented.",
+    "Each step must name the exact tool to use whenever a tool is required.",
+    "Do not include purely mental steps for filesystem, shell, or browser work.",
     options?.routeMode ? `Execution route: ${options.routeMode}.` : null,
     options?.availableTools?.length
       ? `Available tools:\n${getToolSchemas(options.availableTools)}`

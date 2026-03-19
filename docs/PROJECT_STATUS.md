@@ -24,6 +24,7 @@
 - `Phase 8. Operator Web Console`
 - `Phase 9. Telegram Control Surface`
 - `Phase 10. Unified Control Plane`
+- `Phase 11. macOS Menu Bar App`
 
 ## Completed Items
 
@@ -43,6 +44,7 @@
 - A local operator web server now exists with persistent chat sessions and a static web console UI.
 - Operator tasks can include uploaded files, which are persisted into per-session workspaces.
 - Operator sessions can route tasks through `auto`, `local`, or `browser` execution modes.
+- A dedicated architecture and implementation plan now exists for the macOS menu bar app in `docs/MENUBAR_APP_PLAN.md`.
 
 ## Open Issues
 
@@ -51,6 +53,7 @@
 - Live validation of the new `Andrii` launcher flow is still required.
 - Phase 8 still needs a live UI-driven run against a connected ChatGPT session with a real file attachment.
 - Telegram and unified control-plane phases are still not implemented.
+- The macOS menu bar app is planned but not yet scaffolded or integrated.
 
 ## Phase Close Checklist
 

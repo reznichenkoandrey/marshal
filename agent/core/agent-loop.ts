@@ -110,6 +110,8 @@ export class AgentLoop {
     const loopState = createLoopState();
     let iteration = 0;
     let lastToolResult: string | null = null;
+    let successfulToolsForStep = 0;
+    const requiresToolProof = stepRequiresSuccessfulTool(input.step);
 
     while (iteration < input.maxIterations) {
       iteration += 1;
@@ -148,6 +150,17 @@ export class AgentLoop {
       }
 
       if (parsed.kind === "final") {
+        if (requiresToolProof && successfulToolsForStep === 0) {
+          await this.bridge.ask(
+            [
+              "STEP COMPLETION BLOCKED.",
+              `The current step requires a successful tool result before FINAL is allowed: ${input.step}`,
+              "Use exactly one ACTION and wait for its RESULT before returning FINAL."
+            ].join("\n")
+          );
+          continue;
+        }
+
         await this.emitEvent({
           type: "step_completed",
           step: input.step,
@@ -176,6 +189,7 @@ export class AgentLoop {
 
         const toolResult = await this.tools.execute(parsed.action, parsed.input);
         lastToolResult = formatToolResult(toolResult);
+        successfulToolsForStep += 1;
         this.recordToolSuccess(toolResult);
         await this.memory.recordToolResult(lastToolResult);
         await this.learnFiles(toolResult);
@@ -279,4 +293,17 @@ export class AgentLoop {
 
     return summary;
   }
+}
+
+function stepRequiresSuccessfulTool(step: string): boolean {
+  const normalized = step.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (ALL_TOOL_NAMES.some((toolName) => normalized.includes(toolName))) {
+    return true;
+  }
+
+  return /(^|[\s"'])https?:\/\//.test(normalized) || /(^|[\s"'(])\/[^\s]*/.test(normalized);
 }

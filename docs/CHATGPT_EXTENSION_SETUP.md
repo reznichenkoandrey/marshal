@@ -57,7 +57,11 @@ If the CLI keeps waiting:
 - refresh the ChatGPT tab
 - keep the ChatGPT tab focused long enough for the first bridge handshake
 
-If Chrome is already running, the launcher will stop and ask you to close it first. This is required to attach remote debugging to the real `Andrii` profile. If you want the script to quit Chrome automatically, set:
+If the Marshal-managed `Andrii` Chrome session is already running, the launcher will reuse it and open ChatGPT there again.
+
+If another Chrome session is already using the same Chrome app and user-data directory, the launcher will stop instead of quitting the whole app. This avoids closing unrelated Chrome profiles.
+
+The old global auto-quit behavior is intentionally disabled for safety. `CHATGPT_AUTO_QUIT_CHROME=1` no longer force-quits all of Chrome:
 
 ```sh
 CHATGPT_AUTO_QUIT_CHROME=1
