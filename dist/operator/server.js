@@ -1,20 +1,18 @@
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
-import { runMarshalTask } from "../agent/runtime/marshal.js";
-import { OperatorSessionStore } from "./session-store.js";
+import { OperatorTaskService, normalizeRoute, sanitizeUploads } from "./task-service.js";
 const STATIC_DIR = path.resolve(process.cwd(), "operator", "static");
 export class OperatorServer {
     port;
-    store;
+    service;
     server = null;
-    sessionQueueTails = new Map();
-    constructor(port = Number(process.env.OPERATOR_WEB_PORT ?? "3489"), store = new OperatorSessionStore()) {
+    constructor(port = Number(process.env.OPERATOR_WEB_PORT ?? "3489"), service = new OperatorTaskService()) {
         this.port = port;
-        this.store = store;
+        this.service = service;
     }
     async start() {
-        await this.store.initialize();
+        await this.service.initialize();
         if (this.server) {
             return;
         }
@@ -31,7 +29,6 @@ export class OperatorServer {
             this.server?.listen(this.port, "127.0.0.1", () => resolve());
             this.server?.once("error", reject);
         });
-        await this.resumePendingTasks();
     }
     async close() {
         if (!this.server) {
@@ -45,52 +42,42 @@ export class OperatorServer {
     async handleRequest(request, response) {
         const url = new URL(request.url ?? "/", `http://127.0.0.1:${this.port}`);
         if (request.method === "GET" && url.pathname === "/api/health") {
-            const sessions = await this.store.listSessions();
-            const projects = await this.store.listProjects();
-            const queuedTasks = sessions.filter((session) => session.activeTaskStatus === "queued").length;
-            const runningTasks = sessions.filter((session) => session.activeTaskStatus === "running").length;
             writeJson(response, 200, {
                 ok: true,
-                data: {
-                    port: this.port,
-                    projectCount: projects.length,
-                    sessionCount: sessions.length,
-                    queuedTasks,
-                    runningTasks
-                }
+                data: await this.service.getHealth(this.port)
             });
             return;
         }
         if (request.method === "GET" && url.pathname === "/api/projects") {
-            const projects = await this.store.listProjects();
+            const projects = await this.service.listProjects();
             writeJson(response, 200, { ok: true, data: projects });
             return;
         }
         if (request.method === "POST" && url.pathname === "/api/projects") {
             const body = await readJsonBody(request);
-            const project = await this.store.createProject(typeof body.name === "string" ? body.name : undefined);
+            const project = await this.service.createProject(typeof body.name === "string" ? body.name : undefined);
             writeJson(response, 201, { ok: true, data: project });
             return;
         }
         if (request.method === "GET" && url.pathname === "/api/sessions") {
-            const sessions = await this.store.listSessions(url.searchParams.get("projectId") ?? undefined);
+            const sessions = await this.service.listSessions(url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 200, { ok: true, data: sessions });
             return;
         }
         if (request.method === "POST" && url.pathname === "/api/sessions") {
             const body = await readJsonBody(request);
-            const session = await this.store.createSession(typeof body.title === "string" ? body.title : undefined, typeof body.projectId === "string" ? body.projectId : undefined);
+            const session = await this.service.createSession(typeof body.title === "string" ? body.title : undefined, typeof body.projectId === "string" ? body.projectId : undefined);
             writeJson(response, 201, { ok: true, data: session });
             return;
         }
         const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/);
         if (request.method === "GET" && sessionMatch) {
-            const session = await this.store.readSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
+            const session = await this.service.readSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 200, { ok: true, data: session });
             return;
         }
         if (request.method === "DELETE" && sessionMatch) {
-            await this.store.deleteSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
+            await this.service.deleteSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 200, { ok: true });
             return;
         }
@@ -98,17 +85,13 @@ export class OperatorServer {
         if (request.method === "POST" && messageMatch) {
             const sessionId = messageMatch[1];
             const body = await readJsonBody(request);
-            const route = normalizeRoute(body.route);
-            const uploads = Array.isArray(body.attachments) ? sanitizeUploads(body.attachments) : [];
-            const task = await this.store.createTaskFromMessage({
+            const session = await this.service.submitTask({
                 sessionId,
                 projectId: url.searchParams.get("projectId") ?? undefined,
                 text: String(body.text ?? ""),
-                route,
-                uploads
+                route: normalizeRoute(body.route),
+                uploads: Array.isArray(body.attachments) ? sanitizeUploads(body.attachments) : []
             });
-            this.enqueueTask(sessionId, task.id);
-            const session = await this.store.readSession(sessionId, url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 202, { ok: true, data: session });
             return;
         }
@@ -126,48 +109,6 @@ export class OperatorServer {
             error: `Unsupported route: ${request.method} ${url.pathname}`
         });
     }
-    enqueueTask(sessionId, taskId) {
-        const previous = this.sessionQueueTails.get(sessionId) ?? Promise.resolve();
-        const current = previous
-            .then(() => this.runQueuedTask(sessionId, taskId))
-            .catch(async (error) => {
-            const message = error instanceof Error ? error.message : "Unknown queue error.";
-            await this.store.markTaskFailed(sessionId, taskId, message).catch(() => undefined);
-        });
-        this.sessionQueueTails.set(sessionId, current);
-        void current.finally(() => {
-            if (this.sessionQueueTails.get(sessionId) === current) {
-                this.sessionQueueTails.delete(sessionId);
-            }
-        });
-    }
-    async runQueuedTask(sessionId, taskId) {
-        const session = await this.store.readSession(sessionId);
-        const task = session.tasks.find((entry) => entry.id === taskId);
-        if (!task) {
-            return;
-        }
-        const paths = await this.store.getSessionPaths(sessionId, session.projectId);
-        await this.store.markTaskRunning(sessionId, taskId, session.projectId);
-        try {
-            const result = await runMarshalTask({
-                task: task.prompt,
-                route: task.route,
-                attachments: task.attachments,
-                workspaceRoot: paths.workspaceDir,
-                memoryDir: paths.memoryDir,
-                chatProjectName: session.projectId === "legacy-chats" ? undefined : session.projectName,
-                onEvent: async (event) => {
-                    await this.store.appendTaskEvent(sessionId, taskId, event.type, formatRuntimeEvent(event), session.projectId);
-                }
-            });
-            await this.store.markTaskCompleted(sessionId, taskId, result, session.projectId);
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : "Unknown task failure.";
-            await this.store.markTaskFailed(sessionId, taskId, message, session.projectId);
-        }
-    }
     async serveStatic(requestPath, response) {
         const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/static\//, "");
         const filePath = path.resolve(STATIC_DIR, relativePath);
@@ -181,65 +122,6 @@ export class OperatorServer {
             "cache-control": "no-store"
         });
         response.end(content);
-    }
-    async resumePendingTasks() {
-        const sessions = await this.store.listSessions();
-        for (const sessionSummary of sessions) {
-            const session = await this.store.readSession(sessionSummary.id).catch(() => null);
-            if (!session) {
-                continue;
-            }
-            for (const task of session.tasks) {
-                if (task.status === "queued") {
-                    this.enqueueTask(session.id, task.id);
-                    continue;
-                }
-                if (task.status === "running") {
-                    await this.store
-                        .markTaskFailed(session.id, task.id, "Operator server restarted before task completion.", session.projectId)
-                        .catch(() => undefined);
-                }
-            }
-        }
-    }
-}
-function normalizeRoute(value) {
-    return value === "local" || value === "browser" ? value : "auto";
-}
-function sanitizeUploads(value) {
-    return value
-        .filter((item) => typeof item === "object" && item !== null)
-        .map((item) => ({
-        name: String(item.name ?? "upload.bin"),
-        mimeType: String(item.mimeType ?? "application/octet-stream"),
-        contentBase64: String(item.contentBase64 ?? "")
-    }))
-        .filter((item) => item.contentBase64.length > 0);
-}
-function formatRuntimeEvent(event) {
-    switch (event.type) {
-        case "task_started":
-            return `Task started with route ${event.route}. Workspace: ${event.workspaceRoot}`;
-        case "planning_started":
-            return `Planning started for route ${event.route}.`;
-        case "plan_ready":
-            return `Plan ready: ${event.steps.join(" -> ")}`;
-        case "step_started":
-            return `Step ${event.stepIndex + 1}/${event.totalSteps}: ${event.step} (iteration ${event.iteration})`;
-        case "action_requested":
-            return `Action ${event.action}: ${event.thought}`;
-        case "tool_completed":
-            return `Tool ${event.action} completed: ${event.summary}`;
-        case "tool_failed":
-            return `Tool ${event.action} failed: ${event.error}`;
-        case "step_completed":
-            return `Step ${event.stepIndex + 1}/${event.totalSteps} complete: ${event.summary}`;
-        case "task_completed":
-            return `Task completed: ${event.result}`;
-        case "task_failed":
-            return `Task failed: ${event.error}`;
-        default:
-            return "Runtime event recorded.";
     }
 }
 async function readJsonBody(request) {

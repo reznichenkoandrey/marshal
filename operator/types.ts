@@ -1,4 +1,4 @@
-import type { ExecutionRoute, RuntimeAttachment } from "../agent/runtime/types.ts";
+import type { ExecutionRoute, MarshalRuntimeEvent, RuntimeAttachment } from "../agent/runtime/types.ts";
 
 export type UploadPayload = {
   name: string;
@@ -10,11 +10,31 @@ export type OperatorAttachment = RuntimeAttachment;
 
 export type OperatorTaskStatus = "queued" | "running" | "completed" | "failed";
 
+export type OperatorTaskEventPayload =
+  | MarshalRuntimeEvent
+  | {
+      type: "queued";
+      route: ExecutionRoute;
+      uploadCount: number;
+    }
+  | {
+      type: "running";
+    }
+  | {
+      type: "completed";
+      result: string;
+    }
+  | {
+      type: "failed";
+      error: string;
+    };
+
 export type OperatorTaskEvent = {
   id: string;
   createdAt: string;
   type: string;
   detail: string;
+  payload: OperatorTaskEventPayload | null;
 };
 
 export type OperatorTask = {

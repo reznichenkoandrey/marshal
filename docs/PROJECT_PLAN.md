@@ -205,9 +205,9 @@ Done when:
 - The desktop shell owns lifecycle actions like start, restart, open ChatGPT, and open workspace/logs.
 
 Checklist:
-- [ ] Extract transport-neutral operator orchestration from the HTTP server.
-- [ ] Preserve structured runtime events for native progress UI.
-- [ ] Add a desktop shell scaffold for the menu bar app.
+ - [x] Extract transport-neutral operator orchestration from the HTTP server.
+ - [x] Preserve structured runtime events for native progress UI.
+ - [x] Add a desktop shell scaffold for the menu bar app.
 - [ ] Add a native session/task panel with attachments and execution log.
 - [ ] Add Chrome and extension bridge lifecycle controls.
 - [ ] Package and validate the app on macOS.
