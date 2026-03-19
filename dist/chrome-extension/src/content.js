@@ -29,6 +29,7 @@ async function executeCommand(command) {
             return { ok: true, data: { state: collectPageState().state } };
         case "send_prompt": {
             const prompt = String(command.payload.prompt ?? "").trim();
+            const responseMode = command.payload.responseMode === "ready_surface" ? "ready_surface" : "assistant_text";
             if (!prompt) {
                 return { ok: false, error: "Prompt is empty." };
             }
@@ -43,6 +44,10 @@ async function executeCommand(command) {
             }
             setComposerText(composer, prompt);
             await submitComposer(composer, prompt);
+            if (responseMode === "ready_surface") {
+                await waitForReadySurface(120_000);
+                return { ok: true, data: { state: collectPageState().state } };
+            }
             const responseText = await waitForStableAssistantText(previous);
             return { ok: true, data: { responseText } };
         }
