@@ -111,7 +111,8 @@ export class AgentLoop {
     let iteration = 0;
     let lastToolResult: string | null = null;
     let successfulToolsForStep = 0;
-    const requiresToolProof = stepRequiresSuccessfulTool(input.step);
+    const requiredTool = inferRequiredToolFromStep(input.step);
+    const requiresToolProof = requiredTool !== null || stepRequiresSuccessfulTool(input.step);
 
     while (iteration < input.maxIterations) {
       iteration += 1;
@@ -135,7 +136,8 @@ export class AgentLoop {
         workspaceRoot: this.workspaceRoot,
         recentFacts: this.verifiedFacts.slice(-6),
         recentFailures: this.recentFailures.slice(-6),
-        availableTools: this.availableTools
+        availableTools: this.availableTools,
+        requiredTool
       });
 
       const raw = await this.bridge.ask(prompt);
@@ -155,7 +157,9 @@ export class AgentLoop {
             [
               "STEP COMPLETION BLOCKED.",
               `The current step requires a successful tool result before FINAL is allowed: ${input.step}`,
-              "Use exactly one ACTION and wait for its RESULT before returning FINAL."
+              requiredTool
+                ? `Use exactly one ACTION: ${requiredTool} with valid INPUT JSON, then wait for its RESULT before returning FINAL.`
+                : "Use exactly one ACTION and wait for its RESULT before returning FINAL."
             ].join("\n")
           );
           continue;
@@ -306,4 +310,13 @@ function stepRequiresSuccessfulTool(step: string): boolean {
   }
 
   return /(^|[\s"'])https?:\/\//.test(normalized) || /(^|[\s"'(])\/[^\s]*/.test(normalized);
+}
+
+function inferRequiredToolFromStep(step: string): ToolName | null {
+  const normalized = step.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return ALL_TOOL_NAMES.find((toolName) => normalized.includes(toolName)) ?? null;
 }

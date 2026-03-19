@@ -120,6 +120,7 @@ export function createStepPrompt(input: {
   recentFacts?: string[];
   recentFailures?: string[];
   availableTools?: ToolName[];
+  requiredTool?: ToolName | null;
 }): string {
   const completed =
     input.priorStepSummaries.length === 0
@@ -138,6 +139,9 @@ export function createStepPrompt(input: {
   return [
     `Main task: ${input.task}`,
     `Current plan step (${input.stepIndex + 1}/${input.totalSteps}): ${input.step}`,
+    input.requiredTool
+      ? `Required tool for this step: ${input.requiredTool}. You must use ACTION: ${input.requiredTool} successfully before FINAL.`
+      : null,
     input.workspaceRoot ? `Workspace root: ${input.workspaceRoot}` : null,
     `Completed step summaries:\n${completed}`,
     `Memory summary:\n${input.memorySummary}`,
@@ -149,6 +153,9 @@ export function createStepPrompt(input: {
     "Rules:",
     "- Use exactly one ACTION at a time.",
     "- Prefer inspecting state before mutating files.",
+    input.requiredTool
+      ? `- This step requires ACTION: ${input.requiredTool} before FINAL.`
+      : "- If the current step names a tool explicitly, use that tool before FINAL.",
     "- Only return FINAL when the current step is proven complete by successful tool results.",
     "- Never claim a file was created, modified, read, verified, or listed unless a tool result in this task confirms it.",
     "- If a tool failed, report the limitation accurately instead of claiming success.",

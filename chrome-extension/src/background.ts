@@ -3,7 +3,7 @@ const CLIENT_ID_KEY = "marshalClientId";
 
 type BridgeCommand = {
   id: string;
-  kind: "send_prompt" | "reset_conversation";
+  kind: "send_prompt" | "reset_conversation" | "debug_snapshot";
   payload: Record<string, unknown>;
 };
 
