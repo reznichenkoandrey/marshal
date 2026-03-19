@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 const desktopApi = {
   getHealth: () => ipcRenderer.invoke("marshal:get-health"),
@@ -8,7 +8,8 @@ const desktopApi = {
   listSessions: (projectId?: string) => ipcRenderer.invoke("marshal:list-sessions", projectId),
   createSession: (input?: { title?: string; projectId?: string }) => ipcRenderer.invoke("marshal:create-session", input),
   readSession: (input: { sessionId: string; projectId?: string }) => ipcRenderer.invoke("marshal:read-session", input),
-  deleteSession: (input: { sessionId: string; projectId?: string }) => ipcRenderer.invoke("marshal:delete-session", input),
+  deleteSession: (input: { sessionId: string; projectId?: string }) =>
+    ipcRenderer.invoke("marshal:delete-session", input),
   submitTask: (input: {
     sessionId: string;
     projectId?: string;

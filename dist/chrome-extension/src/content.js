@@ -182,7 +182,11 @@ async function submitComposer(composer, prompt) {
     }
     const enclosingForm = composer.closest("form");
     if (enclosingForm && typeof enclosingForm.requestSubmit === "function") {
-        const submitter = sendButton instanceof HTMLButtonElement && sendButton.type === "submit" ? sendButton : undefined;
+        const submitter = sendButton instanceof HTMLButtonElement &&
+            sendButton.type === "submit" &&
+            sendButton.form === enclosingForm
+            ? sendButton
+            : undefined;
         enclosingForm.requestSubmit(submitter);
         await sleep(250);
     }

@@ -142,7 +142,7 @@ export class OperatorTaskService {
         attachments: task.attachments,
         workspaceRoot: paths.workspaceDir,
         memoryDir: paths.memoryDir,
-        chatProjectName: session.projectId === "legacy-chats" ? undefined : session.projectName,
+        // Operator projects currently scope Marshal sessions and storage, not ChatGPT sidebar projects.
         onEvent: async (event) => {
           await this.store.appendTaskEvent(
             sessionId,
