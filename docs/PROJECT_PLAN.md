@@ -154,10 +154,10 @@ Done when:
 - Conversation state is preserved independently from the raw ChatGPT tab UI.
 
 Checklist:
-- [ ] Define the operator API contract and session model.
-- [ ] Add a web chat UI with file upload support.
-- [ ] Add backend task routing to local tools and browser tools.
-- [ ] Add conversation persistence for operator sessions.
+- [x] Define the operator API contract and session model.
+- [x] Add a web chat UI with file upload support.
+- [x] Add backend task routing to local tools and browser tools.
+- [x] Add conversation persistence for operator sessions.
 - [ ] Validate a full UI-driven task with file attachment.
 
 ### Phase 9. Telegram Control Surface

@@ -6,6 +6,7 @@
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
   "scripts": {
     "start": "node index.ts",
+    "operator": "npm run build && node dist/operator-main.js",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "check": "npm run typecheck"

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Marshal Operator Console</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div>
+            <p class="eyebrow">Marshal</p>
+            <h1>Operator Console</h1>
+          </div>
+          <button id="new-session-button" class="secondary-button">New Session</button>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </aside>
+      <main class="main-panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Session</p>
+            <h2 id="session-title">Loading...</h2>
+          </div>
+          <div class="status-strip">
+            <span class="status-chip">Persistent history</span>
+            <span class="status-chip">Local routing</span>
+            <span class="status-chip">Browser routing</span>
+          </div>
+        </header>
+        <section id="messages" class="messages"></section>
+        <section id="task-events" class="task-events"></section>
+        <form id="composer" class="composer">
+          <label class="field">
+            <span>Task</span>
+            <textarea id="task-input" rows="5" placeholder="Describe what Marshal should do."></textarea>
+          </label>
+          <div class="composer-controls">
+            <label class="field compact-field">
+              <span>Route</span>
+              <select id="route-select">
+                <option value="auto">Auto</option>
+                <option value="local">Local only</option>
+                <option value="browser">Browser only</option>
+              </select>
+            </label>
+            <label class="field compact-field">
+              <span>Attachments</span>
+              <input id="file-input" type="file" multiple />
+            </label>
+          </div>
+          <div id="attachment-list" class="attachment-list"></div>
+          <button id="send-button" type="submit" class="primary-button">Send Task</button>
+        </form>
+      </main>
+    </div>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

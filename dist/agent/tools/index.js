@@ -1,13 +1,19 @@
+import { ALL_TOOL_NAMES } from "../core/protocol.js";
 export class Toolbox {
     fileSandbox;
     shellTool;
     browserTool;
-    constructor(fileSandbox, shellTool, browserTool) {
+    allowedActions;
+    constructor(fileSandbox, shellTool, browserTool, allowedActions = ALL_TOOL_NAMES) {
         this.fileSandbox = fileSandbox;
         this.shellTool = shellTool;
         this.browserTool = browserTool;
+        this.allowedActions = new Set(allowedActions);
     }
     async execute(action, input) {
+        if (!this.allowedActions.has(action)) {
+            throw new Error(`Tool action is not allowed in the current execution route: ${action}`);
+        }
         switch (action) {
             case "read_file": {
                 const result = await this.fileSandbox.readFile(String(input.path));
