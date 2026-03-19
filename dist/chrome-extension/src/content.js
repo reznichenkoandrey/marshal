@@ -29,6 +29,7 @@ async function executeCommand(command) {
             return { ok: true, data: { state: collectPageState().state } };
         case "send_prompt": {
             const prompt = String(command.payload.prompt ?? "").trim();
+            const responseMode = command.payload.responseMode === "ready_surface" ? "ready_surface" : "assistant_text";
             if (!prompt) {
                 return { ok: false, error: "Prompt is empty." };
             }
@@ -42,7 +43,11 @@ async function executeCommand(command) {
                 return { ok: false, error: "Unable to resolve the ChatGPT composer." };
             }
             setComposerText(composer, prompt);
-            await submitComposer(composer);
+            await submitComposer(composer, prompt);
+            if (responseMode === "ready_surface") {
+                await waitForReadySurface(120_000);
+                return { ok: true, data: { state: collectPageState().state } };
+            }
             const responseText = await waitForStableAssistantText(previous);
             return { ok: true, data: { responseText } };
         }
@@ -151,13 +156,26 @@ function setComposerText(composer, text) {
     composer.textContent = text;
     composer.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
 }
-async function submitComposer(composer) {
+async function submitComposer(composer, prompt) {
+    const previousValue = readComposerText(composer);
     composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
     composer.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", bubbles: true }));
     composer.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true }));
     await sleep(250);
-    const sendButton = findElementsWithText('button,[role="button"]', /(send|submit|надіслати|відправити)/i).find((element) => !element.hasAttribute("disabled"));
+    if (didComposerSubmit(composer, previousValue, prompt)) {
+        return;
+    }
+    const sendButton = resolveSendButton();
     sendButton?.click();
+    await sleep(250);
+    if (didComposerSubmit(composer, previousValue, prompt)) {
+        return;
+    }
+    const enclosingForm = composer.closest("form");
+    if (enclosingForm && typeof enclosingForm.requestSubmit === "function") {
+        enclosingForm.requestSubmit();
+        await sleep(250);
+    }
 }
 async function resetConversation() {
     const newChat = findElementsWithText('a,button,[role="button"]', /(new chat|new conversation|новий чат)/i)[0];
@@ -287,6 +305,43 @@ function normalizeText(value) {
 }
 function normalizeComparableText(value) {
     return normalizeText(value).toLowerCase();
+}
+function resolveSendButton() {
+    const selectors = [
+        '[data-testid*="send"]',
+        'button[aria-label*="Send"]',
+        'button[aria-label*="send"]',
+        'button[title*="Send"]',
+        'button[title*="send"]',
+        'button[aria-label*="Надісл"]',
+        'button[aria-label*="Відправ"]'
+    ];
+    for (const selector of selectors) {
+        const candidate = queryVisible(selector).find((element) => !element.hasAttribute("disabled"));
+        if (candidate) {
+            return candidate;
+        }
+    }
+    return findElementsWithText("button,[role='button']", /(send|submit|надіслати|відправити)/i).find((element) => !element.hasAttribute("disabled")) ?? null;
+}
+function readComposerText(composer) {
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+        return composer.value.trim();
+    }
+    return normalizeText(composer.innerText || composer.textContent || "");
+}
+function didComposerSubmit(composer, previousValue, prompt) {
+    const currentValue = readComposerText(composer);
+    const normalizedCurrent = normalizeComparableText(currentValue);
+    const normalizedPrompt = normalizeComparableText(prompt);
+    const normalizedPrevious = normalizeComparableText(previousValue);
+    if (!normalizedCurrent) {
+        return true;
+    }
+    if (normalizedCurrent !== normalizedPrompt && normalizedCurrent !== normalizedPrevious) {
+        return true;
+    }
+    return false;
 }
 function sleep(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));

@@ -46,6 +46,11 @@
 - Operator sessions can route tasks through `auto`, `local`, or `browser` execution modes.
 - A dedicated architecture and implementation plan now exists for the macOS menu bar app in `docs/MENUBAR_APP_PLAN.md`.
 - A deterministic Phase 4 smoke harness now validates filesystem, shell, and browser tool paths through the full agent loop.
+- An initial Electron-based macOS menu bar shell now exists with tray UI, IPC, and a native session/task panel scaffold.
+- Operator orchestration now lives in a transport-neutral task service instead of the HTTP server.
+- Operator task history now preserves structured runtime event payloads for future native progress views.
+- The desktop shell now runs the operator backend in a separate Electron utility process instead of the menu bar main process.
+- The desktop shell now surfaces live bridge health for the extension or Playwright bridge, including connected-client state.
 
 ## Open Issues
 
@@ -53,7 +58,7 @@
 - Live validation of the new `Andrii` launcher flow is still required.
 - Phase 8 still needs a live UI-driven run against a connected ChatGPT session with a real file attachment.
 - Telegram and unified control-plane phases are still not implemented.
-- The macOS menu bar app is planned but not yet scaffolded or integrated.
+- The macOS menu bar app still needs richer bridge actions beyond health telemetry, packaging, and full validation on macOS.
 
 ## Phase Close Checklist
 

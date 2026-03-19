@@ -12,6 +12,7 @@ if [ -f ".env" ]; then
 fi
 
 CHROME_BIN=${CHATGPT_BROWSER_EXECUTABLE_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
+CHROME_APP=${CHATGPT_BROWSER_APP_PATH:-/Applications/Google Chrome.app}
 CHROME_USER_DATA_DIR=${CHATGPT_DEFAULT_CHROME_PROFILE_DIR:-"$HOME/Library/Application Support/Google/Chrome"}
 PROFILE_NAME=${CHATGPT_CHROME_PROFILE_NAME:-Andrii}
 PROFILE_DIR=${CHATGPT_CHROME_PROFILE_DIR:-}
@@ -155,15 +156,27 @@ if [ "$HAS_MANAGED_CHROME" = "1" ]; then
   fi
 fi
 
-"$CHROME_BIN" \
-  --user-data-dir="$CHROME_USER_DATA_DIR" \
-  --profile-directory="$PROFILE_DIR" \
-  --remote-debugging-port="$PORT" \
-  --load-extension="$EXTENSION_DIR" \
-  --no-first-run \
-  --no-default-browser-check \
-  --new-window \
-  "$CHATGPT_URL" >/dev/null 2>&1 &
+if [ -d "$CHROME_APP" ]; then
+  open -na "$CHROME_APP" --args \
+    --user-data-dir="$CHROME_USER_DATA_DIR" \
+    --profile-directory="$PROFILE_DIR" \
+    --remote-debugging-port="$PORT" \
+    --load-extension="$EXTENSION_DIR" \
+    --no-first-run \
+    --no-default-browser-check \
+    --new-window \
+    "$CHATGPT_URL" >/dev/null 2>&1
+else
+  "$CHROME_BIN" \
+    --user-data-dir="$CHROME_USER_DATA_DIR" \
+    --profile-directory="$PROFILE_DIR" \
+    --remote-debugging-port="$PORT" \
+    --load-extension="$EXTENSION_DIR" \
+    --no-first-run \
+    --no-default-browser-check \
+    --new-window \
+    "$CHATGPT_URL" >/dev/null 2>&1 &
+fi
 
 echo "Chrome started with profile \"$PROFILE_NAME\" ($PROFILE_DIR)."
 echo "Marshal extension loaded from: $EXTENSION_DIR"

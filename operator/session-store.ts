@@ -9,6 +9,8 @@ import type {
   OperatorProjectSummary,
   OperatorSession,
   OperatorSessionSummary,
+  OperatorTaskEvent,
+  OperatorTaskEventPayload,
   OperatorTask,
   UploadPayload
 } from "./types.ts";
@@ -194,7 +196,12 @@ export class OperatorSessionStore {
             id: randomUUID(),
             createdAt: now,
             type: "queued",
-            detail: `Task queued with route ${input.route}.`
+            detail: `Task queued with route ${input.route}.`,
+            payload: {
+              type: "queued",
+              route: input.route,
+              uploadCount: attachments.length
+            }
           }
         ]
       };
@@ -230,14 +237,24 @@ export class OperatorSessionStore {
         id: randomUUID(),
         createdAt: now,
         type: "running",
-        detail: "Task execution started."
+        detail: "Task execution started.",
+        payload: {
+          type: "running"
+        }
       });
       session.activeTaskId = taskId;
       session.updatedAt = now;
     });
   }
 
-  async appendTaskEvent(sessionId: string, taskId: string, type: string, detail: string, projectId?: string): Promise<void> {
+  async appendTaskEvent(
+    sessionId: string,
+    taskId: string,
+    type: string,
+    detail: string,
+    payload?: OperatorTaskEventPayload | null,
+    projectId?: string
+  ): Promise<void> {
     await this.mutateSession(sessionId, projectId, (session) => {
       const task = findTask(session, taskId);
       const now = new Date().toISOString();
@@ -245,7 +262,8 @@ export class OperatorSessionStore {
         id: randomUUID(),
         createdAt: now,
         type,
-        detail
+        detail,
+        payload: payload ?? null
       });
       session.updatedAt = now;
     });
@@ -262,7 +280,11 @@ export class OperatorSessionStore {
         id: randomUUID(),
         createdAt: now,
         type: "completed",
-        detail: "Task completed successfully."
+        detail: "Task completed successfully.",
+        payload: {
+          type: "completed",
+          result
+        }
       });
       session.messages.push({
         id: randomUUID(),
@@ -289,7 +311,11 @@ export class OperatorSessionStore {
         id: randomUUID(),
         createdAt: now,
         type: "failed",
-        detail: error
+        detail: error,
+        payload: {
+          type: "failed",
+          error
+        }
       });
       session.messages.push({
         id: randomUUID(),
@@ -602,8 +628,29 @@ function normalizeSession(raw: Partial<OperatorSession>, project: ProjectRecord)
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString(),
     activeTaskId: typeof raw.activeTaskId === "string" ? raw.activeTaskId : null,
     messages: Array.isArray(raw.messages) ? (raw.messages as OperatorMessage[]) : [],
-    tasks: Array.isArray(raw.tasks) ? (raw.tasks as OperatorTask[]) : []
+    tasks: Array.isArray(raw.tasks) ? (raw.tasks as OperatorTask[]).map(normalizeTask) : []
   };
+}
+
+function normalizeTask(raw: OperatorTask): OperatorTask {
+  return {
+    ...raw,
+    events: Array.isArray(raw.events) ? raw.events.map(normalizeTaskEvent) : []
+  };
+}
+
+function normalizeTaskEvent(raw: OperatorTaskEvent): OperatorTaskEvent {
+  return {
+    id: typeof raw.id === "string" ? raw.id : randomUUID(),
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString(),
+    type: typeof raw.type === "string" ? raw.type : "unknown",
+    detail: typeof raw.detail === "string" ? raw.detail : "",
+    payload: isTaskEventPayload(raw.payload) ? raw.payload : null
+  };
+}
+
+function isTaskEventPayload(value: unknown): value is OperatorTaskEventPayload {
+  return typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
 }
 
 async function hasDirectory(targetPath: string): Promise<boolean> {

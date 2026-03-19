@@ -1,7 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 
-type ExtensionState = {
+export type ExtensionState = {
   clientId: string;
   url: string;
   title: string;
@@ -253,6 +253,19 @@ export class LocalBridgeServer {
       }
     }
   }
+}
+
+const sharedServers = new Map<number, LocalBridgeServer>();
+
+export function getSharedLocalBridgeServer(port = Number(process.env.CHATGPT_EXTENSION_BRIDGE_PORT ?? "3210")): LocalBridgeServer {
+  const existing = sharedServers.get(port);
+  if (existing) {
+    return existing;
+  }
+
+  const server = new LocalBridgeServer(port);
+  sharedServers.set(port, server);
+  return server;
 }
 
 function getSessionKey(clientId: string, tabId: number | null): string {

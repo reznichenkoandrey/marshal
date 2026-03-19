@@ -1,9 +1,9 @@
-import { LocalBridgeServer } from "./local-bridge-server.js";
+import { getSharedLocalBridgeServer } from "./local-bridge-server.js";
 export class ExtensionChatGPTBridge {
     server;
     primed = false;
     projectName;
-    constructor(options = {}, server = new LocalBridgeServer()) {
+    constructor(options = {}, server = getSharedLocalBridgeServer()) {
         this.server = server;
         this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
     }
@@ -29,7 +29,15 @@ export class ExtensionChatGPTBridge {
         if (this.primed) {
             return;
         }
-        await this.ask(initialPrompt);
+        await this.initialize();
+        const result = await this.server.sendCommand("send_prompt", {
+            prompt: initialPrompt,
+            responseMode: "ready_surface",
+            ...this.getProjectPayload()
+        });
+        if (!result.ok) {
+            throw new Error(result.error ?? "Extension failed to prime the ChatGPT conversation.");
+        }
         this.primed = true;
     }
     async ask(prompt) {

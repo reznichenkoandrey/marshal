@@ -14,5 +14,12 @@
     "noEmitOnError": true,
     "types": ["node", "chrome"]
   },
-  "include": ["main.ts", "operator-main.ts", "agent/**/*.ts", "operator/**/*.ts", "chrome-extension/src/**/*.ts"]
+  "include": [
+    "main.ts",
+    "operator-main.ts",
+    "agent/**/*.ts",
+    "operator/**/*.ts",
+    "desktop/**/*.ts",
+    "chrome-extension/src/**/*.ts"
+  ]
 }
