@@ -16,6 +16,13 @@
           </div>
           <button id="new-session-button" class="secondary-button">New Session</button>
         </div>
+        <div class="sidebar-controls">
+          <label class="field compact-field">
+            <span>ChatGPT Project</span>
+            <select id="project-select"></select>
+          </label>
+          <button id="new-project-button" class="secondary-button">New Project</button>
+        </div>
         <div id="session-list" class="session-list"></div>
       </aside>
       <main class="main-panel">
@@ -25,13 +32,15 @@
             <h2 id="session-title">Loading...</h2>
           </div>
           <div class="status-strip">
+            <span id="project-chip" class="status-chip">Project</span>
             <span class="status-chip">Persistent history</span>
-            <span class="status-chip">Local routing</span>
-            <span class="status-chip">Browser routing</span>
+            <button id="toggle-events-button" type="button" class="secondary-button inline-button">
+              Show Execution Log
+            </button>
           </div>
         </header>
         <section id="messages" class="messages"></section>
-        <section id="task-events" class="task-events"></section>
+        <section id="task-events" class="task-events hidden"></section>
         <form id="composer" class="composer">
           <label class="field">
             <span>Task</span>

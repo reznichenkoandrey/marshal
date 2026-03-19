@@ -79,7 +79,15 @@ p {
   margin-top: 20px;
 }
 
+.sidebar-controls {
+  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+}
+
 .session-card,
+.session-open-button,
+.session-delete-button,
 .primary-button,
 .secondary-button,
 select,
@@ -94,17 +102,42 @@ input[type="file"] {
   border: 1px solid var(--border);
   background: var(--panel);
   box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   color: inherit;
-  cursor: pointer;
 }
 
 .session-card.active {
   border-color: var(--accent);
   background: linear-gradient(135deg, rgba(11, 92, 86, 0.12), rgba(255, 253, 248, 0.96));
+}
+
+.session-open-button,
+.session-delete-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.session-open-button {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 0;
+}
+
+.session-delete-button {
+  align-self: start;
+  padding: 8px 12px;
+  border: 1px solid rgba(143, 49, 32, 0.25);
+  background: rgba(143, 49, 32, 0.08);
+  color: var(--danger);
+  cursor: pointer;
 }
 
 .session-title {
@@ -233,10 +266,10 @@ textarea {
 
 .primary-button,
 .secondary-button {
-  border: 0;
   padding: 12px 18px;
   font: inherit;
   cursor: pointer;
+  border: 1px solid transparent;
 }
 
 .primary-button {
@@ -248,6 +281,30 @@ textarea {
   background: var(--panel-strong);
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+.inline-button {
+  padding: 8px 14px;
+}
+
+.hidden {
+  display: none;
+}
+
+.empty-state {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed var(--border);
+  background: rgba(255, 253, 248, 0.8);
+  color: var(--muted);
+}
+
+button:disabled,
+textarea:disabled,
+select:disabled,
+input[type="file"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 @media (max-width: 960px) {

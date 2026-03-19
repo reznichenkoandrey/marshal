@@ -43,6 +43,8 @@ export type OperatorMessage = {
 
 export type OperatorSession = {
   id: string;
+  projectId: string;
+  projectName: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -53,10 +55,21 @@ export type OperatorSession = {
 
 export type OperatorSessionSummary = {
   id: string;
+  projectId: string;
+  projectName: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   activeTaskId: string | null;
   activeTaskStatus: OperatorTaskStatus | null;
   messageCount: number;
+};
+
+export type OperatorProjectSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  sessionCount: number;
+  isDefault: boolean;
+  isLegacy: boolean;
 };

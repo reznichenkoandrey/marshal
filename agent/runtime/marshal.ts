@@ -24,12 +24,13 @@ export type RunMarshalTaskOptions = {
   attachments?: RuntimeAttachment[];
   workspaceRoot?: string;
   memoryDir?: string;
+  chatProjectName?: string;
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
 };
 
 export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<string> {
   const route = options.route ?? "auto";
-  const bridge = createReasoningBridge();
+  const bridge = createReasoningBridge({ projectName: options.chatProjectName });
   const memory = new MemoryStore(options.memoryDir);
   const sandbox = new FileSandbox(options.workspaceRoot);
   const browserManager = new PlaywrightBrowserManager(false);

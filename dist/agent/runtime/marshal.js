@@ -16,7 +16,7 @@ const ROUTE_TOOL_MAP = {
 };
 export async function runMarshalTask(options) {
     const route = options.route ?? "auto";
-    const bridge = createReasoningBridge();
+    const bridge = createReasoningBridge({ projectName: options.chatProjectName });
     const memory = new MemoryStore(options.memoryDir);
     const sandbox = new FileSandbox(options.workspaceRoot);
     const browserManager = new PlaywrightBrowserManager(false);

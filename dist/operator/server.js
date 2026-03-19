@@ -8,7 +8,7 @@ export class OperatorServer {
     port;
     store;
     server = null;
-    queueTail = Promise.resolve();
+    sessionQueueTails = new Map();
     constructor(port = Number(process.env.OPERATOR_WEB_PORT ?? "3489"), store = new OperatorSessionStore()) {
         this.port = port;
         this.store = store;
@@ -31,6 +31,7 @@ export class OperatorServer {
             this.server?.listen(this.port, "127.0.0.1", () => resolve());
             this.server?.once("error", reject);
         });
+        await this.resumePendingTasks();
     }
     async close() {
         if (!this.server) {
@@ -44,30 +45,53 @@ export class OperatorServer {
     async handleRequest(request, response) {
         const url = new URL(request.url ?? "/", `http://127.0.0.1:${this.port}`);
         if (request.method === "GET" && url.pathname === "/api/health") {
+            const sessions = await this.store.listSessions();
+            const projects = await this.store.listProjects();
+            const queuedTasks = sessions.filter((session) => session.activeTaskStatus === "queued").length;
+            const runningTasks = sessions.filter((session) => session.activeTaskStatus === "running").length;
             writeJson(response, 200, {
                 ok: true,
                 data: {
                     port: this.port,
-                    queued: true
+                    projectCount: projects.length,
+                    sessionCount: sessions.length,
+                    queuedTasks,
+                    runningTasks
                 }
             });
             return;
         }
+        if (request.method === "GET" && url.pathname === "/api/projects") {
+            const projects = await this.store.listProjects();
+            writeJson(response, 200, { ok: true, data: projects });
+            return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/projects") {
+            const body = await readJsonBody(request);
+            const project = await this.store.createProject(typeof body.name === "string" ? body.name : undefined);
+            writeJson(response, 201, { ok: true, data: project });
+            return;
+        }
         if (request.method === "GET" && url.pathname === "/api/sessions") {
-            const sessions = await this.store.listSessions();
+            const sessions = await this.store.listSessions(url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 200, { ok: true, data: sessions });
             return;
         }
         if (request.method === "POST" && url.pathname === "/api/sessions") {
             const body = await readJsonBody(request);
-            const session = await this.store.createSession(typeof body.title === "string" ? body.title : undefined);
+            const session = await this.store.createSession(typeof body.title === "string" ? body.title : undefined, typeof body.projectId === "string" ? body.projectId : undefined);
             writeJson(response, 201, { ok: true, data: session });
             return;
         }
         const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/);
         if (request.method === "GET" && sessionMatch) {
-            const session = await this.store.readSession(sessionMatch[1]);
+            const session = await this.store.readSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 200, { ok: true, data: session });
+            return;
+        }
+        if (request.method === "DELETE" && sessionMatch) {
+            await this.store.deleteSession(sessionMatch[1], url.searchParams.get("projectId") ?? undefined);
+            writeJson(response, 200, { ok: true });
             return;
         }
         const messageMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
@@ -78,12 +102,13 @@ export class OperatorServer {
             const uploads = Array.isArray(body.attachments) ? sanitizeUploads(body.attachments) : [];
             const task = await this.store.createTaskFromMessage({
                 sessionId,
+                projectId: url.searchParams.get("projectId") ?? undefined,
                 text: String(body.text ?? ""),
                 route,
                 uploads
             });
             this.enqueueTask(sessionId, task.id);
-            const session = await this.store.readSession(sessionId);
+            const session = await this.store.readSession(sessionId, url.searchParams.get("projectId") ?? undefined);
             writeJson(response, 202, { ok: true, data: session });
             return;
         }
@@ -102,11 +127,18 @@ export class OperatorServer {
         });
     }
     enqueueTask(sessionId, taskId) {
-        this.queueTail = this.queueTail
+        const previous = this.sessionQueueTails.get(sessionId) ?? Promise.resolve();
+        const current = previous
             .then(() => this.runQueuedTask(sessionId, taskId))
             .catch(async (error) => {
             const message = error instanceof Error ? error.message : "Unknown queue error.";
             await this.store.markTaskFailed(sessionId, taskId, message).catch(() => undefined);
+        });
+        this.sessionQueueTails.set(sessionId, current);
+        void current.finally(() => {
+            if (this.sessionQueueTails.get(sessionId) === current) {
+                this.sessionQueueTails.delete(sessionId);
+            }
         });
     }
     async runQueuedTask(sessionId, taskId) {
@@ -115,8 +147,8 @@ export class OperatorServer {
         if (!task) {
             return;
         }
-        const paths = this.store.getSessionPaths(sessionId);
-        await this.store.markTaskRunning(sessionId, taskId);
+        const paths = await this.store.getSessionPaths(sessionId, session.projectId);
+        await this.store.markTaskRunning(sessionId, taskId, session.projectId);
         try {
             const result = await runMarshalTask({
                 task: task.prompt,
@@ -124,15 +156,16 @@ export class OperatorServer {
                 attachments: task.attachments,
                 workspaceRoot: paths.workspaceDir,
                 memoryDir: paths.memoryDir,
+                chatProjectName: session.projectId === "legacy-chats" ? undefined : session.projectName,
                 onEvent: async (event) => {
-                    await this.store.appendTaskEvent(sessionId, taskId, event.type, formatRuntimeEvent(event));
+                    await this.store.appendTaskEvent(sessionId, taskId, event.type, formatRuntimeEvent(event), session.projectId);
                 }
             });
-            await this.store.markTaskCompleted(sessionId, taskId, result);
+            await this.store.markTaskCompleted(sessionId, taskId, result, session.projectId);
         }
         catch (error) {
             const message = error instanceof Error ? error.message : "Unknown task failure.";
-            await this.store.markTaskFailed(sessionId, taskId, message);
+            await this.store.markTaskFailed(sessionId, taskId, message, session.projectId);
         }
     }
     async serveStatic(requestPath, response) {
@@ -148,6 +181,26 @@ export class OperatorServer {
             "cache-control": "no-store"
         });
         response.end(content);
+    }
+    async resumePendingTasks() {
+        const sessions = await this.store.listSessions();
+        for (const sessionSummary of sessions) {
+            const session = await this.store.readSession(sessionSummary.id).catch(() => null);
+            if (!session) {
+                continue;
+            }
+            for (const task of session.tasks) {
+                if (task.status === "queued") {
+                    this.enqueueTask(session.id, task.id);
+                    continue;
+                }
+                if (task.status === "running") {
+                    await this.store
+                        .markTaskFailed(session.id, task.id, "Operator server restarted before task completion.", session.projectId)
+                        .catch(() => undefined);
+                }
+            }
+        }
     }
 }
 function normalizeRoute(value) {

@@ -23,7 +23,8 @@ export class ChatGPTBridge {
                 path.resolve(process.cwd(), "agent/.auth/chatgpt-storage.json"),
             userDataDir: process.env.CHATGPT_USER_DATA_DIR ?? path.resolve(process.cwd(), "agent/.chrome-profile"),
             executablePath: resolveChromeExecutable(process.env.CHATGPT_BROWSER_EXECUTABLE_PATH ?? undefined),
-            cdpUrl: process.env.CHATGPT_CDP_URL ?? undefined
+            cdpUrl: process.env.CHATGPT_CDP_URL ?? undefined,
+            projectName: options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || undefined
         };
     }
     async initialize() {
@@ -39,6 +40,7 @@ export class ChatGPTBridge {
         this.page = this.context.pages()[0] ?? (await this.context.newPage());
         await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
         await this.waitForChatGPTSurface();
+        await this.ensureProjectSelected();
         await clickNewChatIfAvailable(this.page, this.selectorCache);
         if (!storageState) {
             await this.captureStorageStateAfterManualLogin();
@@ -63,6 +65,7 @@ export class ChatGPTBridge {
         const page = await this.getPage();
         await page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
         await this.waitForChatGPTSurface();
+        await this.ensureProjectSelected();
         await clickNewChatIfAvailable(page, this.selectorCache);
         this.primed = false;
     }
@@ -102,6 +105,7 @@ export class ChatGPTBridge {
     async sendPrompt(prompt) {
         const page = await this.getPage();
         await this.ensureReadyForPrompt();
+        await this.ensureProjectSelected();
         const composer = await withRetry(async () => resolveComposer(page, this.selectorCache), { retries: limits.maxRetries, initialDelayMs: 500 });
         const previousAssistantText = await this.extractLatestAssistantText();
         await composer.click({ timeout: limits.selectorTimeoutMs });
@@ -186,6 +190,73 @@ export class ChatGPTBridge {
             throw new Error("ChatGPT is showing the logged-out homepage. Complete login to reuse a real session.");
         }
     }
+    async ensureProjectSelected() {
+        const projectName = this.options.projectName?.trim();
+        if (!projectName) {
+            return;
+        }
+        const page = await this.getPage();
+        const alreadySelected = await page.evaluate((targetName) => {
+            const normalizedTarget = normalizeComparableText(targetName);
+            const candidates = Array.from(document.querySelectorAll("main h1, main h2, nav a, nav button, aside a, aside button"));
+            return candidates.some((element) => {
+                if (!isDomElementVisible(element)) {
+                    return false;
+                }
+                const text = normalizeComparableText([element.textContent ?? "", element.getAttribute("aria-label") ?? ""].join(" "));
+                return text === normalizedTarget && element.getAttribute("aria-current") === "page";
+            });
+            function normalizeComparableText(value) {
+                return value.replace(/\s+/g, " ").trim().toLowerCase();
+            }
+            function isDomElementVisible(element) {
+                const style = window.getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+            }
+        }, projectName);
+        if (alreadySelected) {
+            return;
+        }
+        await expandProjectsSectionIfPresent(page);
+        const clicked = await page.evaluate((targetName) => {
+            const normalizedTarget = normalizeComparableText(targetName);
+            const candidates = Array.from(document.querySelectorAll("a,button,[role='button']"));
+            const match = candidates.find((element) => {
+                if (!isDomElementVisible(element)) {
+                    return false;
+                }
+                const text = normalizeComparableText([
+                    element.textContent ?? "",
+                    element.getAttribute("aria-label") ?? "",
+                    element.getAttribute("title") ?? ""
+                ].join(" "));
+                if (text !== normalizedTarget) {
+                    return false;
+                }
+                return Boolean(element.closest("nav, aside, [data-testid*='sidebar'], [class*='sidebar']"));
+            });
+            if (!match) {
+                return false;
+            }
+            match.click();
+            return true;
+            function normalizeComparableText(value) {
+                return value.replace(/\s+/g, " ").trim().toLowerCase();
+            }
+            function isDomElementVisible(element) {
+                const style = window.getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+            }
+        }, projectName);
+        if (!clicked) {
+            throw new Error(`ChatGPT project "${projectName}" was not found in the sidebar.`);
+        }
+        await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+        await page.waitForTimeout(800);
+        await this.waitForAuthenticatedPromptReadiness();
+    }
     async waitForAuthenticatedPromptReadiness() {
         const page = await this.getPage();
         await this.waitForChatGPTSurface();
@@ -228,6 +299,21 @@ export class ChatGPTBridge {
         this.page = existingChatPage ?? (await this.context.newPage());
         await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
         await this.waitForChatGPTSurface();
+        await this.ensureProjectSelected();
+    }
+}
+async function expandProjectsSectionIfPresent(page) {
+    const toggle = page
+        .locator("button,[role='button']")
+        .filter({ hasText: /projects|проекти|проєкти/i })
+        .first();
+    if (!(await toggle.isVisible().catch(() => false))) {
+        return;
+    }
+    const expanded = await toggle.getAttribute("aria-expanded").catch(() => null);
+    if (expanded === "false") {
+        await toggle.click({ timeout: limits.selectorTimeoutMs }).catch(() => undefined);
+        await page.waitForTimeout(400);
     }
 }
 function parseBoolean(value, fallback) {

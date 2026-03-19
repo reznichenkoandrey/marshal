@@ -2,8 +2,10 @@ import { LocalBridgeServer } from "./local-bridge-server.js";
 export class ExtensionChatGPTBridge {
     server;
     primed = false;
-    constructor(server = new LocalBridgeServer()) {
+    projectName;
+    constructor(options = {}, server = new LocalBridgeServer()) {
         this.server = server;
+        this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
     }
     async initialize() {
         await this.server.start();
@@ -18,7 +20,7 @@ export class ExtensionChatGPTBridge {
     }
     async resetConversation() {
         await this.initialize();
-        const result = await this.server.sendCommand("reset_conversation", {});
+        const result = await this.server.sendCommand("reset_conversation", this.getProjectPayload());
         if (!result.ok) {
             throw new Error(result.error ?? "Extension failed to reset the ChatGPT conversation.");
         }
@@ -32,7 +34,10 @@ export class ExtensionChatGPTBridge {
     }
     async ask(prompt) {
         await this.initialize();
-        const result = await this.server.sendCommand("send_prompt", { prompt });
+        const result = await this.server.sendCommand("send_prompt", {
+            prompt,
+            ...this.getProjectPayload()
+        });
         if (!result.ok) {
             throw new Error(result.error ?? "Extension failed to send the prompt to ChatGPT.");
         }
@@ -45,5 +50,8 @@ export class ExtensionChatGPTBridge {
     async close() {
         await this.server.close();
         this.primed = false;
+    }
+    getProjectPayload() {
+        return this.projectName ? { projectName: this.projectName } : {};
     }
 }
