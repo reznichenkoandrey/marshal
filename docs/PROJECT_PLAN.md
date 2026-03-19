@@ -68,8 +68,8 @@ Checklist:
 - [x] Add response stabilizer.
 - [x] Add selector cache and fallback strategy.
 - [x] Add self-heal ranking logic.
+- [x] Capture and fix live selector/auth regressions discovered during smoke tests.
 - [ ] Validate the composer locator against the live ChatGPT UI after login.
-- [ ] Capture and fix any live selector regressions discovered during smoke tests.
 
 ### Phase 4. Tooling and Sandbox Validation
 
