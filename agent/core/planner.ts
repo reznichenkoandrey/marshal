@@ -1,3 +1,4 @@
+import type { ToolName } from "./protocol.ts";
 import { createPlannerPrompt } from "./protocol.ts";
 import { parsePlannerResponse } from "./parser.ts";
 
@@ -12,8 +13,11 @@ export class Planner {
     this.bridge = bridge;
   }
 
-  async createPlan(task: string): Promise<{ steps: string[]; raw: string }> {
-    const response = await this.bridge.ask(createPlannerPrompt(task));
+  async createPlan(
+    task: string,
+    options?: { availableTools?: ToolName[]; routeMode?: string }
+  ): Promise<{ steps: string[]; raw: string }> {
+    const response = await this.bridge.ask(createPlannerPrompt(task, options));
     return parsePlannerResponse(response);
   }
 }

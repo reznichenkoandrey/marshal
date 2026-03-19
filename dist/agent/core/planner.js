@@ -5,8 +5,8 @@ export class Planner {
     constructor(bridge) {
         this.bridge = bridge;
     }
-    async createPlan(task) {
-        const response = await this.bridge.ask(createPlannerPrompt(task));
+    async createPlan(task, options) {
+        const response = await this.bridge.ask(createPlannerPrompt(task, options));
         return parsePlannerResponse(response);
     }
 }

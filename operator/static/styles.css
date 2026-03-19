@@ -1,0 +1,261 @@
+:root {
+  color-scheme: light;
+  --bg: #f2efe7;
+  --panel: #fffdf8;
+  --panel-strong: #f6f0e1;
+  --border: #d6c7a8;
+  --text: #2d2618;
+  --muted: #7c6b49;
+  --accent: #0b5c56;
+  --accent-strong: #083d39;
+  --danger: #8f3120;
+  --shadow: 0 16px 40px rgba(45, 38, 24, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(11, 92, 86, 0.18), transparent 24rem),
+    radial-gradient(circle at bottom right, rgba(143, 49, 32, 0.14), transparent 26rem),
+    var(--bg);
+  color: var(--text);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar,
+.main-panel {
+  padding: 24px;
+}
+
+.sidebar {
+  background: rgba(255, 253, 248, 0.72);
+  border-right: 1px solid rgba(124, 107, 73, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.sidebar-header,
+.panel-header,
+.composer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.session-list,
+.messages,
+.task-events {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.session-list {
+  margin-top: 20px;
+}
+
+.session-card,
+.primary-button,
+.secondary-button,
+select,
+textarea,
+input[type="file"] {
+  border-radius: 16px;
+}
+
+.session-card {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.session-card.active {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(11, 92, 86, 0.12), rgba(255, 253, 248, 0.96));
+}
+
+.session-title {
+  font-weight: 700;
+}
+
+.session-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.main-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 16px;
+}
+
+.status-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-chip,
+.pending-file {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.messages,
+.task-events {
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 253, 248, 0.88);
+  border: 1px solid rgba(124, 107, 73, 0.18);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.message,
+.task-card {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.message.user {
+  background: linear-gradient(135deg, rgba(11, 92, 86, 0.1), rgba(255, 253, 248, 1));
+}
+
+.message.assistant {
+  background: linear-gradient(135deg, rgba(143, 49, 32, 0.08), rgba(255, 253, 248, 1));
+}
+
+.message.system {
+  background: var(--panel-strong);
+}
+
+.message header,
+.task-card header,
+.event-row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message p,
+.task-card p {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.message-attachments,
+.attachment-list,
+.event-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.composer {
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 253, 248, 0.9);
+  border: 1px solid rgba(124, 107, 73, 0.18);
+  box-shadow: var(--shadow);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.compact-field {
+  min-width: 220px;
+}
+
+textarea,
+select,
+input[type="file"] {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 132px;
+}
+
+.primary-button,
+.secondary-button {
+  border: 0;
+  padding: 12px 18px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff;
+}
+
+.secondary-button {
+  background: var(--panel-strong);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 960px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .main-panel {
+    grid-template-rows: auto auto minmax(260px, 1fr) auto auto;
+  }
+}

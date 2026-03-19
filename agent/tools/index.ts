@@ -1,4 +1,5 @@
 import type { ToolExecutionResult, ToolName } from "../core/protocol.ts";
+import { ALL_TOOL_NAMES } from "../core/protocol.ts";
 import { FileSandbox } from "./fs.ts";
 import { ShellTool } from "./shell.ts";
 import { BrowserTool } from "./browser.ts";
@@ -7,14 +8,25 @@ export class Toolbox {
   fileSandbox: FileSandbox;
   shellTool: ShellTool;
   browserTool: BrowserTool;
+  allowedActions: Set<ToolName>;
 
-  constructor(fileSandbox: FileSandbox, shellTool: ShellTool, browserTool: BrowserTool) {
+  constructor(
+    fileSandbox: FileSandbox,
+    shellTool: ShellTool,
+    browserTool: BrowserTool,
+    allowedActions: ToolName[] = ALL_TOOL_NAMES
+  ) {
     this.fileSandbox = fileSandbox;
     this.shellTool = shellTool;
     this.browserTool = browserTool;
+    this.allowedActions = new Set(allowedActions);
   }
 
   async execute(action: ToolName, input: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (!this.allowedActions.has(action)) {
+      throw new Error(`Tool action is not allowed in the current execution route: ${action}`);
+    }
+
     switch (action) {
       case "read_file": {
         const result = await this.fileSandbox.readFile(String(input.path));

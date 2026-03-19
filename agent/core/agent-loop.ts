@@ -1,4 +1,5 @@
 import { limits } from "../config/limits.ts";
+import type { MarshalRuntimeEvent } from "../runtime/types.ts";
 import { createSelectorErrorMessage, createToolErrorMessage } from "../resilience/fallback.ts";
 import { withRetry } from "../resilience/retry.ts";
 import type { MemoryStore } from "../memory/store.ts";
@@ -6,11 +7,13 @@ import type { Toolbox } from "../tools/index.ts";
 import { createLoopState, guardAgainstLoop, validateActionPayload } from "./guard.ts";
 import { parseModelResponse } from "./parser.ts";
 import {
+  ALL_TOOL_NAMES,
   createFinalSynthesisPrompt,
   createFormatErrorPrompt,
   createStepPrompt,
   formatToolResult,
-  type StepExecutionResult
+  type StepExecutionResult,
+  type ToolName
 } from "./protocol.ts";
 
 type LoopBridge = {
@@ -21,11 +24,23 @@ export class AgentLoop {
   bridge: LoopBridge;
   memory: MemoryStore;
   tools: Toolbox;
+  availableTools: ToolName[];
+  onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
 
-  constructor(bridge: LoopBridge, memory: MemoryStore, tools: Toolbox) {
+  constructor(
+    bridge: LoopBridge,
+    memory: MemoryStore,
+    tools: Toolbox,
+    options?: {
+      availableTools?: ToolName[];
+      onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
+    }
+  ) {
     this.bridge = bridge;
     this.memory = memory;
     this.tools = tools;
+    this.availableTools = options?.availableTools ?? ALL_TOOL_NAMES;
+    this.onEvent = options?.onEvent;
   }
 
   async runTask(task: string, planSteps: string[]): Promise<string> {
@@ -81,6 +96,13 @@ export class AgentLoop {
     while (iteration < input.maxIterations) {
       iteration += 1;
       await this.memory.setCurrentStep(input.step, iteration);
+      await this.emitEvent({
+        type: "step_started",
+        step: input.step,
+        stepIndex: input.stepIndex,
+        totalSteps: input.totalSteps,
+        iteration
+      });
 
       const prompt = createStepPrompt({
         task: input.task,
@@ -89,7 +111,8 @@ export class AgentLoop {
         totalSteps: input.totalSteps,
         priorStepSummaries: input.stepSummaries,
         lastToolResult,
-        memorySummary: await this.memory.summarize()
+        memorySummary: await this.memory.summarize(),
+        availableTools: this.availableTools
       });
 
       const raw = await this.bridge.ask(prompt);
@@ -104,6 +127,13 @@ export class AgentLoop {
       }
 
       if (parsed.kind === "final") {
+        await this.emitEvent({
+          type: "step_completed",
+          step: input.step,
+          stepIndex: input.stepIndex,
+          totalSteps: input.totalSteps,
+          summary: parsed.result
+        });
         return {
           summary: parsed.result,
           iterationsUsed: iteration
@@ -114,11 +144,26 @@ export class AgentLoop {
         validateActionPayload(parsed);
         guardAgainstLoop(parsed, loopState);
         await this.memory.recordAction(parsed.thought, parsed.action, parsed.input);
+        await this.emitEvent({
+          type: "action_requested",
+          step: input.step,
+          stepIndex: input.stepIndex,
+          action: parsed.action,
+          thought: parsed.thought,
+          input: parsed.input
+        });
 
         const toolResult = await this.tools.execute(parsed.action, parsed.input);
         lastToolResult = formatToolResult(toolResult);
         await this.memory.recordToolResult(lastToolResult);
         await this.learnFiles(toolResult);
+        await this.emitEvent({
+          type: "tool_completed",
+          step: input.step,
+          stepIndex: input.stepIndex,
+          action: parsed.action,
+          summary: toolResult.summary
+        });
         await this.bridge.ask(`RESULT:\n${lastToolResult}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown tool error.";
@@ -127,6 +172,13 @@ export class AgentLoop {
           : createToolErrorMessage(message);
         lastToolResult = JSON.stringify({ ok: false, error: message }, null, 2);
         await this.memory.recordToolResult(lastToolResult);
+        await this.emitEvent({
+          type: "tool_failed",
+          step: input.step,
+          stepIndex: input.stepIndex,
+          action: parsed.action,
+          error: message
+        });
         await this.bridge.ask(fallbackMessage);
       }
     }
@@ -149,5 +201,9 @@ export class AgentLoop {
       const files = entries.map((entry) => (basePath === "." ? entry : `${basePath}/${entry}`));
       await this.memory.rememberFiles(files);
     }
+  }
+
+  private async emitEvent(event: MarshalRuntimeEvent): Promise<void> {
+    await this.onEvent?.(event);
   }
 }
