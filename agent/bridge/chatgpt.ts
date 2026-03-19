@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -14,10 +14,10 @@ type BridgeOptions = {
   chatgptUrl: string;
   headless: boolean;
   storageStatePath: string;
+  userDataDir: string;
+  executablePath?: string;
+  cdpUrl?: string;
 };
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export class ChatGPTBridge {
   browser: Browser | null = null;
@@ -26,15 +26,22 @@ export class ChatGPTBridge {
   options: BridgeOptions;
   selectorCache = createSelectorCache();
   primed = false;
+  connectionMode: "launched" | "cdp" = "launched";
 
   constructor(options: Partial<BridgeOptions> = {}) {
     this.options = {
-      chatgptUrl: options.chatgptUrl ?? process.env.CHATGPT_URL ?? "https://chat.openai.com",
+      chatgptUrl: options.chatgptUrl ?? process.env.CHATGPT_URL ?? "https://chatgpt.com",
       headless: parseBoolean(process.env.CHATGPT_HEADLESS, options.headless ?? false),
       storageStatePath:
         options.storageStatePath ??
         process.env.CHATGPT_STORAGE_STATE_PATH ??
-        path.resolve(__dirname, "../.auth/chatgpt-storage.json")
+        path.resolve(process.cwd(), "agent/.auth/chatgpt-storage.json"),
+      userDataDir:
+        process.env.CHATGPT_USER_DATA_DIR ?? path.resolve(process.cwd(), "agent/.chrome-profile"),
+      executablePath: resolveChromeExecutable(
+        process.env.CHATGPT_BROWSER_EXECUTABLE_PATH ?? undefined
+      ),
+      cdpUrl: process.env.CHATGPT_CDP_URL ?? undefined
     };
   }
 
@@ -43,10 +50,14 @@ export class ChatGPTBridge {
       return;
     }
 
+    if (this.options.cdpUrl) {
+      await this.attachToExistingBrowser();
+      return;
+    }
+
     const storageState = await this.readStorageStateIfAvailable();
-    this.browser = await chromium.launch({ headless: this.options.headless });
-    this.context = await this.browser.newContext(storageState ? { storageState } : {});
-    this.page = await this.context.newPage();
+    this.context = await this.launchContext(storageState);
+    this.page = this.context.pages()[0] ?? (await this.context.newPage());
     await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
     await this.waitForChatGPTSurface();
     await clickNewChatIfAvailable(this.page, this.selectorCache);
@@ -54,6 +65,27 @@ export class ChatGPTBridge {
     if (!storageState) {
       await this.captureStorageStateAfterManualLogin();
     }
+  }
+
+  async openLoginWindow(): Promise<void> {
+    if (this.options.cdpUrl) {
+      throw new Error(
+        "CHATGPT_CDP_URL is set. Start the manual browser with open-chatgpt-browser.sh and log in there."
+      );
+    }
+
+    if (!this.page) {
+      this.context = await this.launchContext(undefined);
+      this.page = this.context.pages()[0] ?? (await this.context.newPage());
+    }
+
+    await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
+    await this.waitForChatGPTSurface();
+    console.log("Chrome login window is open. Log in to ChatGPT there. Keep this process running while you authenticate.");
+
+    await new Promise<void>(() => {
+      // Keep the Chrome profile alive until the process is interrupted.
+    });
   }
 
   async resetConversation(): Promise<void> {
@@ -87,6 +119,14 @@ export class ChatGPTBridge {
   }
 
   async close(): Promise<void> {
+    if (this.connectionMode === "cdp") {
+      this.page = null;
+      this.context = null;
+      this.browser = null;
+      this.primed = false;
+      return;
+    }
+
     await this.page?.close().catch(() => undefined);
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
@@ -229,6 +269,47 @@ export class ChatGPTBridge {
 
     await resolveComposer(page, this.selectorCache);
   }
+
+  private async launchContext(_storageState: string | undefined): Promise<BrowserContext> {
+    await fs.mkdir(this.options.userDataDir, { recursive: true });
+
+    const launchOptions: NonNullable<Parameters<typeof chromium.launchPersistentContext>[1]> = {
+      headless: this.options.headless,
+      viewport: { width: 1440, height: 1000 },
+      args: ["--start-maximized"]
+    };
+
+    if (this.options.executablePath) {
+      launchOptions.executablePath = this.options.executablePath;
+    } else {
+      launchOptions.channel = "chrome";
+    }
+
+    return chromium.launchPersistentContext(this.options.userDataDir, launchOptions);
+  }
+
+  private async attachToExistingBrowser(): Promise<void> {
+    if (!this.options.cdpUrl) {
+      throw new Error("CHATGPT_CDP_URL is not configured.");
+    }
+
+    this.connectionMode = "cdp";
+    this.browser = await chromium.connectOverCDP(this.options.cdpUrl);
+    this.context = this.browser.contexts()[0];
+    if (!this.context) {
+      throw new Error(
+        `Connected to ${this.options.cdpUrl}, but no default browser context was available.`
+      );
+    }
+
+    const existingChatPage = this.context
+      .pages()
+      .find((candidate) => /chatgpt\.com|chat\.openai\.com/.test(candidate.url()));
+
+    this.page = existingChatPage ?? (await this.context.newPage());
+    await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
+    await this.waitForChatGPTSurface();
+  }
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -250,12 +331,39 @@ async function isLoggedOutHomepage(page: Page): Promise<boolean> {
   }
 
   const loginCount =
-    (await page.getByRole("button", { name: /log in|sign in|увійти/i }).count()) +
-    (await page.getByRole("link", { name: /log in|sign in|увійти/i }).count());
+    (await countVisible(page.getByRole("button", { name: /log in|sign in|увійти/i }), 4)) +
+    (await countVisible(page.getByRole("link", { name: /log in|sign in|увійти/i }), 4));
 
   const signupCount =
-    (await page.getByRole("button", { name: /sign up|зареєструватися/i }).count()) +
-    (await page.getByRole("link", { name: /sign up|зареєструватися/i }).count());
+    (await countVisible(page.getByRole("button", { name: /sign up|зареєструватися/i }), 4)) +
+    (await countVisible(page.getByRole("link", { name: /sign up|зареєструватися/i }), 4));
 
   return loginCount > 0 && signupCount > 0;
+}
+
+async function countVisible(locator: ReturnType<Page["getByRole"]>, limit: number): Promise<number> {
+  const total = Math.min(await locator.count(), limit);
+  let visible = 0;
+
+  for (let index = 0; index < total; index += 1) {
+    try {
+      if (await locator.nth(index).isVisible()) {
+        visible += 1;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return visible;
+}
+
+function resolveChromeExecutable(explicitPath?: string): string | undefined {
+  const candidates = [
+    explicitPath,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary"
+  ].filter((value): value is string => Boolean(value));
+
+  return candidates.find((candidate) => fsSync.existsSync(candidate));
 }

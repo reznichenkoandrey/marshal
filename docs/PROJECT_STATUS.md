@@ -2,7 +2,7 @@
 
 ## Current Stage
 
-- Active stage: `Phase 3. ChatGPT Bridge Hardening`
+- Active stage: `Phase 4. Tooling and Sandbox Validation`
 - Overall state: `In Progress`
 - Last updated: `2026-03-19`
 
@@ -10,11 +10,11 @@
 
 - `Phase 1. Repository Foundation`
 - `Phase 2. Core Agent Runtime`
+- `Phase 3. ChatGPT Bridge Hardening`
 - `Phase 5. Delivery Workflow`
 
 ## In-Progress Phases
 
-- `Phase 3. ChatGPT Bridge Hardening`
 - `Phase 4. Tooling and Sandbox Validation`
 
 ## Pending Phases
@@ -29,11 +29,15 @@
 - Project planning and phase-close workflow are now tracked in-repo.
 - The bridge now distinguishes logged-out/public ChatGPT surfaces from an authenticated reusable session.
 - The bridge now handles `contenteditable` textbox variants more safely.
+- The project now has an extension-based ChatGPT bridge path for a real trusted Chrome session.
+- The build now emits a loadable unpacked Chrome extension artifact.
+- Live validation succeeded against a real authenticated ChatGPT tab through the extension bridge.
+- The bridge can reset the conversation and receive a stabilized response from the live ChatGPT UI.
 
 ## Open Issues
 
-- Authenticated live smoke validation is still required after a real ChatGPT login.
-- End-to-end validation is incomplete until the authenticated bridge path is confirmed.
+- Phase 4 tool-path smoke validation is still required through the agent loop.
+- End-to-end acceptance remains open for filesystem, shell, browser, and multi-step tasks.
 
 ## Phase Close Checklist
 

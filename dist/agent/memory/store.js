@@ -1,12 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 export class MemoryStore {
     shortTermPath;
     longTermPath;
-    constructor(baseDir = __dirname) {
+    constructor(baseDir = path.resolve(process.cwd(), "agent/memory")) {
         this.shortTermPath = path.join(baseDir, "short-term.json");
         this.longTermPath = path.join(baseDir, "long-term.json");
     }
