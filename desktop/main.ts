@@ -15,6 +15,8 @@ const projectRootDir = path.resolve(distRootDir, "..");
 const preloadPath = path.join(desktopDistDir, "preload.js");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const chatGptLauncherPath = path.join(projectRootDir, "open-chatgpt-browser-default-profile.sh");
+const operatorWebPort = Number(process.env.OPERATOR_WEB_PORT ?? "3489");
+const operatorWebUrl = `http://127.0.0.1:${operatorWebPort}`;
 
 const backendClient = new DesktopBackendClient();
 
@@ -107,6 +109,10 @@ function registerIpcHandlers(): void {
     });
     return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
   });
+  handleIpc("marshal:open-operator-web", async () => {
+    await shell.openExternal(operatorWebUrl);
+    return operatorWebUrl;
+  });
   handleIpc("marshal:open-workspace", async (_event, input: DesktopWorkspaceRequest) => {
     const sessionPaths = await backendClient.invoke<{
       workspaceDir: string;
@@ -120,6 +126,10 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:restart-app", async () => {
     app.relaunch();
     app.exit(0);
+  });
+  handleIpc("marshal:restart-backend", async () => {
+    await backendClient.restart();
+    return backendClient.invoke("getHealth");
   });
 }
 
@@ -211,6 +221,20 @@ async function refreshTrayState(): Promise<void> {
             cwd: projectRootDir,
             env: process.env
           }).catch((error) => {
+            console.error(error);
+          });
+        }
+      },
+      {
+        label: "Open Web Console",
+        click: () => {
+          void shell.openExternal(operatorWebUrl);
+        }
+      },
+      {
+        label: "Restart Backend",
+        click: () => {
+          void backendClient.restart().catch((error) => {
             console.error(error);
           });
         }

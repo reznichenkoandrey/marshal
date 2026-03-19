@@ -14,7 +14,9 @@
           <h1>Menu Bar Console</h1>
         </div>
         <div class="topbar-actions">
-          <button id="open-chatgpt-button" class="ghost-button">Open ChatGPT</button>
+          <button id="open-chatgpt-button" class="ghost-button">ChatGPT / Bridge</button>
+          <button id="open-operator-web-button" class="ghost-button">Web Console</button>
+          <button id="restart-backend-button" class="ghost-button">Restart Backend</button>
           <button id="restart-app-button" class="ghost-button">Restart</button>
         </div>
       </header>
@@ -35,6 +37,10 @@
         <div class="health-card accent">
           <span class="label">Queued</span>
           <strong id="health-queued">0</strong>
+        </div>
+        <div class="health-card">
+          <span class="label">Backend</span>
+          <strong id="health-backend">Booting</strong>
         </div>
       </section>
 

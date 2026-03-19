@@ -53,6 +53,11 @@ export class DesktopBackendClient {
     }
   }
 
+  async restart(): Promise<void> {
+    this.dispose();
+    await this.invoke("getHealth");
+  }
+
   private ensureProcess(): UtilityProcess {
     if (this.process?.pid) {
       return this.process;

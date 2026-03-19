@@ -36,6 +36,10 @@ export class DesktopBackendClient {
             this.process = null;
         }
     }
+    async restart() {
+        this.dispose();
+        await this.invoke("getHealth");
+    }
     ensureProcess() {
         if (this.process?.pid) {
             return this.process;

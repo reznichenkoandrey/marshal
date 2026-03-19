@@ -26,6 +26,8 @@ const projectSelect = document.querySelector("#project-select");
 const refreshButton = document.querySelector("#refresh-button");
 const toggleEventsButton = document.querySelector("#toggle-events-button");
 const openChatGPTButton = document.querySelector("#open-chatgpt-button");
+const openOperatorWebButton = document.querySelector("#open-operator-web-button");
+const restartBackendButton = document.querySelector("#restart-backend-button");
 const openWorkspaceButton = document.querySelector("#open-workspace-button");
 const restartAppButton = document.querySelector("#restart-app-button");
 const statusMessage = document.querySelector("#status-message");
@@ -87,9 +89,30 @@ toggleEventsButton.addEventListener("click", () => {
 });
 
 openChatGPTButton.addEventListener("click", async () => {
-  await withStatus("Opening ChatGPT...", async () => {
+  await withStatus("Opening ChatGPT bridge...", async () => {
     const output = await window.marshalDesktop.openChatGPT();
     setStatus(output || "ChatGPT launcher executed.");
+  });
+});
+
+openOperatorWebButton.addEventListener("click", async () => {
+  await withStatus("Opening web console...", async () => {
+    const url = await window.marshalDesktop.openOperatorWeb();
+    setStatus(`Web console opened: ${url}`);
+  });
+});
+
+restartBackendButton.addEventListener("click", async () => {
+  if (!window.confirm("Restart the desktop backend now?")) {
+    return;
+  }
+
+  await withStatus("Restarting desktop backend...", async () => {
+    await window.marshalDesktop.restartBackend();
+    await refreshHealth();
+    if (state.activeSessionId) {
+      await loadSession(state.activeSessionId, false);
+    }
   });
 });
 
@@ -190,8 +213,14 @@ async function handleProjectChange(projectId) {
 }
 
 async function refreshHealth() {
-  state.health = await window.marshalDesktop.getHealth();
-  renderHealth();
+  try {
+    state.health = await window.marshalDesktop.getHealth();
+    renderHealth("Connected");
+  } catch (error) {
+    state.health = null;
+    renderHealth("Unavailable");
+    throw error;
+  }
 }
 
 async function refreshProjects(preferredProjectId = state.selectedProjectId) {
@@ -272,11 +301,12 @@ async function deleteSession(sessionId) {
   });
 }
 
-function renderHealth() {
+function renderHealth(backendLabel = state.health ? "Connected" : "Unavailable") {
   document.querySelector("#health-projects").textContent = String(state.health?.projectCount ?? 0);
   document.querySelector("#health-sessions").textContent = String(state.health?.sessionCount ?? 0);
   document.querySelector("#health-running").textContent = String(state.health?.runningTasks ?? 0);
   document.querySelector("#health-queued").textContent = String(state.health?.queuedTasks ?? 0);
+  document.querySelector("#health-backend").textContent = backendLabel;
 }
 
 function renderProjects() {

@@ -16,8 +16,10 @@ const desktopApi = {
     attachments: unknown[];
   }) => ipcRenderer.invoke("marshal:submit-task", input),
   openChatGPT: () => ipcRenderer.invoke("marshal:open-chatgpt"),
+  openOperatorWeb: () => ipcRenderer.invoke("marshal:open-operator-web"),
   openWorkspace: (input: { sessionId: string; projectId?: string }) => ipcRenderer.invoke("marshal:open-workspace", input),
-  restartApp: () => ipcRenderer.invoke("marshal:restart-app")
+  restartApp: () => ipcRenderer.invoke("marshal:restart-app"),
+  restartBackend: () => ipcRenderer.invoke("marshal:restart-backend")
 };
 
 contextBridge.exposeInMainWorld("marshalDesktop", desktopApi);
