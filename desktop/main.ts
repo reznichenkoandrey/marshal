@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
 
-import { OperatorTaskService, normalizeRoute, sanitizeUploads } from "../operator/task-service.ts";
+import { DesktopBackendClient } from "./backend-client.ts";
 
 const execFileAsync = promisify(execFile);
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -16,7 +16,7 @@ const preloadPath = path.join(desktopDistDir, "preload.js");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const chatGptLauncherPath = path.join(projectRootDir, "open-chatgpt-browser-default-profile.sh");
 
-const service = new OperatorTaskService();
+const backendClient = new DesktopBackendClient();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -45,7 +45,6 @@ async function bootstrap(): Promise<void> {
       app.setActivationPolicy("accessory");
     }
 
-    await service.initialize();
     registerIpcHandlers();
     createMainWindow();
     createTray();
@@ -64,6 +63,7 @@ async function bootstrap(): Promise<void> {
         clearInterval(trayRefreshTimer);
         trayRefreshTimer = null;
       }
+      backendClient.dispose();
     });
 
     app.on("window-all-closed", () => {
@@ -78,26 +78,26 @@ async function bootstrap(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
-  handleIpc("marshal:get-health", () => service.getHealth());
-  handleIpc("marshal:list-projects", () => service.listProjects());
-  handleIpc("marshal:create-project", (_event, name?: string) => service.createProject(name));
-  handleIpc("marshal:list-sessions", (_event, projectId?: string) => service.listSessions(projectId));
+  handleIpc("marshal:get-health", () => backendClient.invoke("getHealth"));
+  handleIpc("marshal:list-projects", () => backendClient.invoke("listProjects"));
+  handleIpc("marshal:create-project", (_event, name?: string) => backendClient.invoke("createProject", name));
+  handleIpc("marshal:list-sessions", (_event, projectId?: string) => backendClient.invoke("listSessions", projectId));
   handleIpc("marshal:create-session", (_event, input?: { title?: string; projectId?: string }) =>
-    service.createSession(input?.title, input?.projectId)
+    backendClient.invoke("createSession", input)
   );
   handleIpc("marshal:read-session", (_event, input: { sessionId: string; projectId?: string }) =>
-    service.readSession(input.sessionId, input.projectId)
+    backendClient.invoke("readSession", input)
   );
   handleIpc("marshal:delete-session", (_event, input: { sessionId: string; projectId?: string }) =>
-    service.deleteSession(input.sessionId, input.projectId)
+    backendClient.invoke("deleteSession", input)
   );
   handleIpc("marshal:submit-task", (_event, input: DesktopTaskSubmission) =>
-    service.submitTask({
+    backendClient.invoke("submitTask", {
       sessionId: input.sessionId,
       projectId: input.projectId,
       text: String(input.text ?? ""),
-      route: normalizeRoute(input.route),
-      uploads: Array.isArray(input.attachments) ? sanitizeUploads(input.attachments) : []
+      route: input.route,
+      uploads: Array.isArray(input.attachments) ? input.attachments : []
     })
   );
   handleIpc("marshal:open-chatgpt", async () => {
@@ -108,7 +108,9 @@ function registerIpcHandlers(): void {
     return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
   });
   handleIpc("marshal:open-workspace", async (_event, input: DesktopWorkspaceRequest) => {
-    const sessionPaths = await service.getSessionPaths(input.sessionId, input.projectId);
+    const sessionPaths = await backendClient.invoke<{
+      workspaceDir: string;
+    }>("getSessionPaths", input);
     const failure = await shell.openPath(sessionPaths.workspaceDir);
     if (failure) {
       throw new Error(failure);
@@ -183,7 +185,10 @@ async function refreshTrayState(): Promise<void> {
     return;
   }
 
-  const health = await service.getHealth().catch(() => null);
+  const health = await backendClient.invoke<{
+    runningTasks: number;
+    queuedTasks: number;
+  }>("getHealth").catch(() => null);
   const label = health
     ? `Marshal Desktop\n${health.runningTasks} running, ${health.queuedTasks} queued`
     : "Marshal Desktop\nUnavailable";

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
-import { OperatorTaskService, normalizeRoute, sanitizeUploads } from "../operator/task-service.js";
+import { DesktopBackendClient } from "./backend-client.js";
 const execFileAsync = promisify(execFile);
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -12,7 +12,7 @@ const projectRootDir = path.resolve(distRootDir, "..");
 const preloadPath = path.join(desktopDistDir, "preload.js");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const chatGptLauncherPath = path.join(projectRootDir, "open-chatgpt-browser-default-profile.sh");
-const service = new OperatorTaskService();
+const backendClient = new DesktopBackendClient();
 let mainWindow = null;
 let tray = null;
 let trayRefreshTimer = null;
@@ -24,7 +24,6 @@ async function bootstrap() {
         if (process.platform === "darwin") {
             app.setActivationPolicy("accessory");
         }
-        await service.initialize();
         registerIpcHandlers();
         createMainWindow();
         createTray();
@@ -41,6 +40,7 @@ async function bootstrap() {
                 clearInterval(trayRefreshTimer);
                 trayRefreshTimer = null;
             }
+            backendClient.dispose();
         });
         app.on("window-all-closed", () => {
             if (process.platform !== "darwin") {
@@ -54,19 +54,19 @@ async function bootstrap() {
     }
 }
 function registerIpcHandlers() {
-    handleIpc("marshal:get-health", () => service.getHealth());
-    handleIpc("marshal:list-projects", () => service.listProjects());
-    handleIpc("marshal:create-project", (_event, name) => service.createProject(name));
-    handleIpc("marshal:list-sessions", (_event, projectId) => service.listSessions(projectId));
-    handleIpc("marshal:create-session", (_event, input) => service.createSession(input?.title, input?.projectId));
-    handleIpc("marshal:read-session", (_event, input) => service.readSession(input.sessionId, input.projectId));
-    handleIpc("marshal:delete-session", (_event, input) => service.deleteSession(input.sessionId, input.projectId));
-    handleIpc("marshal:submit-task", (_event, input) => service.submitTask({
+    handleIpc("marshal:get-health", () => backendClient.invoke("getHealth"));
+    handleIpc("marshal:list-projects", () => backendClient.invoke("listProjects"));
+    handleIpc("marshal:create-project", (_event, name) => backendClient.invoke("createProject", name));
+    handleIpc("marshal:list-sessions", (_event, projectId) => backendClient.invoke("listSessions", projectId));
+    handleIpc("marshal:create-session", (_event, input) => backendClient.invoke("createSession", input));
+    handleIpc("marshal:read-session", (_event, input) => backendClient.invoke("readSession", input));
+    handleIpc("marshal:delete-session", (_event, input) => backendClient.invoke("deleteSession", input));
+    handleIpc("marshal:submit-task", (_event, input) => backendClient.invoke("submitTask", {
         sessionId: input.sessionId,
         projectId: input.projectId,
         text: String(input.text ?? ""),
-        route: normalizeRoute(input.route),
-        uploads: Array.isArray(input.attachments) ? sanitizeUploads(input.attachments) : []
+        route: input.route,
+        uploads: Array.isArray(input.attachments) ? input.attachments : []
     }));
     handleIpc("marshal:open-chatgpt", async () => {
         const result = await execFileAsync(chatGptLauncherPath, {
@@ -76,7 +76,7 @@ function registerIpcHandlers() {
         return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     });
     handleIpc("marshal:open-workspace", async (_event, input) => {
-        const sessionPaths = await service.getSessionPaths(input.sessionId, input.projectId);
+        const sessionPaths = await backendClient.invoke("getSessionPaths", input);
         const failure = await shell.openPath(sessionPaths.workspaceDir);
         if (failure) {
             throw new Error(failure);
@@ -141,7 +141,7 @@ async function refreshTrayState() {
     if (!tray) {
         return;
     }
-    const health = await service.getHealth().catch(() => null);
+    const health = await backendClient.invoke("getHealth").catch(() => null);
     const label = health
         ? `Marshal Desktop\n${health.runningTasks} running, ${health.queuedTasks} queued`
         : "Marshal Desktop\nUnavailable";
