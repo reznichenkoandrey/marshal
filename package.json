@@ -1,0 +1,20 @@
+{
+  "name": "local-chatgpt-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
+  "scripts": {
+    "start": "node index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run typecheck"
+  },
+  "dependencies": {
+    "playwright": "^1.54.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}

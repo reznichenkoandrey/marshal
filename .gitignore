@@ -1,0 +1,8 @@
+node_modules/
+.idea/
+.DS_Store
+playwright-report/
+test-results/
+agent/.auth/
+dist/agent/.auth/
+agent/memory/*.tmp
