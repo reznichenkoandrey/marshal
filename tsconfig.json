@@ -20,6 +20,7 @@
     "agent/**/*.ts",
     "operator/**/*.ts",
     "desktop/**/*.ts",
+    "desktop/**/*.cts",
     "chrome-extension/src/**/*.ts"
   ]
 }
