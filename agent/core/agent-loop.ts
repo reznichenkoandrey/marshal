@@ -29,6 +29,7 @@ export class AgentLoop {
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
   verifiedFacts: string[];
   recentFailures: string[];
+  skipFinalSynthesis: boolean;
 
   constructor(
     bridge: LoopBridge,
@@ -38,6 +39,7 @@ export class AgentLoop {
       availableTools?: ToolName[];
       workspaceRoot?: string;
       onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
+      skipFinalSynthesis?: boolean;
     }
   ) {
     this.bridge = bridge;
@@ -48,6 +50,7 @@ export class AgentLoop {
     this.onEvent = options?.onEvent;
     this.verifiedFacts = [];
     this.recentFailures = [];
+    this.skipFinalSynthesis = options?.skipFinalSynthesis ?? false;
   }
 
   async runTask(task: string, planSteps: string[]): Promise<string> {
@@ -56,6 +59,26 @@ export class AgentLoop {
     let usedIterations = 0;
 
     for (const [stepIndex, step] of planSteps.entries()) {
+      if (isPureReturnStep(step) && stepSummaries.length > 0) {
+        const summary = stepSummaries[stepSummaries.length - 1];
+        await this.emitEvent({
+          type: "step_started",
+          step,
+          stepIndex,
+          totalSteps: planSteps.length,
+          iteration: 1
+        });
+        await this.emitEvent({
+          type: "step_completed",
+          step,
+          stepIndex,
+          totalSteps: planSteps.length,
+          summary
+        });
+        stepSummaries.push(summary);
+        continue;
+      }
+
       const remainingIterations = limits.maxIterations - usedIterations;
       if (remainingIterations <= 0) {
         throw new Error("Agent loop exhausted the global iteration budget.");
@@ -72,6 +95,12 @@ export class AgentLoop {
 
       stepSummaries.push(result.summary);
       usedIterations += result.iterationsUsed;
+    }
+
+    const lastStepSummary = stepSummaries[stepSummaries.length - 1] ?? "";
+    if (this.skipFinalSynthesis) {
+      await this.memory.completeTask(task, lastStepSummary);
+      return lastStepSummary;
     }
 
     const finalResponse = await withRetry(
@@ -93,8 +122,7 @@ export class AgentLoop {
       }
     );
 
-    const finalResult =
-      finalResponse.kind === "final" ? finalResponse.result : stepSummaries[stepSummaries.length - 1];
+    const finalResult = finalResponse.kind === "final" ? finalResponse.result : lastStepSummary;
     await this.memory.completeTask(task, finalResult);
     return finalResult;
   }
@@ -319,4 +347,13 @@ function inferRequiredToolFromStep(step: string): ToolName | null {
   }
 
   return ALL_TOOL_NAMES.find((toolName) => normalized.includes(toolName)) ?? null;
+}
+
+function isPureReturnStep(step: string): boolean {
+  const normalized = step.trim().toLowerCase();
+  if (!normalized.startsWith("return ")) {
+    return false;
+  }
+
+  return !ALL_TOOL_NAMES.some((toolName) => normalized.includes(toolName));
 }

@@ -60,8 +60,21 @@ export class ChatGPTBridge {
     const storageState = await this.readStorageStateIfAvailable();
     this.context = await this.launchContext(storageState);
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
-    await this.page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForChatGPTSurface();
+
+    // Remove webdriver flag to reduce Cloudflare detection
+    await this.page.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
+    });
+
+    // Use "commit" instead of "domcontentloaded" — Cloudflare may block full load
+    await this.page.goto(this.options.chatgptUrl, {
+      waitUntil: "commit",
+      timeout: 30_000
+    }).catch(() => {
+      // Navigation might fail on Cloudflare redirect — that's ok, we'll wait
+    });
+
+    await this.waitForCloudflareAndSurface();
     await this.ensureProjectSelected();
     await clickNewChatIfAvailable(this.page, this.selectorCache);
 
@@ -94,7 +107,7 @@ export class ChatGPTBridge {
   async resetConversation(): Promise<void> {
     const page = await this.getPage();
     await page.goto(this.options.chatgptUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForChatGPTSurface();
+    await this.waitForCloudflareAndSurface();
     await this.ensureProjectSelected();
     await clickNewChatIfAvailable(page, this.selectorCache);
     this.primed = false;
@@ -123,14 +136,21 @@ export class ChatGPTBridge {
   }
 
   async close(): Promise<void> {
+    // For persistent context: keep the browser alive between tasks
+    // so user doesn't have to re-login through Cloudflare every time.
+    // Only reset conversation state, not the browser itself.
+    this.primed = false;
+
+    // If we're in CDP mode, just clear references
     if (this.connectionMode === "cdp") {
       this.page = null;
       this.context = null;
       this.browser = null;
-      this.primed = false;
-      return;
     }
+  }
 
+  /** Force-close the browser (only for app shutdown) */
+  async forceClose(): Promise<void> {
     await this.page?.close().catch(() => undefined);
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
@@ -160,7 +180,9 @@ export class ChatGPTBridge {
     await composer.press("Enter");
 
     return waitForStableText(() => this.extractLatestAssistantText(), {
-      mustDifferFrom: previousAssistantText
+      mustDifferFrom: previousAssistantText,
+      requiredStableReads: 5,
+      pollIntervalMs: 2000
     });
   }
 
@@ -176,41 +198,102 @@ export class ChatGPTBridge {
   private async extractLatestAssistantText(): Promise<string> {
     const page = await this.getPage();
     const text = (await page.evaluate(() => {
-      const clean = (value: string) => value.replace(/\u200b/g, "").replace(/\s+\n/g, "\n").replace(/\s+/g, " ").trim();
+      const clean = (value: string) => value.replace(/\u200b/g, "").trim();
       const isVisible = (element: Element) => {
         const node = element as HTMLElement;
         const style = window.getComputedStyle(node);
         const rect = node.getBoundingClientRect();
         return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
       };
-      const getVisibleTexts = (root: ParentNode | null, selector: string) => {
-        if (!root) {
-          return [];
+
+      /**
+       * Extract raw text from a <code> element by walking individual <span> leaf nodes.
+       * ChatGPT renders code blocks as syntax-highlighted spans. Each span contains
+       * a small literal fragment. By concatenating these fragments we get text that
+       * is closer to the original source than textContent on the parent (which
+       * collapses whitespace and strips escape characters rendered across element
+       * boundaries).  Falls back to textContent when no spans are present.
+       */
+      const extractCodeText = (codeEl: Element): string => {
+        // Strategy 1: look for ChatGPT's copy button data attribute on the parent <pre>.
+        // ChatGPT stores the raw code content in a data attribute or in the
+        // associated copy-to-clipboard element's dataset for the code block.
+        const pre = codeEl.closest("pre");
+        if (pre) {
+          // Some ChatGPT builds expose the raw text via a hidden <code> in a
+          // sibling container used by the copy button.
+          const copyContainer = pre.parentElement?.querySelector("[data-code]");
+          if (copyContainer) {
+            const raw = copyContainer.getAttribute("data-code");
+            if (raw && raw.trim().length > 10) return raw.trim();
+          }
         }
 
-        return Array.from(root.querySelectorAll(selector))
-          .filter((element) => isVisible(element))
-          .map((element) => clean((element as HTMLElement).innerText || element.textContent || ""))
-          .filter(Boolean);
+        // Strategy 2: reconstruct from leaf spans to preserve literal characters.
+        const spans = codeEl.querySelectorAll("span");
+        if (spans.length > 0) {
+          let result = "";
+          const walk = (node: Node) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+              result += node.textContent ?? "";
+              return;
+            }
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              for (const child of Array.from(node.childNodes)) {
+                walk(child);
+              }
+            }
+          };
+          walk(codeEl);
+          return result.trim();
+        }
+
+        // Strategy 3: plain textContent
+        return (codeEl.textContent ?? "").trim();
       };
+
       const main = document.querySelector("main");
-      const assistantMessages = getVisibleTexts(main, "[data-message-author-role='assistant']");
+      if (!main) return "";
 
-      if (assistantMessages.length > 0) {
-        return assistantMessages[assistantMessages.length - 1];
+      // Find the last assistant message container
+      const assistantMsgs = Array.from(main.querySelectorAll("[data-message-author-role='assistant']")).filter(isVisible);
+      const lastMsg = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1] : null;
+      const searchRoot = lastMsg ?? main;
+
+      // Priority 1: extract from <code> blocks inside <pre> (fenced code blocks)
+      const codeBlocks = Array.from(searchRoot.querySelectorAll("pre code")).filter(isVisible);
+      if (codeBlocks.length > 0) {
+        for (let i = codeBlocks.length - 1; i >= 0; i--) {
+          const raw = extractCodeText(codeBlocks[i]);
+          if (raw.length > 10) {
+            return raw;
+          }
+        }
       }
 
-      if (!main) {
-        return "";
+      // Priority 2: inline <code> elements (not inside <pre>)
+      const inlineCode = Array.from(searchRoot.querySelectorAll("code:not(pre code)")).filter(isVisible);
+      if (inlineCode.length > 0) {
+        for (let i = inlineCode.length - 1; i >= 0; i--) {
+          const raw = extractCodeText(inlineCode[i]);
+          if (raw.length > 10) {
+            return raw;
+          }
+        }
       }
 
-      const articleTexts = getVisibleTexts(main, "article");
-
-      if (articleTexts.length > 0) {
-        return articleTexts[articleTexts.length - 1];
+      // Priority 3: get textContent of last assistant message
+      if (lastMsg) {
+        return clean(lastMsg.textContent ?? "");
       }
 
-      return clean((main as HTMLElement).innerText || "");
+      // Priority 4: fallback to any article
+      const articles = Array.from(main.querySelectorAll("article")).filter(isVisible);
+      if (articles.length > 0) {
+        return clean(articles[articles.length - 1].textContent ?? "");
+      }
+
+      return clean(main.textContent ?? "");
     })) as string;
 
     return text.trim();
@@ -255,6 +338,49 @@ export class ChatGPTBridge {
     await page.waitForURL(/chatgpt\.com|chat\.openai\.com|auth\.openai\.com|accounts\.google\.com/, {
       timeout: limits.toolPageTimeoutMs
     });
+  }
+
+  /**
+   * Wait for Cloudflare challenge to pass (user solves it manually),
+   * then wait for ChatGPT surface. Waits up to 3 minutes.
+   */
+  private async waitForCloudflareAndSurface(): Promise<void> {
+    const page = await this.getPage();
+    const maxWaitMs = 3 * 60 * 1000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+      const url = page.url();
+
+      // Check for Cloudflare challenge
+      const hasCloudflare = await page.locator("text=Verify you are human").count().catch(() => 0);
+      const onChallenges = /challenges\.cloudflare/.test(url);
+
+      if (hasCloudflare > 0 || onChallenges) {
+        console.log("Cloudflare challenge detected. Please complete it in the browser...");
+        await page.waitForTimeout(3000);
+        continue;
+      }
+
+      // Check if we're on ChatGPT (past Cloudflare)
+      if (/chatgpt\.com|chat\.openai\.com/.test(url)) {
+        await this.waitForChatGPTSurface();
+        return;
+      }
+
+      // Auth page — wait for user to log in
+      if (/auth\.openai\.com|accounts\.google\.com/.test(url)) {
+        console.log("Login page detected. Please log in to ChatGPT...");
+        await page.waitForTimeout(3000);
+        continue;
+      }
+
+      await page.waitForTimeout(2000);
+    }
+
+    // Last attempt
+    await this.waitForChatGPTSurface();
   }
 
   private async ensureReadyForPrompt(): Promise<void> {
@@ -383,7 +509,7 @@ export class ChatGPTBridge {
     const launchOptions: NonNullable<Parameters<typeof chromium.launchPersistentContext>[1]> = {
       headless: this.options.headless,
       viewport: { width: 1440, height: 1000 },
-      args: ["--start-maximized"]
+      args: ["--start-maximized", "--disable-blink-features=AutomationControlled"]
     };
 
     if (this.options.executablePath) {

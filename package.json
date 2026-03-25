@@ -10,17 +10,42 @@
     "desktop": "npm run build && electron dist/desktop/main.js",
     "desktop:dev": "npm run build && ELECTRON_ENABLE_LOGGING=1 electron dist/desktop/main.js",
     "smoke:phase4": "npm run build && node dist/agent/smoke/phase4.js",
+    "acceptance:phase6": "npm run build && node dist/agent/acceptance/phase6.js",
+    "acceptance:phase7": "bash agent/acceptance/phase7-launcher.sh",
+    "acceptance:phase8": "npm run build && node dist/agent/acceptance/phase8-operator.js",
+    "acceptance": "npm run acceptance:phase6 && npm run acceptance:phase7 && npm run acceptance:phase8",
+    "desktop:pack": "npm run build && electron-builder --dir",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "check": "npm run typecheck"
   },
+  "build": {
+    "appId": "com.marshal.desktop",
+    "productName": "Marshal",
+    "files": [
+      "dist/**/*",
+      "operator/static/**/*",
+      "open-chatgpt-browser-default-profile.sh",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": "dir"
+    },
+    "directories": {
+      "output": "release"
+    }
+  },
+  "main": "dist/desktop/main.js",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "playwright": "^1.54.2"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.24",
     "@types/node": "^24.3.0",
     "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.9.2"
   }
 }

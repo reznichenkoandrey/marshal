@@ -7,6 +7,9 @@ export type ExtensionState = {
   title: string;
   tabId: number | null;
   state: string;
+  visibilityState: string;
+  hasFocus: boolean;
+  activeTab: boolean;
   sessionKey: string;
   updatedAt: number;
 };
@@ -87,6 +90,13 @@ export class LocalBridgeServer {
     return this.waitForMatchingClient(timeoutMs, (client) => client.state === "ready");
   }
 
+  async waitForReadySessionClient(sessionKey: string, timeoutMs = 60_000): Promise<ExtensionState> {
+    return this.waitForMatchingClient(
+      timeoutMs,
+      (client) => client.sessionKey === sessionKey && client.state === "ready"
+    );
+  }
+
   getHealth(): {
     port: number;
     client: ExtensionState | null;
@@ -105,9 +115,12 @@ export class LocalBridgeServer {
   async sendCommand(
     kind: BridgeCommandKind,
     payload: Record<string, unknown>,
-    timeoutMs = 90_000
+    timeoutMs = 90_000,
+    preferredSessionKey?: string | null
   ): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
-    const targetClient = await this.waitForReadyClient();
+    const targetClient = preferredSessionKey
+      ? await this.waitForReadySessionClient(preferredSessionKey)
+      : await this.waitForReadyClient();
 
     const command: BridgeCommand = {
       id: randomUUID(),
@@ -178,6 +191,9 @@ export class LocalBridgeServer {
         title: String(body.title ?? ""),
         tabId,
         state: String(body.state ?? "unknown"),
+        visibilityState: String(body.visibilityState ?? "hidden"),
+        hasFocus: Boolean(body.hasFocus),
+        activeTab: Boolean(body.activeTab),
         sessionKey,
         updatedAt: Date.now()
       });
@@ -241,7 +257,7 @@ export class LocalBridgeServer {
       .filter((client) => isFreshClient(client))
       .filter((client) => isChatGPTUrl(client.url))
       .filter((client) => (predicate ? predicate(client) : true))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
+      .sort(compareClientsForRouting);
 
     return candidates[0] ?? null;
   }
@@ -283,6 +299,23 @@ function parseTabId(value: string | null): number | null {
 
 function isFreshClient(client: ExtensionState): boolean {
   return Date.now() - client.updatedAt < 15_000;
+}
+
+function compareClientsForRouting(left: ExtensionState, right: ExtensionState): number {
+  return (
+    compareBooleans(right.activeTab, left.activeTab) ||
+    compareVisibility(right.visibilityState, left.visibilityState) ||
+    compareBooleans(right.hasFocus, left.hasFocus) ||
+    right.updatedAt - left.updatedAt
+  );
+}
+
+function compareBooleans(left: boolean, right: boolean): number {
+  return Number(left) - Number(right);
+}
+
+function compareVisibility(left: string, right: string): number {
+  return Number(left === "visible") - Number(right === "visible");
 }
 
 function isChatGPTUrl(url: string): boolean {

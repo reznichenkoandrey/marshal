@@ -1,6 +1,5 @@
 export type DesktopBackendMethod =
   | "getHealth"
-  | "getBridgeHealth"
   | "listProjects"
   | "createProject"
   | "listSessions"

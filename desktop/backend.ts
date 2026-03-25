@@ -1,8 +1,33 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import "electron";
 
-import { getBridgeHealth, initializeBridgeHealthSurface } from "../agent/bridge/health.ts";
 import { OperatorTaskService } from "../operator/task-service.ts";
 import type { DesktopBackendMethod, DesktopBackendRequest, DesktopBackendResponse } from "./backend-types.ts";
+
+// Load .env from project root (utility process has its own env)
+const backendFilePath = fileURLToPath(import.meta.url);
+const projectRoot = path.resolve(path.dirname(backendFilePath), "..", "..");
+try {
+  const envContent = fs.readFileSync(path.join(projectRoot, ".env"), "utf8");
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex < 1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+} catch {
+  // .env not found
+}
 
 const service = new OperatorTaskService();
 const parentPort = process.parentPort;
@@ -13,7 +38,6 @@ if (!parentPort) {
 
 const handlers: Record<DesktopBackendMethod, (...params: unknown[]) => Promise<unknown>> = {
   getHealth: async () => service.getHealth(),
-  getBridgeHealth: async () => getBridgeHealth(),
   listProjects: async () => service.listProjects(),
   createProject: async (name?: unknown) => service.createProject(typeof name === "string" ? name : undefined),
   listSessions: async (projectId?: unknown) => service.listSessions(typeof projectId === "string" ? projectId : undefined),
@@ -37,7 +61,8 @@ const handlers: Record<DesktopBackendMethod, (...params: unknown[]) => Promise<u
       projectId: asOptionalString(payload.projectId),
       text: asRequiredString(payload.text, "text"),
       route: payload.route === "local" || payload.route === "browser" ? payload.route : "auto",
-      uploads: Array.isArray(payload.uploads) ? (payload.uploads as never[]) : []
+      uploads: Array.isArray(payload.uploads) ? (payload.uploads as never[]) : [],
+      workingDir: asOptionalString(payload.workingDir)
     });
   },
   getSessionPaths: async (input?: unknown) => {
@@ -50,7 +75,6 @@ void bootstrap();
 
 async function bootstrap(): Promise<void> {
   await service.initialize();
-  await initializeBridgeHealthSurface();
 
   parentPort.on("message", async (event) => {
     const message = event.data as DesktopBackendRequest;
