@@ -5,10 +5,12 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
   server: LocalBridgeServer;
   primed = false;
   projectName: string | null;
+  targetSessionKey: string | null;
 
   constructor(options: ReasoningBridgeOptions = {}, server = getSharedLocalBridgeServer()) {
     this.server = server;
     this.projectName = options.projectName?.trim() || process.env.CHATGPT_PROJECT_NAME?.trim() || null;
+    this.targetSessionKey = null;
   }
 
   async initialize(): Promise<void> {
@@ -21,12 +23,18 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
     console.log("1. Load the unpacked extension from dist/chrome-extension in your normal Chrome.");
     console.log("2. Open chatgpt.com in that Chrome session and log in there.");
     console.log(`3. Keep the ChatGPT tab open. The local bridge listens on http://127.0.0.1:${this.server.port}.`);
-    await this.server.waitForReadyClient(24 * 60 * 60 * 1000);
+    this.targetSessionKey = (await this.server.waitForReadyClient(24 * 60 * 60 * 1000)).sessionKey;
   }
 
   async resetConversation(): Promise<void> {
     await this.initialize();
-    const result = await this.server.sendCommand("reset_conversation", this.getProjectPayload());
+    await this.ensureTargetSession();
+    const result = await this.server.sendCommand(
+      "reset_conversation",
+      this.getProjectPayload(),
+      90_000,
+      this.targetSessionKey
+    );
     if (!result.ok) {
       throw new Error(result.error ?? "Extension failed to reset the ChatGPT conversation.");
     }
@@ -38,13 +46,16 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
     }
 
     await this.initialize();
+    await this.ensureTargetSession();
     const result = await this.server.sendCommand(
       "send_prompt",
       {
         prompt: initialPrompt,
+        responseMode: "ready_surface",
         ...this.getProjectPayload()
       },
-      180_000
+      180_000,
+      this.targetSessionKey
     );
     if (!result.ok) {
       throw new Error(result.error ?? "Extension failed to prime the ChatGPT conversation.");
@@ -55,10 +66,16 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
 
   async ask(prompt: string): Promise<string> {
     await this.initialize();
-    const result = await this.server.sendCommand("send_prompt", {
-      prompt,
-      ...this.getProjectPayload()
-    });
+    await this.ensureTargetSession();
+    const result = await this.server.sendCommand(
+      "send_prompt",
+      {
+        prompt,
+        ...this.getProjectPayload()
+      },
+      90_000,
+      this.targetSessionKey
+    );
     if (!result.ok) {
       throw new Error(result.error ?? "Extension failed to send the prompt to ChatGPT.");
     }
@@ -74,9 +91,18 @@ export class ExtensionChatGPTBridge implements ReasoningBridge {
   async close(): Promise<void> {
     await this.server.close();
     this.primed = false;
+    this.targetSessionKey = null;
   }
 
   private getProjectPayload(): Record<string, unknown> {
     return this.projectName ? { projectName: this.projectName } : {};
+  }
+
+  private async ensureTargetSession(): Promise<void> {
+    if (this.targetSessionKey) {
+      return;
+    }
+
+    this.targetSessionKey = (await this.server.waitForReadyClient()).sessionKey;
   }
 }

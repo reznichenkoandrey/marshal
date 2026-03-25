@@ -11,6 +11,8 @@ type TickState = {
   url: string;
   title: string;
   state: string;
+  visibilityState?: string;
+  hasFocus?: boolean;
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -38,12 +40,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleTick(tabId: number, state: TickState): Promise<void> {
   const clientId = await ensureClientId();
+  const tab = await chrome.tabs.get(tabId);
   await postJson("/session/hello", {
     clientId,
     tabId,
     url: state.url,
     title: state.title,
-    state: state.state
+    state: state.state,
+    visibilityState: state.visibilityState,
+    hasFocus: state.hasFocus,
+    activeTab: Boolean(tab.active)
   }).catch(() => undefined);
 
   const next = await fetchJson<{ ok: boolean; command: BridgeCommand | null }>(

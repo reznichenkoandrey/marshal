@@ -1,3 +1,5 @@
+import { createReasoningBridge } from "../agent/bridge/factory.ts";
+import type { ReasoningBridge } from "../agent/bridge/types.ts";
 import { runMarshalTask } from "../agent/runtime/marshal.ts";
 import type { ExecutionRoute, MarshalRuntimeEvent } from "../agent/runtime/types.ts";
 import { OperatorSessionStore } from "./session-store.ts";
@@ -15,6 +17,7 @@ type SubmitTaskInput = {
   text: string;
   route: ExecutionRoute;
   uploads: UploadPayload[];
+  workingDir?: string;
 };
 
 type OperatorHealth = {
@@ -36,10 +39,20 @@ type OperatorSessionPaths = {
 export class OperatorTaskService {
   readonly store: OperatorSessionStore;
   private sessionQueueTails = new Map<string, Promise<void>>();
+  private taskWorkingDirs = new Map<string, string>();
   private initializationPromise: Promise<void> | null = null;
+  private sharedBridge: ReasoningBridge | null = null;
 
   constructor(store = new OperatorSessionStore()) {
     this.store = store;
+  }
+
+  /** Get or create a shared bridge instance (singleton per service lifetime) */
+  private getSharedBridge(): ReasoningBridge {
+    if (!this.sharedBridge) {
+      this.sharedBridge = createReasoningBridge();
+    }
+    return this.sharedBridge;
   }
 
   async initialize(): Promise<void> {
@@ -88,6 +101,9 @@ export class OperatorTaskService {
   async submitTask(input: SubmitTaskInput): Promise<OperatorSession> {
     await this.initialize();
     const task = await this.store.createTaskFromMessage(input);
+    if (input.workingDir) {
+      this.taskWorkingDirs.set(task.id, input.workingDir);
+    }
     this.enqueueTask(input.sessionId, task.id);
     return this.store.readSession(input.sessionId, input.projectId);
   }
@@ -136,13 +152,16 @@ export class OperatorTaskService {
     await this.store.markTaskRunning(sessionId, taskId, session.projectId);
 
     try {
+      // Use UI-selected working directory, fallback to home
+      const workDir = this.taskWorkingDirs.get(taskId) ?? process.env.HOME ?? paths.workspaceDir;
+      this.taskWorkingDirs.delete(taskId);
       const result = await runMarshalTask({
         task: task.prompt,
         route: task.route,
         attachments: task.attachments,
-        workspaceRoot: paths.workspaceDir,
+        workspaceRoot: workDir,
         memoryDir: paths.memoryDir,
-        // Operator projects currently scope Marshal sessions and storage, not ChatGPT sidebar projects.
+        bridge: this.getSharedBridge(),
         onEvent: async (event) => {
           await this.store.appendTaskEvent(
             sessionId,

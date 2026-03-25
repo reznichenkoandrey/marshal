@@ -141,11 +141,8 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 if [ "$HAS_ANY_CHROME" = "1" ] && [ "$HAS_MANAGED_CHROME" != "1" ]; then
-  echo "Google Chrome is already running in another session."
-  echo "Expected profile: $PROFILE_NAME ($PROFILE_DIR)"
-  echo "Marshal will not quit the whole Chrome app automatically, because that would close other profiles too."
-  echo "Close the conflicting Chrome session first, then run this script again."
-  exit 1
+  echo "Chrome is already running. Opening a new window with profile \"$PROFILE_NAME\" ($PROFILE_DIR)."
+  echo "Note: if the extension fails to load, restart Chrome fully."
 fi
 
 if [ "$HAS_MANAGED_CHROME" = "1" ]; then

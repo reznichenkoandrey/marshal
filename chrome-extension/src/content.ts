@@ -85,11 +85,19 @@ async function executeCommand(command: BridgeCommand): Promise<CommandResult> {
   }
 }
 
-function collectPageState(): { url: string; title: string; state: string } {
+function collectPageState(): {
+  url: string;
+  title: string;
+  state: string;
+  visibilityState: DocumentVisibilityState;
+  hasFocus: boolean;
+} {
   return {
     url: window.location.href,
     title: document.title,
-    state: detectPageState()
+    state: detectPageState(),
+    visibilityState: document.visibilityState,
+    hasFocus: document.hasFocus()
   };
 }
 
@@ -203,19 +211,23 @@ function setComposerText(composer: HTMLElement, text: string): void {
   composer.focus();
 
   if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-    composer.value = text;
+    setNativeInputValue(composer, text);
+    composer.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, data: text, inputType: "insertText" }));
     composer.dispatchEvent(new Event("input", { bubbles: true }));
     composer.dispatchEvent(new Event("change", { bubbles: true }));
     return;
   }
 
-  composer.textContent = text;
+  composer.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, data: text, inputType: "insertText" }));
+  insertContentEditableText(composer, text);
   composer.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
+  composer.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 async function submitComposer(composer: HTMLElement, prompt: string): Promise<void> {
   const previousValue = readComposerText(composer);
   const previousUrl = window.location.href;
+  const previousAssistantCount = getAssistantMessageCount();
   await sleep(150);
   composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
   composer.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", bubbles: true }));
@@ -228,7 +240,9 @@ async function submitComposer(composer: HTMLElement, prompt: string): Promise<vo
   }
 
   const sendButton = await waitForSendButton(composer);
-  sendButton?.click();
+  if (sendButton) {
+    activateSendButton(sendButton);
+  }
   await sleep(250);
 
   if (didComposerSubmit(composer, previousValue, prompt)) {
@@ -247,11 +261,19 @@ async function submitComposer(composer: HTMLElement, prompt: string): Promise<vo
     await sleep(250);
   }
 
-  if (await waitForPromptSubmission(composer, previousValue, prompt, previousUrl)) {
+  if (await waitForPromptSubmission(composer, previousValue, prompt, previousUrl, previousAssistantCount)) {
     return;
   }
 
-  throw new Error("The ChatGPT composer did not submit the prompt.");
+  const snapshot = collectDebugSnapshot();
+  throw new Error(
+    [
+      "The ChatGPT composer did not submit the prompt.",
+      `Composer tag: ${String(snapshot.composerTag || "unknown")}`,
+      `Composer text length: ${String(snapshot.composerTextLength || 0)}`,
+      `Buttons: ${JSON.stringify(snapshot.composerButtons || [])}`
+    ].join(" ")
+  );
 }
 
 async function resetConversation(): Promise<void> {
@@ -469,10 +491,6 @@ function didComposerSubmit(composer: HTMLElement, previousValue: string, prompt:
   const normalizedPrompt = normalizeComparableText(prompt);
   const normalizedPrevious = normalizeComparableText(previousValue);
 
-  if (!normalizedCurrent) {
-    return true;
-  }
-
   if (normalizedCurrent !== normalizedPrompt && normalizedCurrent !== normalizedPrevious) {
     return true;
   }
@@ -480,7 +498,7 @@ function didComposerSubmit(composer: HTMLElement, previousValue: string, prompt:
   return false;
 }
 
-async function waitForSendButton(composer: HTMLElement, timeoutMs = 3_000): Promise<HTMLElement | null> {
+async function waitForSendButton(composer: HTMLElement, timeoutMs = 5_000): Promise<HTMLElement | null> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const button = resolveSendButton(composer);
@@ -499,11 +517,17 @@ async function waitForPromptSubmission(
   previousValue: string,
   prompt: string,
   previousUrl: string,
-  timeoutMs = 5_000
+  previousAssistantCount: number,
+  timeoutMs = 8_000
 ): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (window.location.href !== previousUrl || didComposerSubmit(composer, previousValue, prompt)) {
+    if (
+      window.location.href !== previousUrl ||
+      didComposerSubmit(composer, previousValue, prompt) ||
+      getAssistantMessageCount() > previousAssistantCount ||
+      isResponseInProgress()
+    ) {
       return true;
     }
 
@@ -519,6 +543,74 @@ function isDisabledElement(element: HTMLElement): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function activateSendButton(button: HTMLElement): void {
+  button.focus();
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+    button.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true }));
+  }
+  button.click();
+}
+
+function setNativeInputValue(input: HTMLTextAreaElement | HTMLInputElement, value: string): void {
+  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+  descriptor?.set?.call(input, value);
+}
+
+function insertContentEditableText(composer: HTMLElement, text: string): boolean {
+  const selection = window.getSelection();
+  if (!selection) {
+    return false;
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(composer);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  if (typeof document.execCommand === "function") {
+    try {
+      document.execCommand("selectAll", false);
+      document.execCommand("delete", false);
+      const inserted = document.execCommand("insertText", false, text);
+      if (inserted && normalizeComparableText(readComposerText(composer)) === normalizeComparableText(text)) {
+        return true;
+      }
+    } catch {
+      // Fallback to a paste-like path below.
+    }
+  }
+
+  return simulatePasteText(composer, text);
+}
+
+function simulatePasteText(composer: HTMLElement, text: string): boolean {
+  try {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    const pasteEvent = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data
+    });
+    composer.dispatchEvent(pasteEvent);
+    return normalizeComparableText(readComposerText(composer)) === normalizeComparableText(text);
+  } catch {
+    return false;
+  }
+}
+
+function getAssistantMessageCount(): number {
+  const main = document.querySelector("main");
+  return getVisibleConversationTexts(main, "[data-message-author-role='assistant']").length;
+}
+
+function isResponseInProgress(): boolean {
+  return queryVisible('[data-testid*="stop"], button[aria-label*="Stop"], button[aria-label*="Зупин"]')
+    .some((element) => !isDisabledElement(element));
 }
 
 function collectDebugSnapshot(): Record<string, unknown> {
@@ -559,6 +651,7 @@ function collectDebugSnapshot(): Record<string, unknown> {
     title: document.title,
     state: detectPageState(),
     composerText: composer ? readComposerText(composer) : "",
+    composerTextLength: composer ? readComposerText(composer).length : 0,
     composerTag: composer?.tagName ?? "",
     composerAriaLabel: composer?.getAttribute("aria-label") ?? "",
     composerContainerTag: composerContainer instanceof HTMLElement ? composerContainer.tagName : "",

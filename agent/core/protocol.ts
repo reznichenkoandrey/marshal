@@ -159,7 +159,7 @@ export function createStepPrompt(input: {
     "- Only return FINAL when the current step is proven complete by successful tool results.",
     "- Never claim a file was created, modified, read, verified, or listed unless a tool result in this task confirms it.",
     "- If a tool failed, report the limitation accurately instead of claiming success.",
-    "- Filesystem and shell tools can only access paths inside the workspace root.",
+    "- Respect workspace and filesystem access rules described above.",
     "- When the current step is complete, respond with FINAL: short step summary.",
     "- Do not include markdown fences or extra commentary."
   ]
