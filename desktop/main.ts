@@ -176,7 +176,7 @@ function registerIpcHandlers(): void {
     translatorWindow.showLoading("image");
     try {
       const result = await translatorService.translateImage(base64, mimeType, targetLang);
-      translatorWindow.showImageResult(result.translation);
+      translatorWindow.showImageResult(result.translation, result.targetLang);
       return result;
     } catch (err) {
       translatorWindow.showError(err instanceof Error ? err.message : String(err));
@@ -274,7 +274,7 @@ function initTranslator(): void {
 
         translatorWindow.showLoading("image");
         const result = await translatorService.translateImage(base64, "image/png", "uk");
-        translatorWindow.showImageResult(result.translation);
+        translatorWindow.showImageResult(result.translation, result.targetLang);
       } catch (err) {
         // Ensure the translator window is visible so the user sees the error
         translatorWindow.show();

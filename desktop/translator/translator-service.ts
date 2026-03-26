@@ -70,7 +70,7 @@ export class TranslatorService {
       {
         role: "user",
         content: [
-          { type: "text", text: `Extract all text from this image and translate it to ${targetName}. Return ONLY the translated text, no explanations.` },
+          { type: "text", text: `Extract ALL visible text from this image. Translate the extracted text to ${targetName}. If it is already in ${targetName}, return the original text unchanged. Output ONLY the final text — no comments, no explanations, no phrases like "there is no text".` },
           { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
         ]
       }

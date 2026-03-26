@@ -56,9 +56,9 @@ export class TranslatorWindow {
   }
 
   /** Sends translation result for image mode. */
-  showImageResult(translation: string): void {
+  showImageResult(translation: string, targetLang = "uk"): void {
     if (!this.win || this.win.isDestroyed()) return;
-    this.win.webContents.send("translator-result", { translation, mode: "image" });
+    this.win.webContents.send("translator-result", { translation, mode: "image", targetLang });
   }
 
   hide(): void {
