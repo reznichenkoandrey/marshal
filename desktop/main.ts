@@ -2,9 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
+import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
+import { TranslatorService } from "./translator/translator-service.ts";
+import { TranslatorWindow } from "./translator/translator-window.ts";
+import { ScreenshotService } from "./translator/screenshot-service.ts";
 
 // Load .env from project root before anything else
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -36,6 +40,11 @@ const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 
 const backendClient = new DesktopBackendClient();
+
+let translatorService: TranslatorService | null = null;
+let translatorWindow: TranslatorWindow | null = null;
+let screenshotService: ScreenshotService | null = null;
+let clipboardMonitor: ClipboardMonitor | null = null;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -69,6 +78,7 @@ async function bootstrap(): Promise<void> {
     createMainWindow();
     createTray();
     scheduleTrayRefresh();
+    initTranslator();
 
     app.on("activate", () => {
       if (!mainWindow) {
@@ -83,6 +93,8 @@ async function bootstrap(): Promise<void> {
         clearInterval(trayRefreshTimer);
         trayRefreshTimer = null;
       }
+      clipboardMonitor?.stop();
+      globalShortcut.unregister("CommandOrControl+Shift+2");
       backendClient.dispose();
     });
 
@@ -145,11 +157,131 @@ function registerIpcHandlers(): void {
     app.relaunch();
     app.exit(0);
   });
+
+  // Translator IPC handlers
+  handleIpc("marshal:translator-translate-text", async (_event, { text, targetLang }: { text: string; targetLang: "uk" | "en" }) => {
+    if (!translatorService || !translatorWindow) return;
+    translatorWindow.showLoading("text");
+    try {
+      const result = await translatorService.translateText(text, targetLang);
+      translatorWindow.showWithText(text, result.translation, result.sourceLang, result.targetLang);
+      return result;
+    } catch (err) {
+      translatorWindow.showError(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  handleIpc("marshal:translator-translate-image", async (_event, { base64, mimeType, targetLang }: { base64: string; mimeType: string; targetLang: "uk" | "en" }) => {
+    if (!translatorService || !translatorWindow) return;
+    translatorWindow.showLoading("image");
+    try {
+      const result = await translatorService.translateImage(base64, mimeType, targetLang);
+      translatorWindow.showImageResult(result.translation);
+      return result;
+    } catch (err) {
+      translatorWindow.showError(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  handleIpc("marshal:translator-capture-screen", async () => {
+    if (!screenshotService) return null;
+    return screenshotService.captureWithCrop();
+  });
+
+  handleIpc("marshal:translator-close", () => {
+    translatorWindow?.hide();
+  });
+
+  handleIpc("marshal:translator-open", () => {
+    translatorWindow?.show();
+  });
 }
 
 function handleIpc(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
   ipcMain.removeHandler(channel);
   ipcMain.handle(channel, listener);
+}
+
+function initTranslator(): void {
+  translatorService = new TranslatorService();
+  translatorWindow = new TranslatorWindow(preloadPath);
+  screenshotService = new ScreenshotService(preloadPath);
+
+  clipboardMonitor = new ClipboardMonitor();
+  clipboardMonitor.on("translate", (text: string) => {
+    if (!translatorWindow || !translatorService) return;
+
+    translatorWindow.showLoading("text");
+
+    translatorService
+      .translateAuto(text)
+      .then((result) => {
+        translatorWindow!.showWithText(text, result.translation, result.sourceLang, result.targetLang);
+      })
+      .catch((err: unknown) => {
+        translatorWindow!.showError(err instanceof Error ? err.message : String(err));
+      });
+  });
+
+  clipboardMonitor.start();
+
+  // Check required macOS permissions at startup and prompt user to grant them.
+  // Accessibility: needed for double Cmd+C detection via uiohook-napi.
+  //   ClipboardMonitor.startKeyHook() calls isTrustedAccessibilityClient(true)
+  //   which shows the macOS system prompt — no extra dialog needed here.
+  //
+  // Screen Recording: needed for desktopCapturer (OCR screenshot translation).
+  //   macOS 12+ no longer auto-prompts — user must grant manually.
+  if (process.platform === "darwin") {
+    const screenStatus = systemPreferences.getMediaAccessStatus("screen");
+    if (screenStatus !== "granted") {
+      setTimeout(() => {
+        void dialog.showMessageBox({
+          type: "info",
+          title: "Screen Recording Permission Required",
+          message: "Marshal needs Screen Recording access for OCR translation.",
+          detail:
+            "Go to System Settings → Privacy & Security → Screen Recording\n" +
+            "and enable Marshal.\n\n" +
+            "After granting, restart Marshal for the change to take effect.",
+          buttons: ["Open System Settings", "Later"],
+          defaultId: 0,
+          cancelId: 1
+        }).then(({ response }) => {
+          if (response === 0) {
+            void shell.openExternal(
+              "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            );
+          }
+        });
+      }, 2000);
+    }
+  }
+
+  // Global hotkey: Cmd+Shift+2 — screen capture → OCR translate
+  // Hide translator window first so it doesn't appear in the capture
+  globalShortcut.register("CommandOrControl+Shift+2", () => {
+    void (async () => {
+      if (!screenshotService || !translatorService || !translatorWindow) return;
+
+      translatorWindow.hide();
+      // Brief pause to let the window actually disappear before capturing
+      await new Promise<void>((r) => setTimeout(r, 120));
+
+      try {
+        const base64 = await screenshotService.captureWithCrop();
+        if (!base64) return; // user cancelled
+
+        translatorWindow.showLoading("image");
+        const result = await translatorService.translateImage(base64, "image/png", "uk");
+        translatorWindow.showImageResult(result.translation);
+      } catch (err) {
+        // Ensure the translator window is visible so the user sees the error
+        translatorWindow.show();
+        translatorWindow.showError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  });
 }
 
 function createMainWindow(): void {
@@ -210,6 +342,10 @@ function createTray(): void {
         label: "Open Marshal",
         click: () => showMainWindow()
       },
+      {
+        label: "Open Translator",
+        click: () => translatorWindow?.show()
+      },
       { type: "separator" },
       {
         label: "Quit",
@@ -268,14 +404,27 @@ function showMainWindow(): void {
 }
 
 function createTrayIcon(): Electron.NativeImage {
-  // Inline SVG rendered by Electron's nativeImage — guaranteed quality + transparency
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <rect width="32" height="32" rx="7" fill="#0b5c56"/>
-    <path d="M8 24V8h3.2l4.8 8.2L20.8 8H24v16h-2.7V13l-4.1 6.9h-2.4L10.7 13V24z" fill="#fff"/>
-  </svg>`;
-  const b64 = Buffer.from(svg).toString("base64");
-  // Create @2x image (32px rendered at scale 2 = 16pt logical)
-  const img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${b64}`);
-  // Don't resize — 32px at 2x scale = 16pt, perfect for macOS menu bar
+  // macOS template image: black glyph on transparent background.
+  // Electron + macOS auto-adapt for dark/light mode.
+  // Use "Template" suffix in filename — Electron recognizes this convention.
+  const trayIcon2xPath = path.join(projectRootDir, "assets", "tray-icon-template@2x.png");
+  const trayIconPath = path.join(projectRootDir, "assets", "tray-icon-template.png");
+
+  let img: Electron.NativeImage;
+
+  if (fs.existsSync(trayIcon2xPath)) {
+    img = nativeImage.createFromPath(trayIcon2xPath);
+    img = img.resize({ width: 18, height: 18 });
+  } else if (fs.existsSync(trayIconPath)) {
+    img = nativeImage.createFromPath(trayIconPath);
+  } else {
+    // Inline fallback
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 32 32">
+      <path d="M8 24V8h3.2l4.8 8.2L20.8 8H24v16h-2.7V13l-4.1 6.9h-2.4L10.7 13V24z" fill="black"/>
+    </svg>`;
+    img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+  }
+
+  img.setTemplateImage(true);
   return img;
 }

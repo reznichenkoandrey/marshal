@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        cursor: crosshair;
+        background: transparent;
+        user-select: none;
+      }
+
+      /*
+       * Initial dark overlay — covers entire screen before user starts dragging.
+       * The BrowserWindow is transparent:true, so OS content shows through
+       * semi-transparent areas (no screenshot needed).
+       */
+      #overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.42);
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      /*
+       * Selection box:
+       *  - transparent background → shows the real screen through (OS transparency)
+       *  - box-shadow 9999px rgba → dims everything outside the selection
+       * Combined: inside = bright real screen, outside = dimmed real screen.
+       */
+      #selection {
+        position: fixed;
+        border: 1.5px solid rgba(137, 180, 250, 0.95);
+        background: transparent;
+        display: none;
+        z-index: 3;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.48);
+      }
+
+      /* Corner handles */
+      .corner {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        background: #89b4fa;
+        border-radius: 1px;
+      }
+      .corner-tl { top: -1px; left: -1px; }
+      .corner-tr { top: -1px; right: -1px; }
+      .corner-bl { bottom: -1px; left: -1px; }
+      .corner-br { bottom: -1px; right: -1px; }
+
+      /* "Release to translate" label inside the selection */
+      #sel-hint {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(30, 30, 46, 0.88);
+        color: #cdd6f4;
+        font-family: -apple-system, sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 3px 8px;
+        border-radius: 4px;
+        white-space: nowrap;
+        display: none;
+        pointer-events: none;
+      }
+
+      /* Initial center hint */
+      #hint {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #ffffff;
+        font-family: -apple-system, sans-serif;
+        font-size: 15px;
+        font-weight: 500;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+        pointer-events: none;
+        z-index: 4;
+        text-align: center;
+        line-height: 1.7;
+      }
+
+      #hint span {
+        display: block;
+        font-size: 12px;
+        opacity: 0.6;
+        margin-top: 2px;
+      }
+
+      /* Size label near cursor */
+      #size-label {
+        position: fixed;
+        background: #89b4fa;
+        color: #1e1e2e;
+        font-family: -apple-system, sans-serif;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 5;
+        display: none;
+        letter-spacing: 0.3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay"></div>
+
+    <div id="selection">
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
+      <div id="sel-hint">Release to translate</div>
+    </div>
+
+    <div id="hint">
+      Drag to select region to translate
+      <span>Press Esc to cancel</span>
+    </div>
+    <div id="size-label"></div>
+
+    <script>
+      const api = window.marshalTranslator;
+      const sel = document.getElementById("selection");
+      const hint = document.getElementById("hint");
+      const selHint = document.getElementById("sel-hint");
+      const sizeLabel = document.getElementById("size-label");
+      const overlay = document.getElementById("overlay");
+
+      let startX = 0, startY = 0, isDragging = false;
+
+      // onCropInit is no longer used for display (screenshot shown via OS transparency)
+      // but keep the listener so the main process flow is not broken
+      api.onCropInit(() => {});
+
+      document.addEventListener("mousedown", (e) => {
+        startX = e.clientX;
+        startY = e.clientY;
+        isDragging = true;
+
+        // Hide initial overlay — selection box-shadow takes over the darkening
+        overlay.style.display = "none";
+        hint.style.display = "none";
+
+        sel.style.display = "block";
+        sel.style.left = startX + "px";
+        sel.style.top = startY + "px";
+        sel.style.width = "0";
+        sel.style.height = "0";
+        selHint.style.display = "none";
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const x = Math.min(e.clientX, startX);
+        const y = Math.min(e.clientY, startY);
+        const w = Math.abs(e.clientX - startX);
+        const h = Math.abs(e.clientY - startY);
+
+        sel.style.left = x + "px";
+        sel.style.top = y + "px";
+        sel.style.width = w + "px";
+        sel.style.height = h + "px";
+
+        selHint.style.display = (w > 80 && h > 40) ? "block" : "none";
+
+        sizeLabel.style.display = "block";
+        sizeLabel.style.left = (e.clientX + 12) + "px";
+        sizeLabel.style.top = (e.clientY + 12) + "px";
+        sizeLabel.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+      });
+
+      document.addEventListener("mouseup", (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        sizeLabel.style.display = "none";
+
+        const x = Math.min(e.clientX, startX);
+        const y = Math.min(e.clientY, startY);
+        const w = Math.abs(e.clientX - startX);
+        const h = Math.abs(e.clientY - startY);
+
+        if (w < 10 || h < 10) {
+          api.cancelCrop();
+          return;
+        }
+
+        api.selectCrop({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") api.cancelCrop();
+      });
+    </script>
+  </body>
+</html>
