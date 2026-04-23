@@ -11,21 +11,12 @@ const desktopRendererDistDir = path.join(root, "dist", "desktop", "renderer");
 const bridgePort = String(Number(process.env.CHATGPT_EXTENSION_BRIDGE_PORT ?? "3210"));
 const sanitizedScripts = [
   path.join(distDir, "src", "background.js"),
-  path.join(distDir, "src", "content.js"),
   path.join(distDir, "src", "sidepanel", "sidepanel.js"),
-  path.join(distDir, "src", "picker", "element-picker.js"),
-  path.join(distDir, "src", "injector", "chat-input-injector.js"),
-  path.join(distDir, "src", "agent", "page-capture.js"),
-  path.join(distDir, "src", "agent", "action-executor.js"),
-  path.join(distDir, "src", "agent", "prompt-builder.js")
+  path.join(distDir, "src", "picker", "element-picker.js")
 ];
 
-// Static assets that tsc does not emit (HTML, CSS, JSON)
+// Static assets that tsc does not emit (HTML, CSS)
 const staticAssets = [
-  {
-    from: path.join(root, "chrome-extension", "rules.json"),
-    to: path.join(distDir, "rules.json")
-  },
   {
     from: path.join(root, "chrome-extension", "src", "sidepanel", "sidepanel.html"),
     to: path.join(distDir, "src", "sidepanel", "sidepanel.html")

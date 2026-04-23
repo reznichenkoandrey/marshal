@@ -9,22 +9,10 @@
 <body>
   <header id="toolbar">
     <div class="toolbar-row">
-      <select id="providerSelect"></select>
-      <button id="reloadBtn" title="Reload provider">&#x21BB;</button>
-      <a id="openExternalLink" target="_blank" title="Open in new tab">&#x2197;</a>
+      <div id="providerLabel">Claude (via desktop subscription)</div>
+      <button id="resetBtn" title="Reset conversation">&#x21BB;</button>
     </div>
 
-    <!-- Prompt input area -->
-    <div class="prompt-area">
-      <textarea id="promptInput" rows="2" placeholder="Pick an element on the page, then type your question here..."></textarea>
-      <div class="prompt-actions">
-        <button id="sendBtn" class="action-btn primary" title="Send prompt + current page context to the AI">Ask AI</button>
-        <button id="agentBtn" class="action-btn agent" title="Let the AI take actions on the page autonomously">Run agent</button>
-        <button id="stopBtn" class="action-btn stop" hidden title="Stop agent">Stop</button>
-      </div>
-    </div>
-
-    <!-- Capture buttons -->
     <div class="toolbar-row capture-row">
       <button id="captureTextBtn" class="capture-btn" title="Click an element on the page, grab its visible text">📍 Pick text</button>
       <button id="captureHtmlBtn" class="capture-btn" title="Click an element on the page, grab its HTML">📍 Pick HTML</button>
@@ -34,16 +22,23 @@
     <div id="statusText" role="status"></div>
   </header>
 
-  <!-- Step log for agent mode -->
-  <div id="stepLog" hidden></div>
+  <main id="chatArea">
+    <div id="messageList"></div>
 
-  <!-- AI provider iframe -->
-  <iframe
-    id="providerFrame"
-    src="about:blank"
-    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
-    allow="clipboard-read; clipboard-write"
-  ></iframe>
+    <div id="contextChip" class="context-chip" hidden>
+      <span class="context-label">Context attached</span>
+      <span id="contextPreview"></span>
+      <button id="clearContextBtn" title="Clear attached context">×</button>
+    </div>
+
+    <div class="composer">
+      <textarea id="promptInput" rows="3" placeholder="Ask Claude about the current page, or anything else… (Shift+Enter = newline)"></textarea>
+      <div class="composer-actions">
+        <button id="sendBtn" class="action-btn primary">Ask Claude</button>
+        <button id="stopBtn" class="action-btn stop" hidden>Stop</button>
+      </div>
+    </div>
+  </main>
 
   <script src="sidepanel.js"></script>
 </body>

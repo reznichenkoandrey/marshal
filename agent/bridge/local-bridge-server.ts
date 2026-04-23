@@ -1,5 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { ClaudeCliBridge } from "./claude-cli-bridge.ts";
+import type { ReasoningBridge } from "./types.ts";
 
 export type ExtensionState = {
   clientId: string;
@@ -36,6 +38,10 @@ export class LocalBridgeServer {
   queue: BridgeCommand[] = [];
   pendingResults = new Map<string, PendingResult>();
   clients = new Map<string, ExtensionState>();
+  // Per-session Claude CLI bridges for the /chat endpoint used by the
+  // Chrome side-panel. Each session keeps its own conversation id so the
+  // user can have independent threads across tabs.
+  private chatBridges = new Map<string, ReasoningBridge>();
 
   constructor(port = Number(process.env.CHATGPT_EXTENSION_BRIDGE_PORT ?? "3210")) {
     this.port = port;
@@ -70,6 +76,11 @@ export class LocalBridgeServer {
     this.pendingResults.clear();
     this.queue = [];
     this.clients.clear();
+
+    for (const bridge of this.chatBridges.values()) {
+      await bridge.close().catch(() => undefined);
+    }
+    this.chatBridges.clear();
 
     if (!this.server) {
       return;
@@ -180,6 +191,23 @@ export class LocalBridgeServer {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/chat") {
+      await this.handleChatRequest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/chat/reset") {
+      const body = await readJsonBody(request);
+      const sessionId = String(body.sessionId ?? "default");
+      const existing = this.chatBridges.get(sessionId);
+      if (existing) {
+        await existing.close().catch(() => undefined);
+        this.chatBridges.delete(sessionId);
+      }
+      writeJson(response, 200, { ok: true });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/session/hello") {
       const body = await readJsonBody(request);
       const tabId = typeof body.tabId === "number" ? body.tabId : null;
@@ -248,6 +276,44 @@ export class LocalBridgeServer {
     }
 
     writeJson(response, 404, { ok: false, error: `Unsupported bridge route: ${request.method} ${url.pathname}` });
+  }
+
+  private async handleChatRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    const body = await readJsonBody(request);
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) {
+      writeJson(response, 400, { ok: false, error: "prompt is required" });
+      return;
+    }
+
+    const sessionId = String(body.sessionId ?? "default");
+    const context = typeof body.context === "string" ? body.context : "";
+    const systemPrompt = typeof body.systemPrompt === "string" ? body.systemPrompt : null;
+    const fullPrompt = context ? `${context}\n\n---\n\n${prompt}` : prompt;
+
+    let bridge = this.chatBridges.get(sessionId);
+    if (!bridge) {
+      bridge = new ClaudeCliBridge();
+      try {
+        await bridge.initialize();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Claude CLI initialization failed.";
+        writeJson(response, 500, { ok: false, error: message });
+        return;
+      }
+      if (systemPrompt) {
+        await bridge.prime(systemPrompt);
+      }
+      this.chatBridges.set(sessionId, bridge);
+    }
+
+    try {
+      const text = await bridge.ask(fullPrompt);
+      writeJson(response, 200, { ok: true, data: { text, sessionId } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Claude CLI request failed.";
+      writeJson(response, 500, { ok: false, error: message });
+    }
   }
 
   private getPreferredClient(predicate?: (client: ExtensionState) => boolean): ExtensionState | null {

@@ -14,6 +14,7 @@ import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-s
 import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
+import { getSharedLocalBridgeServer } from "../agent/bridge/local-bridge-server.ts";
 
 // Load .env from project root before anything else. `override: false` matches
 // the previous custom parser's behaviour — existing environment variables win
@@ -88,6 +89,7 @@ async function bootstrap(): Promise<void> {
     scheduleTrayRefresh();
     initTranslator();
     initDictation();
+    void initExtensionBridge();
 
     app.on("activate", () => {
       if (!mainWindow) {
@@ -297,6 +299,19 @@ async function performTeardown(): Promise<void> {
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
   await backendClient.disposeAsync();
+  await getSharedLocalBridgeServer().close().catch(() => undefined);
+}
+
+async function initExtensionBridge(): Promise<void> {
+  // HTTP server on 127.0.0.1:3210 that the Chrome side-panel talks to for
+  // `/chat` (Claude CLI subscription) and picker routing. Must be up before
+  // the user opens the side panel — the extension fails loudly otherwise.
+  try {
+    await getSharedLocalBridgeServer().start();
+    console.log(`[marshal] extension bridge listening on http://127.0.0.1:${getSharedLocalBridgeServer().port}`);
+  } catch (error) {
+    console.error("[marshal] extension bridge failed to start:", error);
+  }
 }
 
 function initDictation(): void {

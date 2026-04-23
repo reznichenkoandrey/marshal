@@ -113,7 +113,8 @@
   function sendResult(payload: string): void {
     chrome.runtime.sendMessage({
       type: "marshal-picker-result",
-      payload
+      payload,
+      sourceUrl: window.location.href
     });
   }
 
