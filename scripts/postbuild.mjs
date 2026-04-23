@@ -53,12 +53,6 @@ await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 if (process.platform === "darwin") {
   const swiftTargets = [
     {
-      src: path.join(root, "desktop", "translator", "pasteboard-watcher.swift"),
-      out: path.join(root, "dist", "desktop", "translator", "pasteboard-watcher"),
-      label: "pasteboard-watcher",
-      fallbackNote: "double Cmd+C will fall back to polling"
-    },
-    {
       src: path.join(root, "desktop", "dictation", "audio-recorder.swift"),
       out: path.join(root, "dist", "desktop", "dictation", "audio-recorder"),
       label: "audio-recorder",
