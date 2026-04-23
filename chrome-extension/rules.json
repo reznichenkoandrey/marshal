@@ -15,6 +15,21 @@
     }
   },
   {
+    "id": 4,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "X-Frame-Options", "operation": "remove" },
+        { "header": "Content-Security-Policy", "operation": "remove" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||openai.com",
+      "resourceTypes": ["sub_frame"]
+    }
+  },
+  {
     "id": 2,
     "priority": 1,
     "action": {
