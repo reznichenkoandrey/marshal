@@ -26,7 +26,7 @@ import {
   type WhisperBackend
 } from "./whisper-backend.ts";
 
-const DEFAULT_HOTKEY = "Cmd+Shift+D";
+const DEFAULT_HOTKEY = "RightCmd";
 const currentFilePath = fileURLToPath(import.meta.url);
 const distDictationDir = path.dirname(currentFilePath);
 const DEFAULT_RECORDER_BIN = path.join(distDictationDir, "audio-recorder");

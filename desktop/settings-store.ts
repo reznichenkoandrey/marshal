@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   claudeModel: "sonnet",
   codexModel: "",
   dictationEnabled: true,
-  dictationHotkey: "Cmd+Shift+D",
+  dictationHotkey: "RightCmd",
   dictationBackend: "whisper-cpp",
   dictationAutoPaste: false
 };

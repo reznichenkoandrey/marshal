@@ -48,6 +48,25 @@ describe("parseHotkey", () => {
   it("throws on unknown key names", () => {
     expect(() => parseHotkey("Cmd+GlyphThatDoesNotExist")).toThrow(/Unknown key/iu);
   });
+
+  it("parses a pure right-Cmd hotkey", () => {
+    // `RightCmd` alone should be a valid push-to-talk trigger: the modifier
+    // flag in the resulting spec is false, even though pressing it raises
+    // event.metaKey=true at runtime.
+    expect(parseHotkey("RightCmd")).toEqual({
+      keycode: 3676,
+      meta: false,
+      ctrl: false,
+      alt: false,
+      shift: false
+    });
+  });
+
+  it("accepts RCmd / CmdRight aliases", () => {
+    expect(parseHotkey("RCmd").keycode).toBe(3676);
+    expect(parseHotkey("CmdRight").keycode).toBe(3676);
+    expect(parseHotkey("LeftCmd").keycode).toBe(3675);
+  });
 });
 
 describe("matchesHotkey", () => {
@@ -100,6 +119,47 @@ describe("matchesHotkey", () => {
           shiftKey: true
         } as never,
         spec
+      )
+    ).toBe(false);
+  });
+
+  it("ignores metaKey flag when target key IS the meta modifier", () => {
+    // Pressing RightCmd alone: metaKey=true, everything else false.
+    // The hotkey spec itself has meta=false — but we should still match,
+    // because the meta flag is a side-effect of pressing the target key.
+    const rightCmd = parseHotkey("RightCmd");
+    expect(
+      matchesHotkey(
+        {
+          type: 4,
+          time: 0,
+          keycode: 3676,
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: false
+        } as never,
+        rightCmd
+      )
+    ).toBe(true);
+  });
+
+  it("still rejects foreign modifiers when target is a modifier", () => {
+    // Holding RightCmd + Shift while releasing should NOT match a pure
+    // RightCmd hotkey — shift is extra.
+    const rightCmd = parseHotkey("RightCmd");
+    expect(
+      matchesHotkey(
+        {
+          type: 4,
+          time: 0,
+          keycode: 3676,
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: true
+        } as never,
+        rightCmd
       )
     ).toBe(false);
   });

@@ -24,6 +24,45 @@ const MODIFIER_TOKENS = new Set([
   "shift"
 ]);
 
+// Aliases that resolve to a specific physical modifier key used as the TARGET
+// of the hotkey (e.g. "RightCmd" alone is a valid push-to-talk trigger).
+const KEY_ALIASES: Record<string, keyof typeof UiohookKey> = {
+  rightcmd: "MetaRight",
+  rcmd: "MetaRight",
+  rightcommand: "MetaRight",
+  cmdright: "MetaRight",
+  commandright: "MetaRight",
+  leftcmd: "Meta",
+  lcmd: "Meta",
+  leftcommand: "Meta",
+  cmdleft: "Meta",
+  commandleft: "Meta",
+  rightshift: "ShiftRight",
+  rshift: "ShiftRight",
+  leftshift: "Shift",
+  lshift: "Shift",
+  rightctrl: "CtrlRight",
+  rctrl: "CtrlRight",
+  leftctrl: "Ctrl",
+  lctrl: "Ctrl",
+  rightalt: "AltRight",
+  ralt: "AltRight",
+  leftalt: "Alt",
+  lalt: "Alt",
+  rightoption: "AltRight",
+  roption: "AltRight",
+  leftoption: "Alt",
+  loption: "Alt"
+};
+
+// Keycodes that ARE modifiers. When one of these is the hotkey's target key,
+// its corresponding modifier flag in the event stream should be ignored
+// during matching (pressing right-Cmd naturally raises metaKey=true).
+const META_KEYCODES = new Set<number>([UiohookKey.Meta, UiohookKey.MetaRight]);
+const SHIFT_KEYCODES = new Set<number>([UiohookKey.Shift, UiohookKey.ShiftRight]);
+const CTRL_KEYCODES = new Set<number>([UiohookKey.Ctrl, UiohookKey.CtrlRight]);
+const ALT_KEYCODES = new Set<number>([UiohookKey.Alt, UiohookKey.AltRight]);
+
 /**
  * Parses strings like "Cmd+Shift+D" into the modifier-flag + keycode shape
  * uiohook keyboard events use. Accepts mac-style aliases (Cmd, Option,
@@ -46,7 +85,8 @@ export function parseHotkey(raw: string): HotkeySpec {
       }
       continue;
     }
-    const keyName = resolveKeyName(part);
+    const aliased = KEY_ALIASES[lower];
+    const keyName = aliased ?? resolveKeyName(part);
     const code = (UiohookKey as Record<string, number>)[keyName];
     if (typeof code !== "number") {
       throw new Error(`Unknown key "${part}" in hotkey "${raw}"`);
@@ -69,13 +109,15 @@ function resolveKeyName(token: string): string {
 }
 
 export function matchesHotkey(event: UiohookKeyboardEvent, spec: HotkeySpec): boolean {
-  return (
-    event.keycode === spec.keycode &&
-    event.metaKey === spec.meta &&
-    event.ctrlKey === spec.ctrl &&
-    event.altKey === spec.alt &&
-    event.shiftKey === spec.shift
-  );
+  if (event.keycode !== spec.keycode) return false;
+  // If the target itself is a modifier key, ignore its own modifier flag —
+  // pressing right-Cmd makes event.metaKey=true, which is expected, not a
+  // disqualifying "extra" modifier.
+  if (!META_KEYCODES.has(spec.keycode) && event.metaKey !== spec.meta) return false;
+  if (!SHIFT_KEYCODES.has(spec.keycode) && event.shiftKey !== spec.shift) return false;
+  if (!CTRL_KEYCODES.has(spec.keycode) && event.ctrlKey !== spec.ctrl) return false;
+  if (!ALT_KEYCODES.has(spec.keycode) && event.altKey !== spec.alt) return false;
+  return true;
 }
 
 export type HotkeyManagerEvents = {

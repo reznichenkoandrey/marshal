@@ -37,6 +37,7 @@ describe("loadSettings", () => {
     expect(s.bridgeMode).toBe("claude-cli");
     expect(s.claudeModel).toBe("sonnet");
     expect(s.codexModel).toBe("");
+    expect(s.dictationHotkey).toBe("RightCmd");
   });
 
   it("returns defaults when file is corrupt", () => {
@@ -94,7 +95,7 @@ describe("saveSettings", () => {
       dictationHotkey: "   "
     });
     expect(saved.dictationBackend).toBe("whisper-cpp");
-    expect(saved.dictationHotkey).toBe("Cmd+Shift+D");
+    expect(saved.dictationHotkey).toBe("RightCmd");
   });
 });
 
