@@ -18,7 +18,7 @@ All three surface into one Electron tray app; dictation and translator work full
 
 ### Floating translator
 - Double ⌘C on any text → auto-detected translation (uk ↔ en) in a cursor-anchored window.
-- ⌘⇧T hotkey anywhere opens the translator with your current clipboard.
+- ⌘⌥T hotkey anywhere opens the translator with your current clipboard.
 - ⌘⇧2 captures a screen region, OCRs + translates it (Groq vision model).
 - History of the last 20 translations, ↑/↓ recall when the input is empty.
 
@@ -74,7 +74,7 @@ Packaged builds (`npm run desktop:pack`) carry the same keys via `package.json �
 | Shortcut | Action |
 |---|---|
 | **Right Cmd (hold)** | Dictation — hold, speak, release → transcript in clipboard |
-| **⌘⇧T** | Translate current clipboard text |
+| **⌘⌥T** | Translate current clipboard text |
 | **⌘⇧2** | Capture screen region → OCR + translate |
 | **double ⌘C** within 600 ms | Auto-translate just-copied text |
 

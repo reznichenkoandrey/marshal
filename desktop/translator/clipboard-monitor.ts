@@ -8,8 +8,11 @@
 // translator. Hooking the keyboard directly removes that entire class of
 // false positives: only two real ⌘C keystrokes in a row open the popup.
 //
-// Also exposes the dedicated Cmd+Shift+T global shortcut that always
+// Also exposes the dedicated Cmd+Option+T global shortcut that always
 // translates whatever is currently on the pasteboard, no double-copy needed.
+// We use Option (Alt) rather than Shift here because Cmd+Shift+T is the
+// "reopen closed tab" shortcut in Chrome/Safari — hijacking it globally
+// broke that muscle memory for users. Cmd+Option+T is unassigned in both.
 //
 // Requires macOS Accessibility permission (shared with voice dictation).
 // When it's missing, uiohook silently no-ops; the dedicated hotkey still
@@ -21,7 +24,7 @@ import { uIOhook, UiohookKey, type UiohookKeyboardEvent } from "uiohook-napi";
 
 const DOUBLE_COPY_WINDOW_MS = 600;
 const POST_COPY_READ_DELAY_MS = 80;
-const DEDICATED_HOTKEY = "CommandOrControl+Shift+T";
+const DEDICATED_HOTKEY = "CommandOrControl+Alt+T";
 const EMIT_DEBOUNCE_MS = 400;
 
 export class ClipboardMonitor extends EventEmitter {

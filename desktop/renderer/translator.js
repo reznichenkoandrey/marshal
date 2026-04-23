@@ -352,7 +352,7 @@ function renderHistoryPanel() {
   if (historyItems.length === 0) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "No translations yet. Use ⌘⇧T or capture a region to start.";
+    empty.textContent = "No translations yet. Use ⌘⌥T or capture a region to start.";
     dom.historyList.appendChild(empty);
     return;
   }
