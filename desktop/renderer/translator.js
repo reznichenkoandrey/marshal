@@ -5,6 +5,8 @@ const api = window.marshalTranslator;
 // ── State ──
 let targetLang = "uk";
 let currentTranslation = "";
+let historyItems = [];       // cached list of HistoryItem, most recent first
+let historyIndex = -1;       // cursor into historyItems when navigating with ↑/↓
 
 // ── DOM refs ──
 const dom = {
@@ -18,7 +20,12 @@ const dom = {
   // Header actions
   btnCapture: document.getElementById("btn-capture"),
   btnUpload: document.getElementById("btn-upload"),
+  btnHistory: document.getElementById("btn-history"),
   fileInput: document.getElementById("file-input"),
+  // History panel
+  historyPanel: document.getElementById("history-panel"),
+  historyList: document.getElementById("history-list"),
+  historyClear: document.getElementById("history-clear"),
   // Result
   resultLabel: document.getElementById("result-label"),
   resultText: document.getElementById("result-text"),
@@ -47,13 +54,61 @@ dom.inputText.addEventListener("input", () => {
   dom.btnTranslate.disabled = !dom.inputText.value.trim();
 });
 
-// ── ⌘↵ in textarea → translate ──
+// ── ⌘↵ in textarea → translate, ↑/↓ on empty input → history recall ──
 dom.inputText.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
     e.preventDefault();
     triggerTextTranslate();
+    return;
+  }
+  // Only hijack arrow keys when the textarea has no text — otherwise they are
+  // standard caret navigation.
+  if (dom.inputText.value === "" && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (historyItems.length === 0) return;
+    e.preventDefault();
+    if (e.key === "ArrowUp") {
+      historyIndex = Math.min(historyIndex + 1, historyItems.length - 1);
+      applyHistoryItem(historyItems[historyIndex]);
+    } else {
+      historyIndex = Math.max(historyIndex - 1, -1);
+      if (historyIndex === -1) {
+        clearInputAndResult();
+      } else {
+        applyHistoryItem(historyItems[historyIndex]);
+      }
+    }
   }
 });
+
+function applyHistoryItem(item) {
+  if (!item) return;
+  if (item.mode === "text") {
+    dom.inputText.value = item.text;
+    dom.btnTranslate.disabled = !item.text.trim();
+  } else {
+    dom.inputText.value = "";
+    dom.btnTranslate.disabled = true;
+  }
+  currentTranslation = item.translation;
+  dom.resultText.textContent = item.translation;
+  const src = (item.sourceLang || "").toUpperCase();
+  const tgt = (item.targetLang || "").toUpperCase();
+  dom.langBadge.textContent = src ? `${src} → ${tgt}` : `→ ${tgt}`;
+  dom.resultLabel.textContent = item.mode === "image"
+    ? `📷 OCR · → ${tgt}`
+    : `Translation · ${src || "?"} → ${tgt}`;
+  setState("result");
+}
+
+function clearInputAndResult() {
+  dom.inputText.value = "";
+  dom.btnTranslate.disabled = true;
+  currentTranslation = "";
+  dom.resultText.textContent = "";
+  dom.langBadge.textContent = "";
+  dom.resultLabel.textContent = "Translation";
+  setState("empty");
+}
 
 // ── Paste ──
 dom.btnPaste.addEventListener("click", async () => {
@@ -206,6 +261,92 @@ function showError(msg) {
   dom.resultText.style.display = "none";
 }
 
+// ── History panel ──
+
+dom.btnHistory?.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const visible = dom.historyPanel.style.display !== "none";
+  if (visible) {
+    dom.historyPanel.style.display = "none";
+  } else {
+    await refreshHistory();
+    renderHistoryPanel();
+    dom.historyPanel.style.display = "flex";
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (
+    dom.historyPanel.style.display !== "none" &&
+    !dom.historyPanel.contains(e.target) &&
+    e.target !== dom.btnHistory
+  ) {
+    dom.historyPanel.style.display = "none";
+  }
+});
+
+dom.historyClear?.addEventListener("click", async () => {
+  historyItems = await api.clearHistory();
+  historyIndex = -1;
+  renderHistoryPanel();
+});
+
+async function refreshHistory() {
+  try {
+    historyItems = (await api.listHistory()) || [];
+  } catch {
+    historyItems = [];
+  }
+}
+
+function renderHistoryPanel() {
+  dom.historyList.innerHTML = "";
+  if (historyItems.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "No translations yet. Use ⌘⇧T or capture a region to start.";
+    dom.historyList.appendChild(empty);
+    return;
+  }
+  historyItems.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "history-item";
+
+    const lang = document.createElement("div");
+    lang.className = "history-item-lang";
+    const src = (item.sourceLang || "").toUpperCase();
+    const tgt = (item.targetLang || "").toUpperCase();
+    lang.textContent = item.mode === "image"
+      ? `📷 → ${tgt}`
+      : `${src || "?"} → ${tgt}`;
+
+    const txt = document.createElement("div");
+    txt.className = "history-item-text";
+    txt.textContent = item.mode === "image"
+      ? item.translation
+      : (item.text || item.translation);
+
+    row.appendChild(lang);
+    row.appendChild(txt);
+    row.addEventListener("click", () => {
+      applyHistoryItem(item);
+      dom.historyPanel.style.display = "none";
+    });
+    dom.historyList.appendChild(row);
+  });
+}
+
+// Keep the cached history list fresh after every IPC result so ↑/↓ navigation
+// sees the newest entry without having to open the dropdown.
+const originalOnResult = api.onResult;
+if (originalOnResult) {
+  api.onResult(async () => {
+    await refreshHistory();
+    historyIndex = -1;
+  });
+}
+
 // Initialize
 setState("empty");
+void refreshHistory();
 requestAnimationFrame(() => dom.inputText.focus());

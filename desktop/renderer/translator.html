@@ -262,6 +262,78 @@
       }
       .copy-btn:hover { background: #45475a; }
       .copy-btn.copied { color: #a6e3a1; }
+
+      /* ── History panel ── */
+      .history-panel {
+        position: absolute;
+        top: 38px;
+        right: 8px;
+        width: 280px;
+        max-height: 300px;
+        background: #11111b;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        -webkit-app-region: no-drag;
+      }
+      .history-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        border-bottom: 1px solid #313244;
+        background: #181825;
+      }
+      .history-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #cdd6f4;
+        letter-spacing: 0.3px;
+      }
+      .history-clear {
+        background: transparent;
+        border: none;
+        color: #f38ba8;
+        font-size: 10px;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 3px;
+      }
+      .history-clear:hover { background: #313244; }
+      .history-list { overflow-y: auto; flex: 1; }
+      .history-item {
+        padding: 6px 10px;
+        border-bottom: 1px solid #1e1e2e;
+        cursor: pointer;
+        transition: background 0.1s;
+      }
+      .history-item:last-child { border-bottom: none; }
+      .history-item:hover { background: #1e1e2e; }
+      .history-item-lang {
+        font-size: 9px;
+        color: #6c7086;
+        letter-spacing: 0.5px;
+        margin-bottom: 2px;
+      }
+      .history-item-text {
+        font-size: 11px;
+        color: #cdd6f4;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .history-empty {
+        padding: 16px;
+        text-align: center;
+        color: #45475a;
+        font-size: 11px;
+      }
     </style>
   </head>
   <body>
@@ -277,6 +349,8 @@
       </div>
 
       <div class="header-right">
+        <!-- History -->
+        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">⟲</button>
         <!-- Screen capture button -->
         <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)">⌖</button>
         <!-- Upload image button -->
@@ -285,6 +359,15 @@
         <!-- Close -->
         <button class="icon-btn close" id="close-btn" title="Close (Esc)">✕</button>
       </div>
+    </div>
+
+    <!-- History dropdown -->
+    <div id="history-panel" class="history-panel" style="display:none">
+      <div class="history-header">
+        <span class="history-title">Recent translations</span>
+        <button class="history-clear" id="history-clear" title="Clear all history">Clear</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
     </div>
 
     <!-- Input area -->

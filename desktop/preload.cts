@@ -38,6 +38,9 @@ const translatorApi = {
     ipcRenderer.invoke("marshal:translator-translate-image", { base64, mimeType, targetLang }),
   captureScreen: () => ipcRenderer.invoke("marshal:translator-capture-screen"),
   close: () => ipcRenderer.invoke("marshal:translator-close"),
+  // History — list/clear for recalling past translations
+  listHistory: () => ipcRenderer.invoke("marshal:translator-history-list"),
+  clearHistory: () => ipcRenderer.invoke("marshal:translator-history-clear"),
   // Events from main → renderer. Each `on*` returns a disposer so callers can
   // detach the listener; all listeners are also flushed on `beforeunload`.
   onLoading: (cb: (event: IpcRendererEvent, data: { mode: string }) => void) =>

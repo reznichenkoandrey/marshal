@@ -8,6 +8,7 @@ import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell, gl
 import { DesktopBackendClient } from "./backend-client.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
+import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
@@ -30,6 +31,7 @@ let translatorService: TranslatorService | null = null;
 let translatorWindow: TranslatorWindow | null = null;
 let screenshotService: ScreenshotService | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
+let translatorHistory: TranslatorHistoryStore | null = null;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -175,6 +177,14 @@ function registerIpcHandlers(): void {
     try {
       const result = await service.translateText(text, targetLang);
       window.showWithText(text, result.translation, result.sourceLang, result.targetLang);
+      pushHistory({
+        text,
+        translation: result.translation,
+        sourceLang: result.sourceLang,
+        targetLang: result.targetLang,
+        mode: "text",
+        timestamp: Date.now()
+      });
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -189,12 +199,26 @@ function registerIpcHandlers(): void {
     try {
       const result = await service.translateImage(base64, mimeType, targetLang);
       window.showImageResult(result.translation, result.targetLang);
+      pushHistory({
+        text: "",
+        translation: result.translation,
+        sourceLang: result.sourceLang,
+        targetLang: result.targetLang,
+        mode: "image",
+        timestamp: Date.now()
+      });
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       window.showError(message);
       throw err instanceof Error ? err : new Error(message);
     }
+  });
+
+  handleIpc("marshal:translator-history-list", () => translatorHistory?.list() ?? []);
+  handleIpc("marshal:translator-history-clear", () => {
+    translatorHistory?.clear();
+    return [];
   });
 
   handleIpc("marshal:translator-capture-screen", async () => {
@@ -231,6 +255,14 @@ function ensureTranslator(): { service: TranslatorService; window: TranslatorWin
   return { service: translatorService, window: translatorWindow };
 }
 
+function pushHistory(item: HistoryItem): void {
+  try {
+    translatorHistory?.push(item);
+  } catch (err) {
+    console.warn("[marshal] failed to persist translator history:", err);
+  }
+}
+
 async function performTeardown(): Promise<void> {
   if (trayRefreshTimer) {
     clearInterval(trayRefreshTimer);
@@ -247,6 +279,7 @@ function initTranslator(): void {
   translatorService = new TranslatorService();
   translatorWindow = new TranslatorWindow(preloadPath);
   screenshotService = new ScreenshotService(preloadPath);
+  translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
 
   clipboardMonitor = new ClipboardMonitor();
   clipboardMonitor.on("translate", (text: string) => {
@@ -258,6 +291,14 @@ function initTranslator(): void {
       .translateAuto(text)
       .then((result) => {
         translatorWindow!.showWithText(text, result.translation, result.sourceLang, result.targetLang);
+        pushHistory({
+          text,
+          translation: result.translation,
+          sourceLang: result.sourceLang,
+          targetLang: result.targetLang,
+          mode: "text",
+          timestamp: Date.now()
+        });
       })
       .catch((err: unknown) => {
         translatorWindow!.showError(err instanceof Error ? err.message : String(err));
@@ -316,6 +357,14 @@ function initTranslator(): void {
         translatorWindow.showLoading("image");
         const result = await translatorService.translateImage(base64, "image/png", "uk");
         translatorWindow.showImageResult(result.translation, result.targetLang);
+        pushHistory({
+          text: "",
+          translation: result.translation,
+          sourceLang: result.sourceLang,
+          targetLang: result.targetLang,
+          mode: "image",
+          timestamp: Date.now()
+        });
       } catch (err) {
         // Ensure the translator window is visible so the user sees the error
         translatorWindow.show();
