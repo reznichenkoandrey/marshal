@@ -12,6 +12,9 @@ export interface TranslationResult {
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const DEFAULT_TEMPERATURE = 0.1;
+const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_MAX_RETRIES = 3;
 
 type ChatMessage =
   | { role: string; content: string }
@@ -32,12 +35,18 @@ export class TranslatorService {
   private readonly baseUrl: string;
   private readonly textModel: string;
   private readonly visionModel: string;
+  private readonly temperature: number;
+  private readonly maxTokens: number;
+  private readonly maxRetries: number;
 
   constructor() {
     this.apiKey = process.env.MARSHAL_API_KEY ?? "";
     this.baseUrl = (process.env.MARSHAL_API_BASE ?? DEFAULT_BASE_URL).replace(/\/+$/u, "");
     this.textModel = process.env.MARSHAL_MODEL ?? DEFAULT_TEXT_MODEL;
     this.visionModel = process.env.MARSHAL_VISION_MODEL ?? DEFAULT_VISION_MODEL;
+    this.temperature = parseFloatEnv("MARSHAL_TRANSLATOR_TEMPERATURE", DEFAULT_TEMPERATURE);
+    this.maxTokens = parseIntEnv("MARSHAL_TRANSLATOR_MAX_TOKENS", DEFAULT_MAX_TOKENS);
+    this.maxRetries = parseIntEnv("MARSHAL_TRANSLATOR_MAX_RETRIES", DEFAULT_MAX_RETRIES);
   }
 
   async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
@@ -136,32 +145,46 @@ export class TranslatorService {
     const body: Record<string, unknown> = {
       model,
       messages,
-      temperature: 0.1,
-      max_tokens: options.maxTokens ?? 2048
+      temperature: this.temperature,
+      max_tokens: options.maxTokens ?? this.maxTokens
     };
     if (options.json) {
       body.response_format = { type: "json_object" };
     }
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
+    // Retry on rate-limit (429) and transient 5xx responses with exponential
+    // backoff. Honour `Retry-After` when present.
+    let lastError: Error = new Error("No request attempted");
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
 
-    if (!response.ok) {
-      const error = await response.text().catch(() => "Unknown error");
-      throw new Error(`API error ${response.status}: ${error}`);
+      if (response.ok) {
+        const data = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        return data.choices?.[0]?.message?.content ?? "";
+      }
+
+      const status = response.status;
+      const errorText = await response.text().catch(() => "Unknown error");
+      lastError = new Error(`API error ${status}: ${errorText}`);
+
+      const retryable = status === 429 || (status >= 500 && status < 600);
+      if (!retryable || attempt === this.maxRetries) break;
+
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+      const backoffMs = retryAfterMs ?? Math.min(1000 * 2 ** attempt, 8000);
+      await sleep(backoffMs);
     }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    return data.choices?.[0]?.message?.content ?? "";
+    throw lastError;
   }
 }
 
@@ -175,4 +198,35 @@ function extractBracedJson(raw: string): string {
   const last = raw.lastIndexOf("}");
   if (first === -1 || last === -1 || last <= first) return "";
   return raw.slice(first, last + 1);
+}
+
+function parseFloatEnv(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseIntEnv(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseRetryAfterMs(headerValue: string | null): number | null {
+  if (!headerValue) return null;
+  // RFC 7231: either delta-seconds or HTTP-date. Groq emits delta-seconds.
+  const seconds = Number.parseFloat(headerValue);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  const dateMs = Date.parse(headerValue);
+  if (!Number.isNaN(dateMs)) {
+    const delta = dateMs - Date.now();
+    if (delta > 0) return Math.min(delta, 30_000);
+  }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

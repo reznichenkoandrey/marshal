@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { config as loadDotenv } from "dotenv";
 import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
@@ -11,31 +12,14 @@ import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
 
-// Load .env from project root before anything else
+// Load .env from project root before anything else. `override: false` matches
+// the previous custom parser's behaviour — existing environment variables win
+// over values declared in the .env file.
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 const projectRootDir = path.resolve(desktopDistDir, "..", "..");
 const envPath = path.join(projectRootDir, ".env");
-try {
-  const envContent = fs.readFileSync(envPath, "utf8");
-  for (const line of envContent.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex < 1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    // Strip surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
-  }
-} catch {
-  // .env not found — use existing env vars
-}
+loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");

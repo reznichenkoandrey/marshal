@@ -1,26 +1,58 @@
 {
   "manifest_version": 3,
-  "name": "Marshal ChatGPT Bridge",
-  "version": "0.1.0",
-  "description": "Local bridge between Marshal agent and a real ChatGPT tab in Chrome.",
-  "permissions": ["storage", "tabs"],
+  "name": "Marshal AI Bridge",
+  "version": "0.2.0",
+  "description": "Side panel with ChatGPT, Claude, and Gemini — plus a local bridge for the Marshal agent.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "sidePanel",
+    "declarativeNetRequest",
+    "activeTab",
+    "scripting"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
   "background": {
     "service_worker": "src/background.js"
   },
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "strip_iframe_headers",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": ["src/content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["src/injector/chat-input-injector.js"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "action": {
-    "default_title": "Marshal ChatGPT Bridge"
+    "default_title": "Marshal AI"
   }
 }
