@@ -121,9 +121,19 @@ describe("saveSettings", () => {
     expect(saved.dictationHotkey).toBe("RightCmd");
   });
 
-  it("falls back to claude-cli for invalid translatorBackend", () => {
+  it("falls back to auto for invalid translatorBackend", () => {
     const saved = saveSettings({ translatorBackend: "mistral" as never });
-    expect(saved.translatorBackend).toBe("claude-cli");
+    expect(saved.translatorBackend).toBe("auto");
+  });
+
+  it("accepts `auto` as a valid translatorBackend", () => {
+    const saved = saveSettings({ translatorBackend: "auto" });
+    expect(saved.translatorBackend).toBe("auto");
+  });
+
+  it("accepts the new claude-api / openai-api backends", () => {
+    expect(saveSettings({ translatorBackend: "claude-api" }).translatorBackend).toBe("claude-api");
+    expect(saveSettings({ translatorBackend: "openai-api" }).translatorBackend).toBe("openai-api");
   });
 });
 
@@ -148,7 +158,18 @@ describe("applySettingsToEnv", () => {
   });
 
   it("sets MARSHAL_TRANSLATOR_BACKEND", () => {
-    applySettingsToEnv({ bridgeMode: "claude-cli", claudeModel: "", codexModel: "", translatorBackend: "codex-cli" });
+    applySettingsToEnv({
+      bridgeMode: "claude-cli",
+      claudeModel: "",
+      codexModel: "",
+      translatorBackend: "codex-cli",
+      dictationEnabled: true,
+      dictationHotkey: "RightCmd",
+      dictationBackend: "whisper-cpp",
+      dictationLanguage: "auto",
+      dictationAutoPaste: false,
+      dictationPrompt: ""
+    });
     expect(process.env.MARSHAL_TRANSLATOR_BACKEND).toBe("codex-cli");
   });
 });

@@ -33,13 +33,18 @@ type ChatOptions = {
 };
 
 /**
- * Groq-hosted OpenAI-compatible translator backend. Fastest and cheapest of
- * the three, but requires an explicit API key (`MARSHAL_API_KEY`). Kept as an
- * opt-in choice; the default backend is `claude-cli` so that users on a Claude
- * Pro/Max subscription translate without any extra keys.
+ * OpenAI-compatible translator backend. Drives any provider that speaks the
+ * OpenAI chat-completions protocol: Groq (default, free tier), OpenRouter,
+ * OpenAI itself, Together.ai, Fireworks, etc.
+ *
+ * Env vars:
+ *   MARSHAL_API_KEY         — required
+ *   MARSHAL_API_BASE        — optional (default Groq)
+ *   MARSHAL_MODEL           — optional text model override
+ *   MARSHAL_VISION_MODEL    — optional vision model override
  */
-export class GroqTranslatorBackend implements TranslatorBackend {
-  readonly id: TranslatorBackendId = "groq";
+export class OpenAiApiTranslatorBackend implements TranslatorBackend {
+  readonly id: TranslatorBackendId;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -49,7 +54,8 @@ export class GroqTranslatorBackend implements TranslatorBackend {
   private readonly maxTokens: number;
   private readonly maxRetries: number;
 
-  constructor() {
+  constructor(id: TranslatorBackendId = "openai-api") {
+    this.id = id;
     this.apiKey = process.env.MARSHAL_API_KEY ?? "";
     this.baseUrl = (process.env.MARSHAL_API_BASE ?? DEFAULT_BASE_URL).replace(/\/+$/u, "");
     this.textModel = process.env.MARSHAL_MODEL ?? DEFAULT_TEXT_MODEL;
@@ -60,7 +66,7 @@ export class GroqTranslatorBackend implements TranslatorBackend {
   }
 
   async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-    if (!this.apiKey) throw new Error("Groq backend: MARSHAL_API_KEY is not set");
+    this.requireKey();
     const prompt = buildTranslateJsonPrompt(text, targetLangName(targetLang));
     const raw = await this.chat(this.textModel, [{ role: "user", content: prompt }], { json: true });
     const result = parseTranslateJson(raw);
@@ -72,7 +78,7 @@ export class GroqTranslatorBackend implements TranslatorBackend {
   }
 
   async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
-    if (!this.apiKey) throw new Error("Groq backend: MARSHAL_API_KEY is not set");
+    this.requireKey();
     const targetName = targetLangName(targetLang);
 
     const translation = await this.chat(this.visionModel, [
@@ -92,6 +98,15 @@ export class GroqTranslatorBackend implements TranslatorBackend {
     ]);
 
     return { translation: translation.trim(), sourceLang: "auto", targetLang };
+  }
+
+  private requireKey(): void {
+    if (!this.apiKey) {
+      throw new Error(
+        "OpenAI-compatible translator backend requires MARSHAL_API_KEY. " +
+        "Add it to your .env, or switch to Claude CLI / Codex CLI in Settings."
+      );
+    }
   }
 
   private async chat(model: string, messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
@@ -127,7 +142,7 @@ export class GroqTranslatorBackend implements TranslatorBackend {
 
       const status = response.status;
       const errorText = await response.text().catch(() => "Unknown error");
-      lastError = new Error(`Groq API error ${status}: ${errorText}`);
+      lastError = new Error(`OpenAI-compatible API error ${status}: ${errorText}`);
 
       const retryable = status === 429 || (status >= 500 && status < 600);
       if (!retryable || attempt === this.maxRetries) break;

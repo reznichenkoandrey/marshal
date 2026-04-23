@@ -4,7 +4,7 @@ import path from "node:path";
 import { app } from "electron";
 
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
-import type { TranslatorBackendId } from "./translator/backends/types.ts";
+import type { TranslatorBackendChoice } from "./translator/translator-service.ts";
 
 export type BridgeMode =
   | "claude-cli"
@@ -26,7 +26,7 @@ export type MarshalSettings = {
   bridgeMode: BridgeMode;
   claudeModel: string;
   codexModel: string;
-  translatorBackend: TranslatorBackendId;
+  translatorBackend: TranslatorBackendChoice;
   dictationEnabled: boolean;
   dictationHotkey: string;
   dictationBackend: DictationBackend;
@@ -44,9 +44,10 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   bridgeMode: "claude-cli",
   claudeModel: "sonnet",
   codexModel: "",
-  // Default to the Claude subscription backend. Groq remains an opt-in option
-  // but requires MARSHAL_API_KEY, which we no longer expect users to have.
-  translatorBackend: "claude-cli",
+  // Default: follow whichever "Reasoning provider" the user picked. Keeps the
+  // translator and the main chat billed to the same account without asking the
+  // user to duplicate their choice.
+  translatorBackend: "auto",
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
   dictationBackend: "whisper-cpp",
@@ -57,7 +58,14 @@ const DEFAULT_SETTINGS: MarshalSettings = {
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
 const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
-const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendId[] = ["claude-cli", "codex-cli", "groq"];
+const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendChoice[] = [
+  "auto",
+  "claude-cli",
+  "codex-cli",
+  "claude-api",
+  "openai-api",
+  "groq"
+];
 
 const VALID_MODES: readonly BridgeMode[] = [
   "claude-cli",
@@ -149,10 +157,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     : DEFAULT_SETTINGS.dictationHotkey;
 
   const translatorBackendCandidate = typeof input.translatorBackend === "string"
-    ? input.translatorBackend
+    ? input.translatorBackend.trim().toLowerCase()
     : DEFAULT_SETTINGS.translatorBackend;
   const translatorBackend = (VALID_TRANSLATOR_BACKENDS as readonly string[]).includes(translatorBackendCandidate)
-    ? (translatorBackendCandidate as TranslatorBackendId)
+    ? (translatorBackendCandidate as TranslatorBackendChoice)
     : DEFAULT_SETTINGS.translatorBackend;
 
   return {

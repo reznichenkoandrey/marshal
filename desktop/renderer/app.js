@@ -762,7 +762,7 @@ async function openSettings() {
     dom.settingsClaudeModel.value = current.claudeModel ?? "";
     dom.settingsCodexModel.value = current.codexModel ?? "";
     if (dom.settingsTranslatorBackend) {
-      dom.settingsTranslatorBackend.value = current.translatorBackend ?? "claude-cli";
+      dom.settingsTranslatorBackend.value = current.translatorBackend ?? "auto";
     }
     if (dom.settingsDictationEnabled) {
       dom.settingsDictationEnabled.checked = current.dictationEnabled ?? true;
@@ -820,7 +820,7 @@ async function saveSettingsFromForm() {
     bridgeMode: dom.settingsBridgeMode.value,
     claudeModel: dom.settingsClaudeModel.value.trim(),
     codexModel: dom.settingsCodexModel.value.trim(),
-    translatorBackend: dom.settingsTranslatorBackend?.value ?? "claude-cli",
+    translatorBackend: dom.settingsTranslatorBackend?.value ?? "auto",
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
     dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",

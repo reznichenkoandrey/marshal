@@ -186,8 +186,10 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
-    // Hot-swap the translator backend so the new choice takes effect without
-    // waiting for a full app restart.
+    // Hot-swap the translator so the new choice takes effect without waiting
+    // for a full app restart. Apply bridge FIRST so "auto" resolves against
+    // the up-to-date provider before setBackend re-reads the choice.
+    translatorService?.setBridgeMode(saved.bridgeMode);
     translatorService?.setBackend(saved.translatorBackend);
     // Restart the agent backend so the new provider/model values reach the
     // reasoning bridge.
@@ -348,7 +350,11 @@ function initDictation(): void {
 }
 
 function initTranslator(): void {
-  translatorService = new TranslatorService();
+  const settings = loadSettings();
+  translatorService = new TranslatorService({
+    choice: settings.translatorBackend,
+    bridgeMode: settings.bridgeMode
+  });
   translatorWindow = new TranslatorWindow(preloadPath);
   screenshotService = new ScreenshotService(preloadPath);
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));

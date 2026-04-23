@@ -1,6 +1,29 @@
 export type TargetLang = "uk" | "en";
 
-export type TranslatorBackendId = "groq" | "claude-cli" | "codex-cli";
+/**
+ * Concrete translator backends. `groq` is kept as a legacy alias for
+ * `openai-api` so existing settings files keep working after the rename.
+ */
+export type TranslatorBackendId =
+  | "claude-cli"
+  | "codex-cli"
+  | "claude-api"
+  | "openai-api"
+  | "groq";
+
+/**
+ * Reasoning provider selected in Settings → Reasoning provider. Mirrors the
+ * `BridgeMode` union from settings-store. Duplicated here to avoid a circular
+ * import (settings-store depends on TranslatorBackendId).
+ */
+export type TranslatorBridgeMode =
+  | "claude-cli"
+  | "codex-cli"
+  | "claude"
+  | "api"
+  | "claude-web"
+  | "playwright"
+  | "extension";
 
 export interface TranslationResult {
   translation: string;
