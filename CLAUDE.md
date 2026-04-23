@@ -26,6 +26,10 @@
 - Нові pure helpers мають бути `export`-нуті з testable форми (не внутрішні методи)
 - Перед коммітом: `npm run check` (typecheck + test)
 
+### First-run setup
+- Voice dictation: `npm run setup:dictation` (завантажує whisper.cpp + `ggml-small` модель, ~250 MB, у `.whisper/`)
+- Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
+
 ---
 
 ## Стек проєкту

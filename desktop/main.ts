@@ -3,9 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { config as loadDotenv } from "dotenv";
-import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
+import { app, BrowserWindow, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
+import { DictationService } from "./dictation/dictation-service.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
@@ -32,6 +33,8 @@ let translatorWindow: TranslatorWindow | null = null;
 let screenshotService: ScreenshotService | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
+let dictationService: DictationService | null = null;
+let isDictating = false;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -70,6 +73,7 @@ async function bootstrap(): Promise<void> {
     createTray();
     scheduleTrayRefresh();
     initTranslator();
+    initDictation();
 
     app.on("activate", () => {
       if (!mainWindow) {
@@ -269,10 +273,44 @@ async function performTeardown(): Promise<void> {
     trayRefreshTimer = null;
   }
   clipboardMonitor?.stop();
+  dictationService?.stop();
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
   await backendClient.disposeAsync();
+}
+
+function initDictation(): void {
+  const enabled = (process.env.MARSHAL_DICTATION_ENABLED ?? "1") !== "0";
+  if (!enabled) return;
+
+  try {
+    dictationService = new DictationService();
+  } catch (err) {
+    console.warn("[marshal] dictation disabled:", err instanceof Error ? err.message : err);
+    return;
+  }
+
+  dictationService.on("recording-start", () => {
+    isDictating = true;
+    void refreshTrayState();
+  });
+  dictationService.on("recording-stop", () => {
+    isDictating = false;
+    void refreshTrayState();
+  });
+  dictationService.on("transcribed", ({ text }) => {
+    if (!Notification.isSupported()) return;
+    const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text;
+    new Notification({ title: "Marshal — Dictated", body: preview, silent: true }).show();
+  });
+  dictationService.on("error", (err: Error) => {
+    console.error("[dictation] error:", err);
+    if (!Notification.isSupported()) return;
+    new Notification({ title: "Marshal — Dictation error", body: err.message, silent: true }).show();
+  });
+
+  void dictationService.start();
 }
 
 function initTranslator(): void {
@@ -460,13 +498,14 @@ async function refreshTrayState(): Promise<void> {
     .invoke<{ runningTasks: number; queuedTasks: number }>("getHealth")
     .catch(() => null);
 
-  const label = health
+  const base = health
     ? `Marshal\n${health.runningTasks} running, ${health.queuedTasks} queued`
     : "Marshal\nUnavailable";
 
-  tray.setToolTip(label);
-
-  // No title text next to tray icon — just the icon itself
+  tray.setToolTip(isDictating ? `${base}\n● Recording dictation…` : base);
+  // Show a single-character "recording" indicator next to the tray icon so
+  // the user can see at a glance that the mic is live.
+  tray.setTitle(isDictating ? "●" : "");
 
   // Context menu is set via right-click handler in createTray()
 }

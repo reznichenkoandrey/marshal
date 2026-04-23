@@ -31,6 +31,8 @@
           <!-- Recent dirs populated by JS -->
         </div>
         <div class="header-spacer"></div>
+        <button id="translate-btn" class="icon-btn" title="Open Translator (⌘⇧T)">&#127760;</button>
+        <button id="settings-btn" class="icon-btn" title="Settings">&#9881;</button>
         <button id="theme-toggle" class="icon-btn">&#9681;</button>
       </header>
 
@@ -54,6 +56,87 @@
         </form>
       </div>
     </main>
+
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-backdrop" data-close="settings"></div>
+      <div class="modal-panel">
+        <header class="modal-header">
+          <h2 id="settings-title">Settings</h2>
+          <button type="button" class="icon-btn" data-close="settings" aria-label="Close">&times;</button>
+        </header>
+
+        <form id="settings-form" class="modal-body">
+          <div class="field">
+            <label for="settings-bridge-mode">Reasoning provider</label>
+            <select id="settings-bridge-mode" name="bridgeMode">
+              <optgroup label="Subscription-based (CLI)">
+                <option value="claude-cli">Claude Code CLI — Claude Pro / Max subscription</option>
+                <option value="codex-cli">Codex CLI — ChatGPT Plus / Pro subscription</option>
+              </optgroup>
+              <optgroup label="API key">
+                <option value="claude">Anthropic API (ANTHROPIC_API_KEY)</option>
+                <option value="api">OpenAI-compatible API (Groq / OpenRouter / OpenAI)</option>
+              </optgroup>
+              <optgroup label="Browser automation (legacy)">
+                <option value="claude-web">claude.ai via Playwright</option>
+                <option value="playwright">chatgpt.com via Playwright</option>
+                <option value="extension">ChatGPT via Chrome extension</option>
+              </optgroup>
+            </select>
+            <p id="settings-provider-hint" class="field-hint"></p>
+          </div>
+
+          <div class="field" data-visible-for="claude-cli">
+            <label for="settings-claude-model">Claude model</label>
+            <input id="settings-claude-model" name="claudeModel" type="text" placeholder="sonnet" autocomplete="off" />
+            <p class="field-hint">Alias (<code>sonnet</code>, <code>opus</code>, <code>haiku</code>) or full ID (e.g. <code>claude-sonnet-4-6</code>).</p>
+          </div>
+
+          <div class="field" data-visible-for="codex-cli">
+            <label for="settings-codex-model">Codex model</label>
+            <input id="settings-codex-model" name="codexModel" type="text" placeholder="(CLI default)" autocomplete="off" />
+            <p class="field-hint">Leave empty to use the Codex CLI default. Overrides with <code>-m</code>.</p>
+          </div>
+
+          <fieldset class="field-group">
+            <legend>Voice dictation</legend>
+            <label class="checkbox-row">
+              <input id="settings-dictation-enabled" name="dictationEnabled" type="checkbox" />
+              <span>Enable push-to-talk dictation</span>
+            </label>
+
+            <div class="field">
+              <label for="settings-dictation-hotkey">Hotkey</label>
+              <input id="settings-dictation-hotkey" name="dictationHotkey" type="text" placeholder="Cmd+Shift+D" autocomplete="off" />
+              <p class="field-hint">Hold to record, release to transcribe. Example: <code>Cmd+Shift+D</code>.</p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-backend">Transcription backend</label>
+              <select id="settings-dictation-backend" name="dictationBackend">
+                <option value="whisper-cpp">whisper.cpp (local, offline, free) — default</option>
+                <option value="groq">Groq whisper-large-v3 (fast, requires MARSHAL_API_KEY)</option>
+              </select>
+              <p class="field-hint">
+                Run <code>./scripts/install-whisper-cpp.sh</code> once before using the local backend.
+              </p>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="settings-dictation-autopaste" name="dictationAutoPaste" type="checkbox" />
+              <span>Auto-paste transcript after dictation</span>
+            </label>
+          </fieldset>
+
+          <div id="settings-status" class="status-banner hidden"></div>
+        </form>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="settings">Cancel</button>
+          <button type="button" id="settings-save" class="btn btn-primary">Save &amp; restart backend</button>
+        </footer>
+      </div>
+    </div>
 
     <script src="./app.js"></script>
   </body>

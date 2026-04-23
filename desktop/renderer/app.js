@@ -46,6 +46,10 @@ const dom = {
   settingsClaudeModel: document.getElementById("settings-claude-model"),
   settingsCodexModel: document.getElementById("settings-codex-model"),
   settingsProviderHint: document.getElementById("settings-provider-hint"),
+  settingsDictationEnabled: document.getElementById("settings-dictation-enabled"),
+  settingsDictationHotkey: document.getElementById("settings-dictation-hotkey"),
+  settingsDictationBackend: document.getElementById("settings-dictation-backend"),
+  settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -743,6 +747,18 @@ async function openSettings() {
     dom.settingsBridgeMode.value = current.bridgeMode;
     dom.settingsClaudeModel.value = current.claudeModel ?? "";
     dom.settingsCodexModel.value = current.codexModel ?? "";
+    if (dom.settingsDictationEnabled) {
+      dom.settingsDictationEnabled.checked = current.dictationEnabled ?? true;
+    }
+    if (dom.settingsDictationHotkey) {
+      dom.settingsDictationHotkey.value = current.dictationHotkey ?? "Cmd+Shift+D";
+    }
+    if (dom.settingsDictationBackend) {
+      dom.settingsDictationBackend.value = current.dictationBackend ?? "whisper-cpp";
+    }
+    if (dom.settingsDictationAutoPaste) {
+      dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
+    }
     refreshSettingsVisibility();
     clearSettingsStatus();
     dom.settingsModal.classList.remove("hidden");
@@ -780,7 +796,11 @@ async function saveSettingsFromForm() {
   const payload = {
     bridgeMode: dom.settingsBridgeMode.value,
     claudeModel: dom.settingsClaudeModel.value.trim(),
-    codexModel: dom.settingsCodexModel.value.trim()
+    codexModel: dom.settingsCodexModel.value.trim(),
+    dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
+    dictationHotkey: (dom.settingsDictationHotkey?.value ?? "Cmd+Shift+D").trim() || "Cmd+Shift+D",
+    dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",
+    dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);

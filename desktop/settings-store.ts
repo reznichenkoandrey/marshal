@@ -12,17 +12,29 @@ export type BridgeMode =
   | "playwright"
   | "extension";
 
+export type DictationBackend = "whisper-cpp" | "groq";
+
 export type MarshalSettings = {
   bridgeMode: BridgeMode;
   claudeModel: string;
   codexModel: string;
+  dictationEnabled: boolean;
+  dictationHotkey: string;
+  dictationBackend: DictationBackend;
+  dictationAutoPaste: boolean;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
   bridgeMode: "claude-cli",
   claudeModel: "sonnet",
-  codexModel: ""
+  codexModel: "",
+  dictationEnabled: true,
+  dictationHotkey: "Cmd+Shift+D",
+  dictationBackend: "whisper-cpp",
+  dictationAutoPaste: false
 };
+
+const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
 
 const VALID_MODES: readonly BridgeMode[] = [
   "claude-cli",
@@ -78,17 +90,41 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   } else {
     delete process.env.MARSHAL_CODEX_MODEL;
   }
+
+  process.env.MARSHAL_DICTATION_ENABLED = settings.dictationEnabled ? "1" : "0";
+  process.env.MARSHAL_DICTATION_HOTKEY = settings.dictationHotkey;
+  process.env.MARSHAL_DICTATION_BACKEND = settings.dictationBackend;
+  process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
 }
 
 function normalize(input: Partial<MarshalSettings>): MarshalSettings {
-  const candidate = typeof input.bridgeMode === "string" ? input.bridgeMode : DEFAULT_SETTINGS.bridgeMode;
-  const bridgeMode = (VALID_MODES as readonly string[]).includes(candidate)
-    ? (candidate as BridgeMode)
+  const bridgeCandidate = typeof input.bridgeMode === "string" ? input.bridgeMode : DEFAULT_SETTINGS.bridgeMode;
+  const bridgeMode = (VALID_MODES as readonly string[]).includes(bridgeCandidate)
+    ? (bridgeCandidate as BridgeMode)
     : DEFAULT_SETTINGS.bridgeMode;
+
+  const dictationBackendCandidate = typeof input.dictationBackend === "string"
+    ? input.dictationBackend
+    : DEFAULT_SETTINGS.dictationBackend;
+  const dictationBackend = (VALID_DICTATION_BACKENDS as readonly string[]).includes(dictationBackendCandidate)
+    ? (dictationBackendCandidate as DictationBackend)
+    : DEFAULT_SETTINGS.dictationBackend;
+
+  const hotkey = typeof input.dictationHotkey === "string" && input.dictationHotkey.trim().length > 0
+    ? input.dictationHotkey.trim()
+    : DEFAULT_SETTINGS.dictationHotkey;
 
   return {
     bridgeMode,
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
-    codexModel: typeof input.codexModel === "string" ? input.codexModel : DEFAULT_SETTINGS.codexModel
+    codexModel: typeof input.codexModel === "string" ? input.codexModel : DEFAULT_SETTINGS.codexModel,
+    dictationEnabled: typeof input.dictationEnabled === "boolean"
+      ? input.dictationEnabled
+      : DEFAULT_SETTINGS.dictationEnabled,
+    dictationHotkey: hotkey,
+    dictationBackend,
+    dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
+      ? input.dictationAutoPaste
+      : DEFAULT_SETTINGS.dictationAutoPaste
   };
 }

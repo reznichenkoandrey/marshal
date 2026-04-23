@@ -25,6 +25,10 @@ afterEach(() => {
   delete process.env.MARSHAL_BRIDGE_MODE;
   delete process.env.MARSHAL_CLAUDE_MODEL;
   delete process.env.MARSHAL_CODEX_MODEL;
+  delete process.env.MARSHAL_DICTATION_ENABLED;
+  delete process.env.MARSHAL_DICTATION_HOTKEY;
+  delete process.env.MARSHAL_DICTATION_BACKEND;
+  delete process.env.MARSHAL_DICTATION_AUTOPASTE;
 });
 
 describe("loadSettings", () => {
@@ -67,9 +71,30 @@ describe("saveSettings", () => {
     const saved = saveSettings({
       bridgeMode: "api",
       claudeModel: "opus",
-      codexModel: "gpt-5"
+      codexModel: "gpt-5",
+      dictationEnabled: false,
+      dictationHotkey: "Cmd+Shift+Y",
+      dictationBackend: "groq",
+      dictationAutoPaste: true
     });
-    expect(saved).toEqual({ bridgeMode: "api", claudeModel: "opus", codexModel: "gpt-5" });
+    expect(saved).toEqual({
+      bridgeMode: "api",
+      claudeModel: "opus",
+      codexModel: "gpt-5",
+      dictationEnabled: false,
+      dictationHotkey: "Cmd+Shift+Y",
+      dictationBackend: "groq",
+      dictationAutoPaste: true
+    });
+  });
+
+  it("falls back to default dictation fields for invalid values", () => {
+    const saved = saveSettings({
+      dictationBackend: "bogus" as never,
+      dictationHotkey: "   "
+    });
+    expect(saved.dictationBackend).toBe("whisper-cpp");
+    expect(saved.dictationHotkey).toBe("Cmd+Shift+D");
   });
 });
 

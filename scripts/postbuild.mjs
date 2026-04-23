@@ -58,18 +58,31 @@ for (const filePath of sanitizedScripts) {
 await fs.rm(desktopRendererDistDir, { recursive: true, force: true });
 await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 
-// Compile the Swift pasteboard-watcher helper (macOS only).
-// The binary is used by ClipboardMonitor to detect double Cmd+C without
-// requiring Accessibility permission (NSPasteboard.changeCount is permission-free).
+// Compile Swift helpers (macOS only).
 if (process.platform === "darwin") {
-  const swiftSrc = path.join(root, "desktop", "translator", "pasteboard-watcher.swift");
-  const swiftOut = path.join(root, "dist", "desktop", "translator", "pasteboard-watcher");
-  await fs.mkdir(path.dirname(swiftOut), { recursive: true });
-  try {
-    execFileSync("swiftc", [swiftSrc, "-O", "-o", swiftOut], { stdio: "inherit" });
-    console.log("[postbuild] pasteboard-watcher compiled →", swiftOut);
-  } catch (err) {
-    console.warn("[postbuild] swiftc failed — double Cmd+C will fall back to polling:", err.message);
+  const swiftTargets = [
+    {
+      src: path.join(root, "desktop", "translator", "pasteboard-watcher.swift"),
+      out: path.join(root, "dist", "desktop", "translator", "pasteboard-watcher"),
+      label: "pasteboard-watcher",
+      fallbackNote: "double Cmd+C will fall back to polling"
+    },
+    {
+      src: path.join(root, "desktop", "dictation", "audio-recorder.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "audio-recorder"),
+      label: "audio-recorder",
+      fallbackNote: "voice dictation will be disabled"
+    }
+  ];
+
+  for (const target of swiftTargets) {
+    await fs.mkdir(path.dirname(target.out), { recursive: true });
+    try {
+      execFileSync("swiftc", [target.src, "-O", "-o", target.out], { stdio: "inherit" });
+      console.log(`[postbuild] ${target.label} compiled →`, target.out);
+    } catch (err) {
+      console.warn(`[postbuild] swiftc ${target.label} failed — ${target.fallbackNote}:`, err.message);
+    }
   }
 }
 

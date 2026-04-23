@@ -95,8 +95,15 @@ const desktopApi = {
   restartApp: () => ipcRenderer.invoke("marshal:restart-app"),
   openTranslator: () => ipcRenderer.invoke("marshal:translator-open"),
   getSettings: () => ipcRenderer.invoke("marshal:get-settings"),
-  updateSettings: (settings: { bridgeMode?: string; claudeModel?: string; codexModel?: string }) =>
-    ipcRenderer.invoke("marshal:update-settings", settings)
+  updateSettings: (settings: {
+    bridgeMode?: string;
+    claudeModel?: string;
+    codexModel?: string;
+    dictationEnabled?: boolean;
+    dictationHotkey?: string;
+    dictationBackend?: string;
+    dictationAutoPaste?: boolean;
+  }) => ipcRenderer.invoke("marshal:update-settings", settings)
 };
 
 contextBridge.exposeInMainWorld("marshalDesktop", desktopApi);
