@@ -16,19 +16,19 @@
 
     <!-- Prompt input area -->
     <div class="prompt-area">
-      <textarea id="promptInput" rows="2" placeholder="Ask about this page or give an agent task..."></textarea>
+      <textarea id="promptInput" rows="2" placeholder="Pick an element on the page, then type your question here..."></textarea>
       <div class="prompt-actions">
-        <button id="sendBtn" class="action-btn primary" title="Send with page context">Send</button>
-        <button id="agentBtn" class="action-btn agent" title="Run as agent task">Agent</button>
+        <button id="sendBtn" class="action-btn primary" title="Send prompt + current page context to the AI">Ask AI</button>
+        <button id="agentBtn" class="action-btn agent" title="Let the AI take actions on the page autonomously">Run agent</button>
         <button id="stopBtn" class="action-btn stop" hidden title="Stop agent">Stop</button>
       </div>
     </div>
 
     <!-- Capture buttons -->
     <div class="toolbar-row capture-row">
-      <button id="captureTextBtn" class="capture-btn">T &mdash; Text</button>
-      <button id="captureHtmlBtn" class="capture-btn">&lt;/&gt; &mdash; HTML</button>
-      <button id="cancelPickerBtn" class="capture-btn cancel-btn" hidden>Cancel</button>
+      <button id="captureTextBtn" class="capture-btn" title="Click an element on the page, grab its visible text">📍 Pick text</button>
+      <button id="captureHtmlBtn" class="capture-btn" title="Click an element on the page, grab its HTML">📍 Pick HTML</button>
+      <button id="cancelPickerBtn" class="capture-btn cancel-btn" hidden>Cancel picker</button>
     </div>
 
     <div id="statusText" role="status"></div>

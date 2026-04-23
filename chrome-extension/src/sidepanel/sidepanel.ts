@@ -160,10 +160,11 @@ async function handleSidebarSend(): Promise<void> {
     const prompt = buildSidebarPrompt(pageState, question);
 
     setStatus("Sending to AI\u2026", "info");
-    const sendOk = await sendPromptToIframe(prompt, pageState.screenshot);
+    const sendResult = await sendPromptToIframe(prompt, pageState.screenshot);
 
-    if (!sendOk) {
-      setStatus("Failed to send to AI. Try again.", "error");
+    if (!sendResult.success) {
+      const reason = sendResult.error ?? "unknown reason";
+      setStatus(`Failed to send to AI: ${reason}`, "error");
       setButtonsDisabled(false);
       return;
     }
@@ -233,9 +234,12 @@ async function handleAgentStart(): Promise<void> {
       // 3. Build prompt and send to AI
       const prompt = buildAgentPrompt(task, pageState, history);
       setStatus(`Step ${step + 1}: thinking\u2026`, "info");
-      const sendOk = await sendPromptToIframe(prompt, pageState.screenshot);
+      const sendResult = await sendPromptToIframe(prompt, pageState.screenshot);
       if (agentAborted) break;
-      if (!sendOk) { appendStep(`Step ${step + 1}: Failed to send to AI.`, "error"); break; }
+      if (!sendResult.success) {
+        appendStep(`Step ${step + 1}: Failed to send to AI: ${sendResult.error ?? "unknown"}`, "error");
+        break;
+      }
 
       // 4. Read AI response
       await sleep(2000);
@@ -399,10 +403,13 @@ function waitForInjector(action: string, timeoutMs: number): Promise<Record<stri
   });
 }
 
-function sendPromptToIframe(text: string, screenshot?: string): Promise<boolean> {
+function sendPromptToIframe(text: string, screenshot?: string): Promise<{ success: boolean; error?: string }> {
   const promise = waitForInjector("marshal:sendComplete", 20000);
   sendToInjector({ action: "marshal:sendPrompt", text, screenshot });
-  return promise.then((r) => r?.success === true);
+  return promise.then((r) => {
+    if (!r) return { success: false, error: "no response from iframe injector (is the provider page fully loaded?)" };
+    return { success: r.success === true, error: typeof r.error === "string" ? r.error : undefined };
+  });
 }
 
 function readResponseFromIframe(timeoutMs: number): Promise<string | null> {

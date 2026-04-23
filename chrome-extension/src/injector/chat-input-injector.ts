@@ -58,14 +58,19 @@ function setupInjector(): void {
       composerType: "contenteditable",
       composerSelectors: [
         'div.ProseMirror[contenteditable="true"]',
+        '[contenteditable="true"][translate="no"]',
         'div[contenteditable="true"][data-placeholder]',
         'fieldset div[contenteditable="true"]',
+        'form div[contenteditable="true"]',
         '[contenteditable="true"]'
       ],
       sendButtonSelectors: [
+        'button[aria-label="Send message"]',
+        'button[aria-label*="Send Message"]',
         'button[aria-label*="Send"]',
         'button[aria-label*="send"]',
-        'fieldset button:not([disabled])'
+        'fieldset button[type="button"]:not([disabled])',
+        'form button[type="submit"]:not([disabled])'
       ]
     },
     "gemini.google.com": {
@@ -272,18 +277,38 @@ function setupInjector(): void {
       sel.removeAllRanges();
       sel.addRange(r);
     }
+
+    // ProseMirror (Claude) listens to `beforeinput` and constructs DOM itself.
+    // Dispatch it first — if the editor swallows it, the text lands via its own model.
+    try {
+      const beforeInput = new InputEvent("beforeinput", {
+        inputType: "insertText",
+        data: text,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      });
+      el.dispatchEvent(beforeInput);
+      if (has(el, text)) { fire(el, text); return true; }
+    } catch { /* fallthrough */ }
+
+    // Clipboard paste — ProseMirror and most rich editors honor this.
+    try {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
+      if (has(el, text)) { fire(el, text); return true; }
+    } catch { /* fallthrough */ }
+
+    // execCommand — legacy but still works for bare contenteditables.
     try {
       if (document.execCommand("insertText", false, text) && has(el, text)) {
         fire(el, text);
         return true;
       }
     } catch { /* fallthrough */ }
-    try {
-      const dt = new DataTransfer();
-      dt.setData("text/plain", text);
-      el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
-      if (has(el, text)) return true;
-    } catch { /* fallthrough */ }
+
+    // Last resort: append a <p> node. Works for dumb editors, breaks ProseMirror state.
     const p = document.createElement("p");
     p.textContent = text;
     el.appendChild(p);
