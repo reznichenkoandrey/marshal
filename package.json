@@ -33,7 +33,12 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": "dir"
+      "target": "dir",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Marshal needs microphone access to transcribe your voice dictation.",
+        "NSAppleEventsUsageDescription": "Marshal uses Apple Events to auto-paste dictated text.",
+        "NSScreenCaptureUsageDescription": "Marshal captures a selected screen region for OCR translation."
+      }
     },
     "directories": {
       "output": "release"

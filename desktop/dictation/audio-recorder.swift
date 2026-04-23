@@ -26,6 +26,40 @@ guard args.count >= 2 else {
 }
 let outPath = args[1]
 
+// macOS 10.14+ requires explicit microphone permission. Without it, the
+// input node hands us silent buffers and whisper.cpp returns an empty
+// transcript — see #49. Block here until the user has answered the prompt
+// so the failure mode is a loud error rather than a silent empty clipboard.
+func ensureMicrophonePermission() {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    switch status {
+    case .authorized:
+        return
+    case .denied, .restricted:
+        FileHandle.standardError.write(
+            "microphone permission denied — enable it in System Settings → Privacy & Security → Microphone, then restart Marshal\n".data(using: .utf8)!
+        )
+        exit(6)
+    case .notDetermined:
+        let semaphore = DispatchSemaphore(value: 0)
+        var grantedLocal = false
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            grantedLocal = granted
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 30)
+        if !grantedLocal {
+            FileHandle.standardError.write("microphone permission not granted\n".data(using: .utf8)!)
+            exit(6)
+        }
+    @unknown default:
+        FileHandle.standardError.write("unknown microphone auth status — aborting\n".data(using: .utf8)!)
+        exit(6)
+    }
+}
+
+ensureMicrophonePermission()
+
 let engine = AVAudioEngine()
 let inputNode = engine.inputNode
 let inputFormat = inputNode.outputFormat(forBus: 0)

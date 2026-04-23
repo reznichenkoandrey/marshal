@@ -27,7 +27,13 @@
 - Перед коммітом: `npm run check` (typecheck + test)
 
 ### First-run setup
-- Voice dictation: `npm run setup:dictation` (завантажує whisper.cpp + `ggml-small` модель, ~250 MB, у `.whisper/`)
+- Voice dictation:
+  1. `npm run setup:dictation` (whisper.cpp + `ggml-small`, ~465 MB, у `.whisper/`)
+  2. **macOS permissions for `npm run desktop` (dev mode):**
+     - Перший запуск: з'явиться запит на мікрофон (якщо ні — System Settings → Privacy & Security → Microphone → увімкнути **Electron**)
+     - Accessibility (для push-to-talk hotkey): System Settings → Privacy & Security → Accessibility → увімкнути **Electron**
+     - Packaged build підхоплює NSMicrophoneUsageDescription з `package.json > build.mac.extendInfo` — окремий permission dance не потрібен
+  3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
 
 ---

@@ -127,6 +127,7 @@ export type HotkeyManagerEvents = {
 
 export class PushToTalkHotkey extends EventEmitter {
   private readonly spec: HotkeySpec;
+  private readonly debug: boolean;
   private started = false;
   private holding = false;
   private downHandler: (event: UiohookKeyboardEvent) => void;
@@ -135,7 +136,13 @@ export class PushToTalkHotkey extends EventEmitter {
   constructor(hotkey: string) {
     super();
     this.spec = parseHotkey(hotkey);
+    this.debug = process.env.MARSHAL_DICTATION_DEBUG === "1";
     this.downHandler = (event) => {
+      if (event.keycode === this.spec.keycode && this.debug) {
+        console.log(
+          `[dictation] keydown keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
+        );
+      }
       if (this.holding) return;
       if (!matchesHotkey(event, this.spec)) return;
       this.holding = true;
@@ -144,11 +151,26 @@ export class PushToTalkHotkey extends EventEmitter {
     // Keyup fires with the modifier possibly already released by the user,
     // so for the release event we only check the target key.
     this.upHandler = (event) => {
+      if (event.keycode === this.spec.keycode && this.debug) {
+        console.log(
+          `[dictation] keyup   keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
+        );
+      }
       if (!this.holding) return;
       if (event.keycode !== this.spec.keycode) return;
       this.holding = false;
       this.emit("hold-end");
     };
+  }
+
+  /**
+   * Force-end the hold from outside (used by the service as a safety-net
+   * timeout when the keyup event never arrives — see #49).
+   */
+  forceEnd(): void {
+    if (!this.holding) return;
+    this.holding = false;
+    this.emit("hold-end");
   }
 
   start(): void {
