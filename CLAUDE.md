@@ -29,11 +29,12 @@
 ### First-run setup
 - Voice dictation:
   1. `npm run setup:dictation` (whisper.cpp + `ggml-small`, ~465 MB, у `.whisper/`)
-  2. **macOS permissions for `npm run desktop` (dev mode):**
-     - Перший запуск: з'явиться запит на мікрофон (якщо ні — System Settings → Privacy & Security → Microphone → увімкнути **Electron**)
-     - Accessibility (для push-to-talk hotkey): System Settings → Privacy & Security → Accessibility → увімкнути **Electron**
-     - Packaged build підхоплює NSMicrophoneUsageDescription з `package.json > build.mac.extendInfo` — окремий permission dance не потрібен
-  3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state
+  2. **macOS permissions для `npm run desktop` (dev mode):**
+     - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription`) та ad-hoc re-signsить bundle — інакше macOS TCC вбиває наш Swift recorder. Скрипт: `scripts/patch-electron-info-plist.sh`, запускається з `postbuild.mjs`.
+     - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).
+     - Після `npm install` треба один раз перезапустити `npm run desktop` — нові permission descriptions підхопить TCC.
+     - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo`.
+  3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
 
 ---

@@ -84,6 +84,16 @@ if (process.platform === "darwin") {
       console.warn(`[postbuild] swiftc ${target.label} failed — ${target.fallbackNote}:`, err.message);
     }
   }
+
+  // Patch the dev Electron.app Info.plist so TCC allows our Swift helpers to
+  // touch the microphone / screen. Packaged builds get these via
+  // build.mac.extendInfo — this is the dev-only equivalent. #50.
+  const patchScript = path.join(root, "scripts", "patch-electron-info-plist.sh");
+  try {
+    execFileSync("bash", [patchScript], { stdio: "inherit" });
+  } catch (err) {
+    console.warn("[postbuild] patch-electron-info-plist failed:", err.message);
+  }
 }
 
 async function copyDirectory(sourceDir, targetDir) {
