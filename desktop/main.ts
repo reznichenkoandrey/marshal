@@ -7,6 +7,7 @@ import { app, BrowserWindow, dialog, Menu, Notification, Tray, ipcMain, nativeIm
 
 import { DesktopBackendClient } from "./backend-client.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
+import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
@@ -179,10 +180,15 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
-    // Restart the backend so the new provider/model values reach the reasoning bridge.
+    // Hot-swap the translator backend so the new choice takes effect without
+    // waiting for a full app restart.
+    translatorService?.setBackend(saved.translatorBackend);
+    // Restart the agent backend so the new provider/model values reach the
+    // reasoning bridge.
     await backendClient.restart();
     return saved;
   });

@@ -3,6 +3,9 @@ import path from "node:path";
 
 import { app } from "electron";
 
+import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
+import type { TranslatorBackendId } from "./translator/backends/types.ts";
+
 export type BridgeMode =
   | "claude-cli"
   | "codex-cli"
@@ -23,26 +26,38 @@ export type MarshalSettings = {
   bridgeMode: BridgeMode;
   claudeModel: string;
   codexModel: string;
+  translatorBackend: TranslatorBackendId;
   dictationEnabled: boolean;
   dictationHotkey: string;
   dictationBackend: DictationBackend;
   dictationLanguage: DictationLanguage;
   dictationAutoPaste: boolean;
+  /**
+   * Initial prompt (glossary + style hint) seeded into whisper before each
+   * transcription. Empty string disables prompting; leave blank only if the
+   * bundled default glossary actively hurts recognition for your vocabulary.
+   */
+  dictationPrompt: string;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
   bridgeMode: "claude-cli",
   claudeModel: "sonnet",
   codexModel: "",
+  // Default to the Claude subscription backend. Groq remains an opt-in option
+  // but requires MARSHAL_API_KEY, which we no longer expect users to have.
+  translatorBackend: "claude-cli",
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
   dictationBackend: "whisper-cpp",
   dictationLanguage: "auto",
-  dictationAutoPaste: false
+  dictationAutoPaste: false,
+  dictationPrompt: DEFAULT_DICTATION_PROMPT
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
 const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
+const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendId[] = ["claude-cli", "codex-cli", "groq"];
 
 const VALID_MODES: readonly BridgeMode[] = [
   "claude-cli",
@@ -99,11 +114,14 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
     delete process.env.MARSHAL_CODEX_MODEL;
   }
 
+  process.env.MARSHAL_TRANSLATOR_BACKEND = settings.translatorBackend;
+
   process.env.MARSHAL_DICTATION_ENABLED = settings.dictationEnabled ? "1" : "0";
   process.env.MARSHAL_DICTATION_HOTKEY = settings.dictationHotkey;
   process.env.MARSHAL_DICTATION_BACKEND = settings.dictationBackend;
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
+  process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
 }
 
 function normalize(input: Partial<MarshalSettings>): MarshalSettings {
@@ -130,10 +148,18 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     ? input.dictationHotkey.trim()
     : DEFAULT_SETTINGS.dictationHotkey;
 
+  const translatorBackendCandidate = typeof input.translatorBackend === "string"
+    ? input.translatorBackend
+    : DEFAULT_SETTINGS.translatorBackend;
+  const translatorBackend = (VALID_TRANSLATOR_BACKENDS as readonly string[]).includes(translatorBackendCandidate)
+    ? (translatorBackendCandidate as TranslatorBackendId)
+    : DEFAULT_SETTINGS.translatorBackend;
+
   return {
     bridgeMode,
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
     codexModel: typeof input.codexModel === "string" ? input.codexModel : DEFAULT_SETTINGS.codexModel,
+    translatorBackend,
     dictationEnabled: typeof input.dictationEnabled === "boolean"
       ? input.dictationEnabled
       : DEFAULT_SETTINGS.dictationEnabled,
@@ -142,6 +168,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationLanguage,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
-      : DEFAULT_SETTINGS.dictationAutoPaste
+      : DEFAULT_SETTINGS.dictationAutoPaste,
+    dictationPrompt: typeof input.dictationPrompt === "string"
+      ? input.dictationPrompt
+      : DEFAULT_SETTINGS.dictationPrompt
   };
 }

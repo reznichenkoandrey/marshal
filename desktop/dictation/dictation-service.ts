@@ -23,6 +23,7 @@ import { PushToTalkHotkey } from "./hotkey-manager.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
+  resolveDictationPrompt,
   type WhisperBackend
 } from "./whisper-backend.ts";
 
@@ -60,6 +61,7 @@ export class DictationService extends EventEmitter {
   private readonly backend: WhisperBackend;
   private readonly recorderBin: string;
   private readonly language: string | undefined;
+  private readonly prompt: string;
   private recorderProcess: ChildProcess | null = null;
   private currentWavPath: string | null = null;
   private isStopping = false;
@@ -73,6 +75,7 @@ export class DictationService extends EventEmitter {
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
     this.language = resolveLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
+    this.prompt = resolveDictationPrompt(process.env.MARSHAL_DICTATION_PROMPT);
 
     this.hotkey.on("hold-start", () => this.handleHoldStart());
     this.hotkey.on("hold-end", () => this.handleHoldEnd());
@@ -215,7 +218,10 @@ export class DictationService extends EventEmitter {
       }
 
       debug("transcribing… lang=", this.language ?? "auto");
-      const result = await this.backend.transcribe(wavPath, this.language);
+      const result = await this.backend.transcribe(wavPath, {
+        language: this.language,
+        prompt: this.prompt
+      });
       debug("transcribed:", result.text.length, "chars, lang=", result.language);
       if (result.text.length > 0) {
         clipboard.writeText(result.text);

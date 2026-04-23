@@ -12,8 +12,22 @@ export type TranscribeResult = {
   language?: string;
 };
 
+export type TranscribeOptions = {
+  /** ISO 639-1 language code. Omit or pass "auto" for auto-detect. */
+  language?: string;
+  /**
+   * Initial prompt fed to whisper. Used as a glossary + style hint — names,
+   * English loanwords, punctuation style, typical code-switching. Dramatically
+   * improves accuracy on mixed-language speech and rare technical terms.
+   *
+   * Whisper caps this at the last ~224 tokens internally, so keep it under
+   * ~1000 characters. Longer prompts get silently truncated from the start.
+   */
+  prompt?: string;
+};
+
 export interface WhisperBackend {
-  transcribe(wavPath: string, language?: string): Promise<TranscribeResult>;
+  transcribe(wavPath: string, options?: TranscribeOptions): Promise<TranscribeResult>;
 }
 
 export type BackendName = "whisper-cpp" | "groq";
@@ -22,6 +36,30 @@ export function resolveBackendName(raw: string | undefined): BackendName {
   const value = (raw ?? "").toLowerCase().trim();
   if (value === "groq") return "groq";
   return "whisper-cpp";
+}
+
+/**
+ * Default dictation glossary. Seeds whisper with the vocabulary this user
+ * actually produces — Ukrainian base with inline English technical terms —
+ * so that short commands like "закомить PR" or "запусти Vite" don't get
+ * transliterated into nonsense.
+ *
+ * Override via MARSHAL_DICTATION_PROMPT or the settings textarea when a user
+ * talks about domains we don't cover here (medicine, law, gaming, etc.).
+ */
+export const DEFAULT_DICTATION_PROMPT =
+  "Я розробник, працюю над React, Vue, TypeScript, Python, PHP, Magento проєктами. " +
+  "Використовую Claude Code, Cursor, GitHub, Linear, Figma, Notion, Playwright, Vite, Tailwind, Docker. " +
+  "Говорю українською з англіцизмами: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, " +
+  "написати unit test, debug, refactor, merge conflict, pull request, commit, push, release, feature flag, hotfix, rollback. " +
+  "Також: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD, staging, production, sandbox.";
+
+export function resolveDictationPrompt(raw: string | undefined): string {
+  if (typeof raw !== "string") return DEFAULT_DICTATION_PROMPT;
+  const trimmed = raw.trim();
+  // Caller explicitly blanked the prompt — respect that.
+  if (trimmed === "") return "";
+  return trimmed;
 }
 
 export function createWhisperBackend(name: BackendName): WhisperBackend {
@@ -43,7 +81,7 @@ export class WhisperCppBackend implements WhisperBackend {
     this.threads = Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
   }
 
-  async transcribe(wavPath: string, language?: string): Promise<TranscribeResult> {
+  async transcribe(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult> {
     await fs.access(this.bin).catch(() => {
       throw new Error(
         `whisper.cpp binary not found at ${this.bin}. Run ./scripts/install-whisper-cpp.sh first.`
@@ -58,12 +96,18 @@ export class WhisperCppBackend implements WhisperBackend {
     const args = [
       "-m", this.model,
       "-f", wavPath,
-      "-l", language ?? "auto",
+      "-l", options.language ?? "auto",
       "-t", String(this.threads),
       "--no-prints",
       "--output-txt",
       "--output-file", wavPath.replace(/\.wav$/u, "")
     ];
+    // whisper.cpp docs: `--prompt` seeds the decoder with prior context, which
+    // primes the vocabulary + style. Huge accuracy win on rare terms and
+    // mixed-language speech. Empty string means "no prompt".
+    if (options.prompt && options.prompt.length > 0) {
+      args.push("--prompt", options.prompt);
+    }
 
     const stderr = await new Promise<string>((resolve, reject) => {
       let errBuf = "";
@@ -102,14 +146,18 @@ export class GroqWhisperBackend implements WhisperBackend {
     this.model = process.env.MARSHAL_WHISPER_MODEL_REMOTE ?? "whisper-large-v3";
   }
 
-  async transcribe(wavPath: string, language?: string): Promise<TranscribeResult> {
+  async transcribe(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult> {
     if (!this.apiKey) throw new Error("MARSHAL_API_KEY is required for Groq whisper backend.");
 
     const wav = await fs.readFile(wavPath);
     const form = new FormData();
     form.append("model", this.model);
     form.append("file", new Blob([wav], { type: "audio/wav" }), path.basename(wavPath));
-    if (language) form.append("language", language);
+    if (options.language) form.append("language", options.language);
+    // OpenAI-compatible audio/transcriptions endpoint accepts an optional
+    // `prompt` field (≤ 224 tokens) that seeds the decoder's context. Identical
+    // semantics to whisper.cpp's --prompt flag.
+    if (options.prompt && options.prompt.length > 0) form.append("prompt", options.prompt);
 
     const resp = await fetch(`${this.baseUrl}/audio/transcriptions`, {
       method: "POST",

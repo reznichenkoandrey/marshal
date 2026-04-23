@@ -99,12 +99,15 @@ const desktopApi = {
     bridgeMode?: string;
     claudeModel?: string;
     codexModel?: string;
+    translatorBackend?: string;
     dictationEnabled?: boolean;
     dictationHotkey?: string;
     dictationBackend?: string;
     dictationLanguage?: string;
     dictationAutoPaste?: boolean;
-  }) => ipcRenderer.invoke("marshal:update-settings", settings)
+    dictationPrompt?: string;
+  }) => ipcRenderer.invoke("marshal:update-settings", settings),
+  getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>
 };
 
 contextBridge.exposeInMainWorld("marshalDesktop", desktopApi);

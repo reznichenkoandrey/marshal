@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_DICTATION_PROMPT,
   parseDetectedLanguage,
-  resolveBackendName
+  resolveBackendName,
+  resolveDictationPrompt
 } from "../desktop/dictation/whisper-backend.ts";
 
 describe("parseDetectedLanguage", () => {
@@ -36,5 +38,25 @@ describe("resolveBackendName", () => {
 
   it("falls back to whisper-cpp for unknown values", () => {
     expect(resolveBackendName("nonsense")).toBe("whisper-cpp");
+  });
+});
+
+describe("resolveDictationPrompt", () => {
+  it("returns the bundled default when var is undefined", () => {
+    expect(resolveDictationPrompt(undefined)).toBe(DEFAULT_DICTATION_PROMPT);
+  });
+
+  it("returns a user-supplied prompt verbatim after trimming", () => {
+    expect(resolveDictationPrompt("  React, Magento, PR  ")).toBe("React, Magento, PR");
+  });
+
+  it("returns empty string when caller explicitly blanks the prompt", () => {
+    // Distinct from undefined: the user wants whisper running without any prompt.
+    expect(resolveDictationPrompt("")).toBe("");
+    expect(resolveDictationPrompt("   ")).toBe("");
+  });
+
+  it("default prompt is under the ~1000-character practical cap", () => {
+    expect(DEFAULT_DICTATION_PROMPT.length).toBeLessThan(1000);
   });
 });

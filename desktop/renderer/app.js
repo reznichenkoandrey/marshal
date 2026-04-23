@@ -46,11 +46,14 @@ const dom = {
   settingsClaudeModel: document.getElementById("settings-claude-model"),
   settingsCodexModel: document.getElementById("settings-codex-model"),
   settingsProviderHint: document.getElementById("settings-provider-hint"),
+  settingsTranslatorBackend: document.getElementById("settings-translator-backend"),
   settingsDictationEnabled: document.getElementById("settings-dictation-enabled"),
   settingsDictationHotkey: document.getElementById("settings-dictation-hotkey"),
   settingsDictationBackend: document.getElementById("settings-dictation-backend"),
   settingsDictationLanguage: document.getElementById("settings-dictation-language"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
+  settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
+  settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -677,6 +680,16 @@ function bindEvents() {
   dom.settingsBtn?.addEventListener("click", openSettings);
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
+  dom.settingsDictationPromptReset?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!dom.settingsDictationPrompt || !api?.getDictationDefaults) return;
+    try {
+      const { prompt } = await api.getDictationDefaults();
+      dom.settingsDictationPrompt.value = prompt ?? "";
+    } catch (err) {
+      console.error("getDictationDefaults failed", err);
+    }
+  });
   document.querySelectorAll('[data-close="settings"]').forEach((el) =>
     el.addEventListener("click", closeSettings)
   );
@@ -748,6 +761,9 @@ async function openSettings() {
     dom.settingsBridgeMode.value = current.bridgeMode;
     dom.settingsClaudeModel.value = current.claudeModel ?? "";
     dom.settingsCodexModel.value = current.codexModel ?? "";
+    if (dom.settingsTranslatorBackend) {
+      dom.settingsTranslatorBackend.value = current.translatorBackend ?? "claude-cli";
+    }
     if (dom.settingsDictationEnabled) {
       dom.settingsDictationEnabled.checked = current.dictationEnabled ?? true;
     }
@@ -762,6 +778,9 @@ async function openSettings() {
     }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
+    }
+    if (dom.settingsDictationPrompt) {
+      dom.settingsDictationPrompt.value = current.dictationPrompt ?? "";
     }
     refreshSettingsVisibility();
     clearSettingsStatus();
@@ -801,11 +820,13 @@ async function saveSettingsFromForm() {
     bridgeMode: dom.settingsBridgeMode.value,
     claudeModel: dom.settingsClaudeModel.value.trim(),
     codexModel: dom.settingsCodexModel.value.trim(),
+    translatorBackend: dom.settingsTranslatorBackend?.value ?? "claude-cli",
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
     dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
-    dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false
+    dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
+    dictationPrompt: dom.settingsDictationPrompt?.value ?? ""
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);

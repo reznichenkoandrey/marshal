@@ -99,6 +99,22 @@
           </div>
 
           <fieldset class="field-group">
+            <legend>Translator</legend>
+            <div class="field">
+              <label for="settings-translator-backend">Translator backend</label>
+              <select id="settings-translator-backend" name="translatorBackend">
+                <option value="claude-cli">Claude CLI — default (Pro/Max subscription)</option>
+                <option value="codex-cli">Codex CLI (ChatGPT Plus/Pro subscription)</option>
+                <option value="groq">Groq API (fastest, needs MARSHAL_API_KEY)</option>
+              </select>
+              <p class="field-hint">
+                Picks how the floating translator and double-copy OCR call out. CLI options bill to your
+                existing subscription; Groq still works if you prefer an API key.
+              </p>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Voice dictation</legend>
             <label class="checkbox-row">
               <input id="settings-dictation-enabled" name="dictationEnabled" type="checkbox" />
@@ -142,6 +158,17 @@
               <input id="settings-dictation-autopaste" name="dictationAutoPaste" type="checkbox" />
               <span>Auto-paste transcript after dictation</span>
             </label>
+
+            <div class="field">
+              <label for="settings-dictation-prompt">Initial prompt (glossary)</label>
+              <textarea id="settings-dictation-prompt" name="dictationPrompt" rows="5"
+                placeholder="Seed whisper with your vocabulary, names, and typical code-switching style."></textarea>
+              <p class="field-hint">
+                Huge accuracy win on mixed-language speech (Ukrainian + English tech terms) and rare words.
+                Whisper caps this at ≈1000 characters. Leave blank to disable.
+                <a href="#" id="settings-dictation-prompt-reset">Restore default</a>.
+              </p>
+            </div>
           </fieldset>
 
           <div id="settings-status" class="status-banner hidden"></div>

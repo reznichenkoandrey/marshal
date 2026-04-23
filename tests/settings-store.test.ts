@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { DEFAULT_DICTATION_PROMPT } from "../desktop/dictation/whisper-backend.ts";
+
 // Electron's real `app.getPath("userData")` needs a running app instance.
 // Stub it with a tmp dir that we clean up after each test.
 let tempUserData = "";
@@ -30,6 +32,8 @@ afterEach(() => {
   delete process.env.MARSHAL_DICTATION_BACKEND;
   delete process.env.MARSHAL_DICTATION_LANGUAGE;
   delete process.env.MARSHAL_DICTATION_AUTOPASTE;
+  delete process.env.MARSHAL_DICTATION_PROMPT;
+  delete process.env.MARSHAL_TRANSLATOR_BACKEND;
 });
 
 describe("loadSettings", () => {
@@ -74,22 +78,36 @@ describe("saveSettings", () => {
       bridgeMode: "api",
       claudeModel: "opus",
       codexModel: "gpt-5",
+      translatorBackend: "codex-cli",
       dictationEnabled: false,
       dictationHotkey: "Cmd+Shift+Y",
       dictationBackend: "groq",
       dictationLanguage: "uk",
-      dictationAutoPaste: true
+      dictationAutoPaste: true,
+      dictationPrompt: "React, Magento, PR"
     });
     expect(saved).toEqual({
       bridgeMode: "api",
       claudeModel: "opus",
       codexModel: "gpt-5",
+      translatorBackend: "codex-cli",
       dictationEnabled: false,
       dictationHotkey: "Cmd+Shift+Y",
       dictationBackend: "groq",
       dictationLanguage: "uk",
-      dictationAutoPaste: true
+      dictationAutoPaste: true,
+      dictationPrompt: "React, Magento, PR"
     });
+  });
+
+  it("defaults dictationPrompt to the bundled dev-glossary", () => {
+    const s = saveSettings({});
+    expect(s.dictationPrompt).toBe(DEFAULT_DICTATION_PROMPT);
+  });
+
+  it("preserves empty dictationPrompt (explicit disable)", () => {
+    const s = saveSettings({ dictationPrompt: "" });
+    expect(s.dictationPrompt).toBe("");
   });
 
   it("falls back to default dictation fields for invalid values", () => {
@@ -101,6 +119,11 @@ describe("saveSettings", () => {
     expect(saved.dictationBackend).toBe("whisper-cpp");
     expect(saved.dictationLanguage).toBe("auto");
     expect(saved.dictationHotkey).toBe("RightCmd");
+  });
+
+  it("falls back to claude-cli for invalid translatorBackend", () => {
+    const saved = saveSettings({ translatorBackend: "mistral" as never });
+    expect(saved.translatorBackend).toBe("claude-cli");
   });
 });
 
@@ -122,5 +145,10 @@ describe("applySettingsToEnv", () => {
     applySettingsToEnv({ bridgeMode: "claude-cli", claudeModel: "", codexModel: "" });
     expect(process.env.MARSHAL_CLAUDE_MODEL).toBeUndefined();
     expect(process.env.MARSHAL_CODEX_MODEL).toBeUndefined();
+  });
+
+  it("sets MARSHAL_TRANSLATOR_BACKEND", () => {
+    applySettingsToEnv({ bridgeMode: "claude-cli", claudeModel: "", codexModel: "", translatorBackend: "codex-cli" });
+    expect(process.env.MARSHAL_TRANSLATOR_BACKEND).toBe("codex-cli");
   });
 });
