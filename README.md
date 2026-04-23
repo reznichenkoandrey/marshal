@@ -77,6 +77,7 @@ Packaged builds (`npm run desktop:pack`) carry the same keys via `package.json �
 | **⌘⌥T** | Translate current clipboard text |
 | **⌘⇧2** | Capture screen region → OCR + translate |
 | **double ⌘C** within 600 ms | Auto-translate just-copied text |
+| **⌘⌥L** | Layout switch — fix text typed on the wrong keyboard layout (Punto-Switcher-style, UKR ↔ ENG) |
 
 All shortcuts configurable via `.env` (`MARSHAL_DICTATION_HOTKEY`, etc.) or the Settings modal.
 

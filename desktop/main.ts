@@ -11,6 +11,7 @@ import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
+import { LayoutSwitcher } from "./translator/layout-switcher.ts";
 import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
@@ -34,6 +35,7 @@ let translatorService: TranslatorService | null = null;
 let translatorWindow: TranslatorWindow | null = null;
 let screenshotService: ScreenshotService | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
+let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
 let dictationService: DictationService | null = null;
 let isDictating = false;
@@ -296,6 +298,7 @@ async function performTeardown(): Promise<void> {
     trayRefreshTimer = null;
   }
   clipboardMonitor?.stop();
+  layoutSwitcher?.stop();
   dictationService?.stop();
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
@@ -384,6 +387,9 @@ function initTranslator(): void {
   });
 
   clipboardMonitor.start();
+
+  layoutSwitcher = new LayoutSwitcher();
+  layoutSwitcher.start();
 
   // Check required macOS permissions at startup and prompt user to grant them.
   // Accessibility: needed for double Cmd+C detection via uiohook-napi.
