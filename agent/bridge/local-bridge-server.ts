@@ -1,7 +1,39 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { ClaudeApiBridge } from "./claude-api-bridge.ts";
 import { ClaudeCliBridge } from "./claude-cli-bridge.ts";
+import { ClaudeWebBridge } from "./claude-web-bridge.ts";
+import { CodexCliBridge } from "./codex-cli-bridge.ts";
+import { OpenAiApiBridge } from "./openai-api-bridge.ts";
+import { ChatGPTBridge as PlaywrightChatGPTBridge } from "./chatgpt.ts";
 import type { ReasoningBridge } from "./types.ts";
+
+export const CHAT_PROVIDERS = [
+  "claude-cli",   // Claude via desktop subscription (claude auth)
+  "codex-cli",    // ChatGPT via desktop subscription (codex login)
+  "claude",       // Anthropic Messages API (needs ANTHROPIC_API_KEY)
+  "api",          // OpenAI-compatible API (Groq/OpenRouter) — MARSHAL_API_KEY
+  "claude-web",   // Claude web via Playwright
+  "playwright"    // ChatGPT web via Playwright
+] as const;
+export type ChatProvider = (typeof CHAT_PROVIDERS)[number];
+
+function createBridgeForProvider(provider: ChatProvider): ReasoningBridge {
+  switch (provider) {
+    case "claude-cli":   return new ClaudeCliBridge();
+    case "codex-cli":    return new CodexCliBridge();
+    case "claude":       return new ClaudeApiBridge();
+    case "api":          return new OpenAiApiBridge();
+    case "claude-web":   return new ClaudeWebBridge();
+    case "playwright":   return new PlaywrightChatGPTBridge();
+  }
+}
+
+function normalizeProvider(value: unknown): ChatProvider {
+  return typeof value === "string" && (CHAT_PROVIDERS as readonly string[]).includes(value)
+    ? (value as ChatProvider)
+    : "claude-cli";
+}
 
 export type ExtensionState = {
   clientId: string;
@@ -199,12 +231,21 @@ export class LocalBridgeServer {
     if (request.method === "POST" && url.pathname === "/chat/reset") {
       const body = await readJsonBody(request);
       const sessionId = String(body.sessionId ?? "default");
-      const existing = this.chatBridges.get(sessionId);
-      if (existing) {
-        await existing.close().catch(() => undefined);
-        this.chatBridges.delete(sessionId);
+      // Reset every cached provider session for this panel, not just the
+      // currently-selected one — the panel's "new conversation" button
+      // should wipe history across every backend the user tried.
+      for (const [key, bridge] of this.chatBridges.entries()) {
+        if (key.startsWith(`${sessionId}::`)) {
+          await bridge.close().catch(() => undefined);
+          this.chatBridges.delete(key);
+        }
       }
       writeJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/chat/providers") {
+      writeJson(response, 200, { ok: true, data: { providers: CHAT_PROVIDERS } });
       return;
     }
 
@@ -287,30 +328,34 @@ export class LocalBridgeServer {
     }
 
     const sessionId = String(body.sessionId ?? "default");
+    const provider = normalizeProvider(body.provider);
+    // Each provider keeps an independent conversation — switching provider
+    // should NOT resume a session started on a different backend.
+    const cacheKey = `${sessionId}::${provider}`;
     const context = typeof body.context === "string" ? body.context : "";
     const customSystemPrompt = typeof body.systemPrompt === "string" ? body.systemPrompt : null;
     const fullPrompt = context ? `${context}\n\n---\n\n${prompt}` : prompt;
 
-    let bridge = this.chatBridges.get(sessionId);
+    let bridge = this.chatBridges.get(cacheKey);
     if (!bridge) {
-      bridge = new ClaudeCliBridge();
+      bridge = createBridgeForProvider(provider);
       try {
         await bridge.initialize();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Claude CLI initialization failed.";
-        writeJson(response, 500, { ok: false, error: message });
+        const message = error instanceof Error ? error.message : "Bridge initialization failed.";
+        writeJson(response, 500, { ok: false, error: `${provider}: ${message}` });
         return;
       }
       await bridge.prime(customSystemPrompt ?? DEFAULT_BROWSER_SYSTEM_PROMPT);
-      this.chatBridges.set(sessionId, bridge);
+      this.chatBridges.set(cacheKey, bridge);
     }
 
     try {
       const text = await bridge.ask(fullPrompt);
-      writeJson(response, 200, { ok: true, data: { text, sessionId } });
+      writeJson(response, 200, { ok: true, data: { text, sessionId, provider } });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Claude CLI request failed.";
-      writeJson(response, 500, { ok: false, error: message });
+      const message = error instanceof Error ? error.message : "Bridge request failed.";
+      writeJson(response, 500, { ok: false, error: `${provider}: ${message}` });
     }
   }
 

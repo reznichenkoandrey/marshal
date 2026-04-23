@@ -32,11 +32,18 @@ body {
   align-items: center;
 }
 
-#providerLabel {
+#providerSelect {
   flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #e0e0e0;
   font-size: 12px;
-  color: #aaa;
+  cursor: pointer;
 }
+
+#providerSelect:focus { outline: none; border-color: #0e74ff; }
 
 #resetBtn {
   width: 28px;

@@ -9,7 +9,14 @@
 <body>
   <header id="toolbar">
     <div class="toolbar-row">
-      <div id="providerLabel">Claude (via desktop subscription)</div>
+      <select id="providerSelect" title="Choose the AI backend">
+        <option value="claude-cli">Claude (subscription · claude-cli)</option>
+        <option value="codex-cli">ChatGPT (subscription · codex-cli)</option>
+        <option value="claude">Claude API (Anthropic)</option>
+        <option value="api">Groq / OpenAI API</option>
+        <option value="claude-web">Claude Web (Playwright)</option>
+        <option value="playwright">ChatGPT Web (Playwright)</option>
+      </select>
       <button id="resetBtn" title="Reset conversation">&#x21BB;</button>
     </div>
 

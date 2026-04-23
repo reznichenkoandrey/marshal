@@ -5,6 +5,8 @@
 const BRIDGE_PORT = 3210;
 const BRIDGE_URL = `http://127.0.0.1:${BRIDGE_PORT}`;
 const SESSION_STORAGE_KEY = "marshalChatSessionId";
+const PROVIDER_STORAGE_KEY = "marshalChatProvider";
+const DEFAULT_PROVIDER = "claude-cli";
 const REQUEST_TIMEOUT_MS = 300_000;
 
 type Role = "user" | "assistant" | "system";
@@ -22,6 +24,7 @@ interface CapturedContext {
 }
 
 // -- DOM refs --
+const providerSelect = document.getElementById("providerSelect") as HTMLSelectElement;
 const resetBtn = document.getElementById("resetBtn") as HTMLButtonElement;
 const promptInput = document.getElementById("promptInput") as HTMLTextAreaElement;
 const sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
@@ -36,6 +39,7 @@ const contextPreview = document.getElementById("contextPreview") as HTMLSpanElem
 const clearContextBtn = document.getElementById("clearContextBtn") as HTMLButtonElement;
 
 let sessionId = "";
+let provider = DEFAULT_PROVIDER;
 let pickerActive = false;
 let pendingContext: CapturedContext | null = null;
 let currentAbort: AbortController | null = null;
@@ -44,9 +48,21 @@ void init();
 
 async function init(): Promise<void> {
   sessionId = await ensureSessionId();
+  provider = await loadProvider();
+  providerSelect.value = provider;
   bindEvents();
   renderWelcome();
   void pingBridge();
+}
+
+async function loadProvider(): Promise<string> {
+  const stored = await chrome.storage.local.get(PROVIDER_STORAGE_KEY);
+  const value = stored[PROVIDER_STORAGE_KEY];
+  return typeof value === "string" && value.length > 0 ? value : DEFAULT_PROVIDER;
+}
+
+async function saveProvider(value: string): Promise<void> {
+  await chrome.storage.local.set({ [PROVIDER_STORAGE_KEY]: value });
 }
 
 function bindEvents(): void {
@@ -57,6 +73,7 @@ function bindEvents(): void {
   captureHtmlBtn.addEventListener("click", () => void startCapture("html"));
   cancelPickerBtn.addEventListener("click", () => void cancelPicker());
   clearContextBtn.addEventListener("click", () => clearContext());
+  providerSelect.addEventListener("change", () => void handleProviderChange());
   promptInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -64,6 +81,18 @@ function bindEvents(): void {
     }
   });
   chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+}
+
+async function handleProviderChange(): Promise<void> {
+  provider = providerSelect.value;
+  await saveProvider(provider);
+  appendMessage({
+    role: "system",
+    text: `Switched to ${providerSelect.options[providerSelect.selectedIndex]?.text ?? provider}. Previous conversation was kept per-provider — will continue where you left off on this backend.`,
+    timestamp: Date.now()
+  });
+  setStatus(`Provider: ${provider}`, "info");
+  setTimeout(() => setStatus(""), 2000);
 }
 
 async function ensureSessionId(): Promise<string> {
@@ -76,9 +105,10 @@ async function ensureSessionId(): Promise<string> {
 }
 
 function renderWelcome(): void {
+  const providerLabel = providerSelect.options[providerSelect.selectedIndex]?.text ?? provider;
   appendMessage({
     role: "system",
-    text: "Hi! I'm Claude, running via your desktop subscription. Pick an element on the page or just type a question.",
+    text: `Marshal chat — using ${providerLabel}. Pick an element on the page or just type a question.`,
     timestamp: Date.now()
   });
 }
@@ -122,7 +152,7 @@ async function handleSend(): Promise<void> {
     const response = await fetch(`${BRIDGE_URL}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, context: contextBlock, sessionId }),
+      body: JSON.stringify({ prompt, context: contextBlock, sessionId, provider }),
       signal: abort.signal
     });
 
