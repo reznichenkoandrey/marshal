@@ -102,6 +102,7 @@ const desktopApi = {
     dictationEnabled?: boolean;
     dictationHotkey?: string;
     dictationBackend?: string;
+    dictationLanguage?: string;
     dictationAutoPaste?: boolean;
   }) => ipcRenderer.invoke("marshal:update-settings", settings)
 };

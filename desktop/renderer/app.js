@@ -49,6 +49,7 @@ const dom = {
   settingsDictationEnabled: document.getElementById("settings-dictation-enabled"),
   settingsDictationHotkey: document.getElementById("settings-dictation-hotkey"),
   settingsDictationBackend: document.getElementById("settings-dictation-backend"),
+  settingsDictationLanguage: document.getElementById("settings-dictation-language"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
@@ -756,6 +757,9 @@ async function openSettings() {
     if (dom.settingsDictationBackend) {
       dom.settingsDictationBackend.value = current.dictationBackend ?? "whisper-cpp";
     }
+    if (dom.settingsDictationLanguage) {
+      dom.settingsDictationLanguage.value = current.dictationLanguage ?? "auto";
+    }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
@@ -798,8 +802,9 @@ async function saveSettingsFromForm() {
     claudeModel: dom.settingsClaudeModel.value.trim(),
     codexModel: dom.settingsCodexModel.value.trim(),
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
-    dictationHotkey: (dom.settingsDictationHotkey?.value ?? "Cmd+Shift+D").trim() || "Cmd+Shift+D",
+    dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
     dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",
+    dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false
   };
   dom.settingsSave.disabled = true;

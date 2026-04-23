@@ -47,10 +47,19 @@ export type DictationEvents = {
   error: [Error];
 };
 
+function resolveLanguage(raw: string | undefined): string | undefined {
+  const value = (raw ?? "auto").toLowerCase().trim();
+  if (!value || value === "auto") return undefined;
+  // Whisper language codes are 2-letter ISO 639-1. Keep the first two chars
+  // so both "uk" and "uk-UA" work.
+  return value.slice(0, 2);
+}
+
 export class DictationService extends EventEmitter {
   private readonly hotkey: PushToTalkHotkey;
   private readonly backend: WhisperBackend;
   private readonly recorderBin: string;
+  private readonly language: string | undefined;
   private recorderProcess: ChildProcess | null = null;
   private currentWavPath: string | null = null;
   private isStopping = false;
@@ -63,6 +72,7 @@ export class DictationService extends EventEmitter {
     this.hotkey = new PushToTalkHotkey(hotkeyString);
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
+    this.language = resolveLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
 
     this.hotkey.on("hold-start", () => this.handleHoldStart());
     this.hotkey.on("hold-end", () => this.handleHoldEnd());
@@ -204,8 +214,8 @@ export class DictationService extends EventEmitter {
         return;
       }
 
-      debug("transcribing…");
-      const result = await this.backend.transcribe(wavPath);
+      debug("transcribing… lang=", this.language ?? "auto");
+      const result = await this.backend.transcribe(wavPath, this.language);
       debug("transcribed:", result.text.length, "chars, lang=", result.language);
       if (result.text.length > 0) {
         clipboard.writeText(result.text);

@@ -125,6 +125,19 @@
               </p>
             </div>
 
+            <div class="field">
+              <label for="settings-dictation-language">Spoken language</label>
+              <select id="settings-dictation-language" name="dictationLanguage">
+                <option value="auto">Auto-detect (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+              <p class="field-hint">
+                Pin a language if auto-detect misfires on short utterances — e.g. Ukrainian getting
+                recognised as Russian. Auto works well for longer clips.
+              </p>
+            </div>
+
             <label class="checkbox-row">
               <input id="settings-dictation-autopaste" name="dictationAutoPaste" type="checkbox" />
               <span>Auto-paste transcript after dictation</span>

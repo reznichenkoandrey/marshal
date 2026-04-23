@@ -28,6 +28,7 @@ afterEach(() => {
   delete process.env.MARSHAL_DICTATION_ENABLED;
   delete process.env.MARSHAL_DICTATION_HOTKEY;
   delete process.env.MARSHAL_DICTATION_BACKEND;
+  delete process.env.MARSHAL_DICTATION_LANGUAGE;
   delete process.env.MARSHAL_DICTATION_AUTOPASTE;
 });
 
@@ -76,6 +77,7 @@ describe("saveSettings", () => {
       dictationEnabled: false,
       dictationHotkey: "Cmd+Shift+Y",
       dictationBackend: "groq",
+      dictationLanguage: "uk",
       dictationAutoPaste: true
     });
     expect(saved).toEqual({
@@ -85,6 +87,7 @@ describe("saveSettings", () => {
       dictationEnabled: false,
       dictationHotkey: "Cmd+Shift+Y",
       dictationBackend: "groq",
+      dictationLanguage: "uk",
       dictationAutoPaste: true
     });
   });
@@ -92,9 +95,11 @@ describe("saveSettings", () => {
   it("falls back to default dictation fields for invalid values", () => {
     const saved = saveSettings({
       dictationBackend: "bogus" as never,
+      dictationLanguage: "fr" as never,
       dictationHotkey: "   "
     });
     expect(saved.dictationBackend).toBe("whisper-cpp");
+    expect(saved.dictationLanguage).toBe("auto");
     expect(saved.dictationHotkey).toBe("RightCmd");
   });
 });

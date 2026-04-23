@@ -13,6 +13,11 @@ export type BridgeMode =
   | "extension";
 
 export type DictationBackend = "whisper-cpp" | "groq";
+// "auto" → let whisper detect the language per clip.
+// Explicit codes pin the decoder to a single language, which is noticeably
+// more accurate on short utterances where auto-detection can flip between
+// similar scripts (e.g. Ukrainian vs Russian).
+export type DictationLanguage = "auto" | "uk" | "en";
 
 export type MarshalSettings = {
   bridgeMode: BridgeMode;
@@ -21,6 +26,7 @@ export type MarshalSettings = {
   dictationEnabled: boolean;
   dictationHotkey: string;
   dictationBackend: DictationBackend;
+  dictationLanguage: DictationLanguage;
   dictationAutoPaste: boolean;
 };
 
@@ -31,10 +37,12 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
   dictationBackend: "whisper-cpp",
+  dictationLanguage: "auto",
   dictationAutoPaste: false
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
+const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
 
 const VALID_MODES: readonly BridgeMode[] = [
   "claude-cli",
@@ -94,6 +102,7 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_ENABLED = settings.dictationEnabled ? "1" : "0";
   process.env.MARSHAL_DICTATION_HOTKEY = settings.dictationHotkey;
   process.env.MARSHAL_DICTATION_BACKEND = settings.dictationBackend;
+  process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
 }
 
@@ -110,6 +119,13 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     ? (dictationBackendCandidate as DictationBackend)
     : DEFAULT_SETTINGS.dictationBackend;
 
+  const dictationLanguageCandidate = typeof input.dictationLanguage === "string"
+    ? input.dictationLanguage
+    : DEFAULT_SETTINGS.dictationLanguage;
+  const dictationLanguage = (VALID_DICTATION_LANGUAGES as readonly string[]).includes(dictationLanguageCandidate)
+    ? (dictationLanguageCandidate as DictationLanguage)
+    : DEFAULT_SETTINGS.dictationLanguage;
+
   const hotkey = typeof input.dictationHotkey === "string" && input.dictationHotkey.trim().length > 0
     ? input.dictationHotkey.trim()
     : DEFAULT_SETTINGS.dictationHotkey;
@@ -123,6 +139,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.dictationEnabled,
     dictationHotkey: hotkey,
     dictationBackend,
+    dictationLanguage,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste
