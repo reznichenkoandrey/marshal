@@ -176,12 +176,30 @@ export class LayoutSwitcher extends EventEmitter {
 
 function sendKeystroke(letter: "c" | "v"): Promise<void> {
   return new Promise((resolve, reject) => {
+    // 10 s timeout so the first-run macOS Automation prompt ("Electron wants
+    // to control System Events") has time to be answered. After the user
+    // clicks OK once, subsequent calls return in <50 ms.
     exec(
       `osascript -e 'tell application "System Events" to keystroke "${letter}" using command down'`,
-      { timeout: 2000 },
-      (err) => {
-        if (err) reject(err);
-        else resolve();
+      { timeout: 10_000 },
+      (err, _stdout, stderr) => {
+        if (!err) {
+          resolve();
+          return;
+        }
+        const killed = (err as NodeJS.ErrnoException & { killed?: boolean }).killed;
+        const errText = stderr?.toString().toLowerCase() ?? "";
+        if (killed || errText.includes("-1743") || errText.includes("not authorized")) {
+          reject(new Error(
+            "macOS blocked Cmd+" + letter.toUpperCase() + " simulation. " +
+            "Enable it in System Settings → Privacy & Security → Automation → " +
+            "Electron → System Events. If the tumblr is missing, run " +
+            "`tccutil reset AppleEvents` in a terminal, restart Marshal, then " +
+            "press ⌘⌥L again and click OK on the prompt."
+          ));
+          return;
+        }
+        reject(err);
       }
     );
   });
