@@ -62,7 +62,20 @@ ensureMicrophonePermission()
 
 let engine = AVAudioEngine()
 let inputNode = engine.inputNode
-let inputFormat = inputNode.outputFormat(forBus: 0)
+
+// `inputFormat(forBus:0)` describes what the mic hands us. On some hardware
+// (notably Bluetooth inputs like AirPods) `outputFormat(forBus:0)` returns a
+// placeholder with 0 channels until the engine is prepared, which then breaks
+// AUGraphParser::InitializeActiveNodesInInputChain (-10868, see #52).
+let inputFormat = inputNode.inputFormat(forBus: 0)
+
+guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+    FileHandle.standardError.write(
+        "audio input device reports invalid format (sr=\(inputFormat.sampleRate), ch=\(inputFormat.channelCount)). Check System Settings → Sound → Input — the default device may be disconnected.\n"
+            .data(using: .utf8)!
+    )
+    exit(7)
+}
 
 guard
     let targetFormat = AVAudioFormat(
@@ -144,6 +157,11 @@ signal(SIGINT, SIG_IGN)
 let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 intSource.setEventHandler { shutdown() }
 intSource.resume()
+
+// `prepare()` wires up the graph and gives the audio subsystem a chance to
+// resolve format mismatches before `start()` runs — without it, start() can
+// bail with -10868 on Bluetooth inputs (#52).
+engine.prepare()
 
 do {
     try engine.start()

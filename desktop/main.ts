@@ -59,6 +59,19 @@ void bootstrap();
 
 async function bootstrap(): Promise<void> {
   try {
+    // Single-instance lock — a leftover process from a previous run (or a
+    // zombie tray) otherwise gives the user two tray icons (#51).
+    if (!app.requestSingleInstanceLock()) {
+      app.quit();
+      return;
+    }
+    app.on("second-instance", () => {
+      if (mainWindow) {
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+
     await app.whenReady();
     if (process.platform === "darwin") {
       app.setActivationPolicy("accessory");
