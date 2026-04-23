@@ -1,20 +1,22 @@
 // desktop/dictation/audio-recorder.swift
 //
-// Minimal push-to-talk audio capture helper. Reads audio from the default
-// input device, resamples to the format whisper.cpp expects (16 kHz mono
-// 16-bit PCM WAV) and writes it to the path passed as the first argument.
+// Push-to-talk audio capture helper. Writes a 16 kHz mono 16-bit PCM WAV to
+// the path passed as the first argument — the format whisper.cpp expects.
+//
+// Uses AVAudioRecorder (not AVAudioEngine) on purpose — it's the Apple-blessed
+// "record a file" API, handles input-device quirks (Bluetooth inputs like
+// AirPods, USB mics, built-in) and cross-device switches mid-session, and
+// writes a proper WAV header on stop(). Previous AVAudioEngine implementation
+// crashed with -10868 (AUGraphParser) on AirPods. See #52, #53.
 //
 // Lifecycle:
-//   - start immediately on launch
-//   - prints "ready" to stdout once engine is running (Node uses this as a
-//     cue that it's safe to treat the process as recording)
+//   - start recording immediately on launch
+//   - prints "ready" to stdout when the recorder is armed (Node uses this as
+//     a signal that it's safe to treat the process as recording)
 //   - stops on SIGTERM / SIGINT, flushes the WAV file, then exits 0
 //
 // Usage:
 //   audio-recorder /tmp/marshal-dict-<uuid>.wav
-//
-// Build is handled by scripts/postbuild.mjs (swiftc -O → dist/desktop/dictation/audio-recorder).
-// Requires microphone permission (NSMicrophoneUsageDescription on the parent app).
 
 import Foundation
 import AVFoundation
@@ -25,11 +27,10 @@ guard args.count >= 2 else {
     exit(2)
 }
 let outPath = args[1]
+let outURL = URL(fileURLWithPath: outPath)
 
-// macOS 10.14+ requires explicit microphone permission. Without it, the
-// input node hands us silent buffers and whisper.cpp returns an empty
-// transcript — see #49. Block here until the user has answered the prompt
-// so the failure mode is a loud error rather than a silent empty clipboard.
+// macOS 10.14+ requires explicit microphone permission. Without it the
+// recorder silently captures zeros — surface the failure as exit(6) instead.
 func ensureMicrophonePermission() {
     let status = AVCaptureDevice.authorizationStatus(for: .audio)
     switch status {
@@ -60,39 +61,10 @@ func ensureMicrophonePermission() {
 
 ensureMicrophonePermission()
 
-let engine = AVAudioEngine()
-let inputNode = engine.inputNode
-
-// `inputFormat(forBus:0)` describes what the mic hands us. On some hardware
-// (notably Bluetooth inputs like AirPods) `outputFormat(forBus:0)` returns a
-// placeholder with 0 channels until the engine is prepared, which then breaks
-// AUGraphParser::InitializeActiveNodesInInputChain (-10868, see #52).
-let inputFormat = inputNode.inputFormat(forBus: 0)
-
-guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-    FileHandle.standardError.write(
-        "audio input device reports invalid format (sr=\(inputFormat.sampleRate), ch=\(inputFormat.channelCount)). Check System Settings → Sound → Input — the default device may be disconnected.\n"
-            .data(using: .utf8)!
-    )
-    exit(7)
-}
-
-guard
-    let targetFormat = AVAudioFormat(
-        commonFormat: .pcmFormatInt16,
-        sampleRate: 16000,
-        channels: 1,
-        interleaved: true
-    ),
-    let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-else {
-    FileHandle.standardError.write("failed to create target audio format / converter\n".data(using: .utf8)!)
-    exit(3)
-}
-
-// Extended file settings so AVAudioFile writes a proper 16 kHz mono 16-bit
-// WAV regardless of the input device's native rate.
-let outSettings: [String: Any] = [
+// whisper.cpp expects 16 kHz mono 16-bit PCM WAV. AVAudioRecorder resamples
+// from whatever the input device natively produces — AirPods 24 kHz, built-in
+// 48 kHz, USB mics 44.1 kHz, all end up in this one format.
+let settings: [String: Any] = [
     AVFormatIDKey: Int(kAudioFormatLinearPCM),
     AVSampleRateKey: 16000,
     AVNumberOfChannelsKey: 1,
@@ -101,53 +73,35 @@ let outSettings: [String: Any] = [
     AVLinearPCMIsBigEndianKey: false
 ]
 
-var outFile: AVAudioFile?
+var recorder: AVAudioRecorder
 do {
-    outFile = try AVAudioFile(forWriting: URL(fileURLWithPath: outPath), settings: outSettings)
+    recorder = try AVAudioRecorder(url: outURL, settings: settings)
 } catch {
-    FileHandle.standardError.write("failed to open output file: \(error)\n".data(using: .utf8)!)
+    FileHandle.standardError.write("AVAudioRecorder init failed: \(error)\n".data(using: .utf8)!)
     exit(4)
 }
 
-let bufferLock = NSLock()
+guard recorder.prepareToRecord() else {
+    FileHandle.standardError.write(
+        "prepareToRecord() returned false. Check System Settings → Sound → Input — the default device may be unavailable.\n".data(using: .utf8)!
+    )
+    exit(5)
+}
 
-inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
-    let ratio = targetFormat.sampleRate / inputFormat.sampleRate
-    let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-    guard
-        capacity > 0,
-        let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity)
-    else { return }
-
-    var provided = false
-    var convError: NSError?
-    converter.convert(to: converted, error: &convError) { _, outStatus in
-        if provided {
-            outStatus.pointee = .noDataNow
-            return nil
-        }
-        provided = true
-        outStatus.pointee = .haveData
-        return buffer
-    }
-    if convError != nil || converted.frameLength == 0 { return }
-
-    bufferLock.lock()
-    defer { bufferLock.unlock() }
-    try? outFile?.write(from: converted)
+guard recorder.record() else {
+    FileHandle.standardError.write(
+        "record() returned false. Verify that an input device is connected and selected in System Settings → Sound → Input.\n".data(using: .utf8)!
+    )
+    exit(5)
 }
 
 func shutdown() -> Never {
-    engine.stop()
-    inputNode.removeTap(onBus: 0)
-    bufferLock.lock()
-    outFile = nil  // release → deinit flushes header and closes the file
-    bufferLock.unlock()
+    // stop() flushes the WAV header and closes the file synchronously. Safe
+    // to call from a DispatchSource signal handler on the main queue.
+    recorder.stop()
     exit(0)
 }
 
-// Use DispatchSource so Swift's async signal safety isn't violated. Ignore
-// the default handler, let the source take over.
 signal(SIGTERM, SIG_IGN)
 let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
 termSource.setEventHandler { shutdown() }
@@ -157,18 +111,6 @@ signal(SIGINT, SIG_IGN)
 let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 intSource.setEventHandler { shutdown() }
 intSource.resume()
-
-// `prepare()` wires up the graph and gives the audio subsystem a chance to
-// resolve format mismatches before `start()` runs — without it, start() can
-// bail with -10868 on Bluetooth inputs (#52).
-engine.prepare()
-
-do {
-    try engine.start()
-} catch {
-    FileHandle.standardError.write("engine.start() failed: \(error)\n".data(using: .utf8)!)
-    exit(5)
-}
 
 print("ready")
 fflush(stdout)
