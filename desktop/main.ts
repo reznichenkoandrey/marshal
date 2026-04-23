@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
+import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
@@ -73,6 +74,10 @@ async function bootstrap(): Promise<void> {
     if (process.platform === "darwin") {
       app.setActivationPolicy("accessory");
     }
+
+    // Settings override .env values. Must be applied BEFORE the backend utility
+    // process forks so the child inherits the correct env.
+    applySettingsToEnv(loadSettings());
 
     registerIpcHandlers();
     createMainWindow();
@@ -158,48 +163,76 @@ function registerIpcHandlers(): void {
     app.exit(0);
   });
 
+  handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
+    const saved = saveSettings(next ?? {});
+    applySettingsToEnv(saved);
+    // Restart the backend so the new provider/model values reach the reasoning bridge.
+    await backendClient.restart();
+    return saved;
+  });
+
   // Translator IPC handlers
   handleIpc("marshal:translator-translate-text", async (_event, { text, targetLang }: { text: string; targetLang: "uk" | "en" }) => {
-    if (!translatorService || !translatorWindow) return;
-    translatorWindow.showLoading("text");
+    const { service, window } = ensureTranslator();
+    window.showLoading("text");
     try {
-      const result = await translatorService.translateText(text, targetLang);
-      translatorWindow.showWithText(text, result.translation, result.sourceLang, result.targetLang);
+      const result = await service.translateText(text, targetLang);
+      window.showWithText(text, result.translation, result.sourceLang, result.targetLang);
       return result;
     } catch (err) {
-      translatorWindow.showError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      window.showError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   });
 
   handleIpc("marshal:translator-translate-image", async (_event, { base64, mimeType, targetLang }: { base64: string; mimeType: string; targetLang: "uk" | "en" }) => {
-    if (!translatorService || !translatorWindow) return;
-    translatorWindow.showLoading("image");
+    const { service, window } = ensureTranslator();
+    window.showLoading("image");
     try {
-      const result = await translatorService.translateImage(base64, mimeType, targetLang);
-      translatorWindow.showImageResult(result.translation, result.targetLang);
+      const result = await service.translateImage(base64, mimeType, targetLang);
+      window.showImageResult(result.translation, result.targetLang);
       return result;
     } catch (err) {
-      translatorWindow.showError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      window.showError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   });
 
   handleIpc("marshal:translator-capture-screen", async () => {
-    if (!screenshotService) return null;
+    if (!screenshotService) {
+      throw new Error("Screenshot service is not initialized.");
+    }
     return screenshotService.captureWithCrop();
   });
 
   handleIpc("marshal:translator-close", () => {
-    translatorWindow?.hide();
+    if (!translatorWindow) {
+      throw new Error("Translator window is not initialized.");
+    }
+    translatorWindow.hide();
   });
 
   handleIpc("marshal:translator-open", () => {
-    translatorWindow?.show();
+    if (!translatorWindow) {
+      throw new Error("Translator window is not initialized.");
+    }
+    translatorWindow.show();
   });
 }
 
 function handleIpc(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
   ipcMain.removeHandler(channel);
   ipcMain.handle(channel, listener);
+}
+
+function ensureTranslator(): { service: TranslatorService; window: TranslatorWindow } {
+  if (!translatorService || !translatorWindow) {
+    throw new Error("Translator is not initialized.");
+  }
+  return { service: translatorService, window: translatorWindow };
 }
 
 function initTranslator(): void {

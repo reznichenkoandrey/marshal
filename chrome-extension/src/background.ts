@@ -1,4 +1,21 @@
-const BRIDGE_PORT = Number("__MARSHAL_BRIDGE_PORT__");
+// `__MARSHAL_BRIDGE_PORT__` is substituted by scripts/postbuild.mjs using
+// CHATGPT_EXTENSION_BRIDGE_PORT (default 3210). If substitution ever fails the
+// literal placeholder survives and `Number(...)` would yield NaN, silently
+// breaking every bridge request. Validate and fall back loudly.
+const DEFAULT_BRIDGE_PORT = 3210;
+const RAW_BRIDGE_PORT = "__MARSHAL_BRIDGE_PORT__";
+const parsedBridgePort = /^\d+$/u.test(RAW_BRIDGE_PORT) ? Number(RAW_BRIDGE_PORT) : NaN;
+const BRIDGE_PORT = Number.isInteger(parsedBridgePort) && parsedBridgePort > 0 && parsedBridgePort < 65536
+  ? parsedBridgePort
+  : DEFAULT_BRIDGE_PORT;
+
+if (BRIDGE_PORT === DEFAULT_BRIDGE_PORT && !/^\d+$/u.test(RAW_BRIDGE_PORT)) {
+  console.error(
+    `[Marshal] BRIDGE_PORT placeholder was not substituted (got "${RAW_BRIDGE_PORT}"). ` +
+    `Falling back to ${DEFAULT_BRIDGE_PORT}. Re-run the build via scripts/postbuild.mjs.`
+  );
+}
+
 const CLIENT_ID_KEY = "marshalClientId";
 
 type BridgeCommand = {
@@ -17,13 +34,78 @@ type TickState = {
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureClientId();
+  void configureSidePanel();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureClientId();
+  void configureSidePanel();
+});
+
+// -- Side Panel setup --
+
+async function configureSidePanel(): Promise<void> {
+  try {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  } catch {
+    // sidePanel API not available — ignore
+  }
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  if (tab?.id) {
+    void chrome.sidePanel.open({ tabId: tab.id }).catch(() => undefined);
+  }
+});
+
+// -- Port-based message broker between sidepanel and injector --
+// sidepanel and injector cannot communicate directly via postMessage
+// because Chrome doesn't inject content scripts into iframes inside extension pages.
+// Both connect to background via chrome.runtime.connect and background relays messages.
+
+let injectorPort: chrome.runtime.Port | null = null;
+let sidepanelPort: chrome.runtime.Port | null = null;
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "marshal-injector") {
+    injectorPort = port;
+    port.onMessage.addListener((msg) => {
+      // Relay injector → sidepanel
+      sidepanelPort?.postMessage(msg);
+    });
+    port.onDisconnect.addListener(() => { injectorPort = null; });
+  }
+
+  if (port.name === "marshal-sidepanel") {
+    sidepanelPort = port;
+    port.onMessage.addListener((msg) => {
+      // Relay sidepanel → injector
+      injectorPort?.postMessage(msg);
+    });
+    port.onDisconnect.addListener(() => { sidepanelPort = null; });
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Relay picker / page-capture results from content script to sidepanel
+  if (
+    message?.type === "marshal-picker-result" ||
+    message?.type === "marshal-picker-cancelled" ||
+    message?.type === "marshal-page-capture-result"
+  ) {
+    void chrome.runtime.sendMessage(message).catch(() => undefined);
+    sendResponse({ ok: true });
+    return;
+  }
+
+  // Screenshot capture — only service worker has access to captureVisibleTab
+  if (message?.type === "marshal-capture-screenshot") {
+    chrome.tabs.captureVisibleTab({ format: "png" }, (dataUrl) => {
+      sendResponse({ screenshot: dataUrl ?? "" });
+    });
+    return true;
+  }
+
   if (message?.type !== "marshal-tick" || !sender.tab?.id) {
     return;
   }

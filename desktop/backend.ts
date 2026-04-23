@@ -76,6 +76,9 @@ void bootstrap();
 async function bootstrap(): Promise<void> {
   await service.initialize();
 
+  // Signal readiness so the parent client can unblock pending invokes.
+  parentPort.postMessage({ kind: "ready" });
+
   parentPort.on("message", async (event) => {
     const message = event.data as DesktopBackendRequest;
     if (!message || message.kind !== "invoke") {

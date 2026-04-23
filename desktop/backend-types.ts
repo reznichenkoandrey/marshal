@@ -28,4 +28,9 @@ export type DesktopBackendFailure = {
   error: string;
 };
 
+export type DesktopBackendReady = {
+  kind: "ready";
+};
+
 export type DesktopBackendResponse = DesktopBackendSuccess | DesktopBackendFailure;
+export type DesktopBackendMessage = DesktopBackendResponse | DesktopBackendReady;
