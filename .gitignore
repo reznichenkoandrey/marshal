@@ -16,3 +16,4 @@ agent/workspace/
 operator-data/
 assets/icon.iconset/
 .whisper/
+.playwright-mcp/
