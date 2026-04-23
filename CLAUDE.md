@@ -20,6 +20,12 @@
 - Кожен комміт, що закриває issue: `fix: ... (#NN)` або `feat: ... (#NN)`
 - У PR description: `Closes #NN` для автозакриття
 
+### Tests
+- Runner: **vitest** (`npm test`, `npm run test:watch`)
+- Тести живуть у `tests/` на рівні проєкту
+- Нові pure helpers мають бути `export`-нуті з testable форми (не внутрішні методи)
+- Перед коммітом: `npm run check` (typecheck + test)
+
 ---
 
 ## Стек проєкту

@@ -25,11 +25,6 @@ type ChatOptions = {
   maxTokens?: number;
 };
 
-type TranslateJsonResult = {
-  sourceLang: string;
-  translation: string;
-};
-
 export class TranslatorService {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -114,31 +109,11 @@ export class TranslatorService {
   }
 
   private parseTranslateJson(raw: string): TranslateJsonResult {
-    const trimmed = raw.trim();
-    const candidates = [trimmed, stripCodeFence(trimmed), extractBracedJson(trimmed)];
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      try {
-        const parsed = JSON.parse(candidate) as { sourceLang?: unknown; translation?: unknown };
-        const sourceLang = typeof parsed.sourceLang === "string"
-          ? parsed.sourceLang.trim().toLowerCase().slice(0, 2)
-          : "";
-        const translation = typeof parsed.translation === "string" ? parsed.translation.trim() : "";
-        if (translation) return { sourceLang, translation };
-      } catch {
-        // try next candidate
-      }
-    }
-    // Last-resort: treat the raw response as the translation text.
-    return { sourceLang: "", translation: trimmed };
+    return parseTranslateJson(raw);
   }
 
-  /**
-   * Returns "uk" when the text contains Cyrillic characters, "en" otherwise.
-   * Used as a fallback when language detection fails or returns garbage.
-   */
   private detectLangHeuristic(text: string): "uk" | "en" {
-    return /[\u0400-\u04FF]/u.test(text) ? "uk" : "en";
+    return detectLangHeuristic(text);
   }
 
   private async chat(model: string, messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
@@ -188,35 +163,76 @@ export class TranslatorService {
   }
 }
 
-function stripCodeFence(raw: string): string {
+export type TranslateJsonResult = {
+  sourceLang: string;
+  translation: string;
+};
+
+/**
+ * Parses the JSON response from `translateJson()`. Accepts raw JSON, code-fenced
+ * JSON, or JSON embedded in extra text. Returns `{sourceLang:"", translation:raw}`
+ * when nothing parses so callers always get a usable translation field.
+ */
+export function parseTranslateJson(raw: string): TranslateJsonResult {
+  const trimmed = raw.trim();
+  const candidates = [trimmed, stripCodeFence(trimmed), extractBracedJson(trimmed)];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const parsed = JSON.parse(candidate) as { sourceLang?: unknown; translation?: unknown };
+      const sourceLang = typeof parsed.sourceLang === "string"
+        ? parsed.sourceLang.trim().toLowerCase().slice(0, 2)
+        : "";
+      const translation = typeof parsed.translation === "string" ? parsed.translation.trim() : "";
+      if (translation) return { sourceLang, translation };
+    } catch {
+      // try next candidate
+    }
+  }
+  return { sourceLang: "", translation: trimmed };
+}
+
+/**
+ * Returns "uk" when the text contains Cyrillic characters, "en" otherwise.
+ * Used as a fallback when language detection fails or returns garbage.
+ */
+export function detectLangHeuristic(text: string): "uk" | "en" {
+  return /[\u0400-\u04FF]/u.test(text) ? "uk" : "en";
+}
+
+export function stripCodeFence(raw: string): string {
   const match = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/u);
   return match ? match[1].trim() : "";
 }
 
-function extractBracedJson(raw: string): string {
+export function extractBracedJson(raw: string): string {
   const first = raw.indexOf("{");
   const last = raw.lastIndexOf("}");
   if (first === -1 || last === -1 || last <= first) return "";
   return raw.slice(first, last + 1);
 }
 
-function parseFloatEnv(key: string, fallback: number): number {
+export function parseFloatEnv(key: string, fallback: number): number {
   const raw = process.env[key];
   if (!raw) return fallback;
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) ? n : fallback;
 }
 
-function parseIntEnv(key: string, fallback: number): number {
+export function parseIntEnv(key: string, fallback: number): number {
   const raw = process.env[key];
   if (!raw) return fallback;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function parseRetryAfterMs(headerValue: string | null): number | null {
+/**
+ * Parses an HTTP `Retry-After` header into milliseconds. Accepts RFC 7231
+ * delta-seconds or HTTP-date. Returns null for missing or malformed input.
+ * Clamps the result at 30s to avoid unbounded waits.
+ */
+export function parseRetryAfterMs(headerValue: string | null): number | null {
   if (!headerValue) return null;
-  // RFC 7231: either delta-seconds or HTTP-date. Groq emits delta-seconds.
   const seconds = Number.parseFloat(headerValue);
   if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
   const dateMs = Date.parse(headerValue);

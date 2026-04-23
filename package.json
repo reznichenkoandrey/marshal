@@ -17,7 +17,9 @@
     "desktop:pack": "npm run build && electron-builder --dir",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
-    "check": "npm run typecheck"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test"
   },
   "build": {
     "appId": "com.marshal.desktop",
@@ -48,6 +50,7 @@
     "@types/node": "^24.3.0",
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.5"
   }
 }
