@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marshal AI</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header id="toolbar">
+    <div class="toolbar-row">
+      <select id="providerSelect"></select>
+      <button id="reloadBtn" title="Reload provider">&#x21BB;</button>
+      <a id="openExternalLink" target="_blank" title="Open in new tab">&#x2197;</a>
+    </div>
+
+    <!-- Prompt input area -->
+    <div class="prompt-area">
+      <textarea id="promptInput" rows="2" placeholder="Ask about this page or give an agent task..."></textarea>
+      <div class="prompt-actions">
+        <button id="sendBtn" class="action-btn primary" title="Send with page context">Send</button>
+        <button id="agentBtn" class="action-btn agent" title="Run as agent task">Agent</button>
+        <button id="stopBtn" class="action-btn stop" hidden title="Stop agent">Stop</button>
+      </div>
+    </div>
+
+    <!-- Capture buttons -->
+    <div class="toolbar-row capture-row">
+      <button id="captureTextBtn" class="capture-btn">T &mdash; Text</button>
+      <button id="captureHtmlBtn" class="capture-btn">&lt;/&gt; &mdash; HTML</button>
+      <button id="cancelPickerBtn" class="capture-btn cancel-btn" hidden>Cancel</button>
+    </div>
+
+    <div id="statusText" role="status"></div>
+  </header>
+
+  <!-- Step log for agent mode -->
+  <div id="stepLog" hidden></div>
+
+  <!-- AI provider iframe -->
+  <iframe
+    id="providerFrame"
+    src="about:blank"
+    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
+    allow="clipboard-read; clipboard-write"
+  ></iframe>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,3 +1,8 @@
+// Skip bridge logic when running inside a side-panel iframe
+if (window.self !== window.top) {
+  // noop — chat-input-injector.ts handles the iframe context
+} else {
+
 type BridgeCommand = {
   id: string;
   kind: "send_prompt" | "reset_conversation" | "debug_snapshot";
@@ -675,3 +680,5 @@ function getVisibleConversationTexts(root: ParentNode | null, selector: string):
     .map((element) => normalizeText((element as HTMLElement).innerText || element.textContent || ""))
     .filter(Boolean);
 }
+
+} // end of iframe guard else block

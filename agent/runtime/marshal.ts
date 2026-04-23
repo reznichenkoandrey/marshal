@@ -32,7 +32,13 @@ export type RunMarshalTaskOptions = {
 export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<string> {
   const route = options.route ?? "auto";
   const bridgeMode = getBridgeMode();
-  const isUnrestricted = bridgeMode === "api" || bridgeMode === "claude" || bridgeMode === "claude-web" || bridgeMode === "playwright";
+  const isUnrestricted =
+    bridgeMode === "claude-cli" ||
+    bridgeMode === "codex-cli" ||
+    bridgeMode === "api" ||
+    bridgeMode === "claude" ||
+    bridgeMode === "claude-web" ||
+    bridgeMode === "playwright";
   const bridge = options.bridge ?? createReasoningBridge({ projectName: options.chatProjectName });
   const sandbox = new FileSandbox(options.workspaceRoot, { unrestricted: isUnrestricted });
   const browserManager = new PlaywrightBrowserManager(options.browserHeadless ?? false);

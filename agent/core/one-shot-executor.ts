@@ -43,10 +43,14 @@ export class OneShotExecutor {
     let response = await this.bridge.ask(prompt);
     let parsed = this.parseResponse(response);
 
-    // Retry if first response was just ChatGPT's "You said:" echo without actual JSON
-    if (parsed.toolCalls.length === 0 && !response.includes('"commands"')) {
-      response = await this.bridge.ask('Respond with the JSON object now. Raw JSON only, no explanation.');
-      parsed = this.parseResponse(response);
+    // Retry once if the response didn't contain the expected JSON format
+    if (parsed.toolCalls.length === 0 && !response.includes('"commands"') && !response.includes('"summary"')) {
+      response = await this.bridge.ask('Respond with ONLY a JSON object like: {"commands": [], "summary": "your answer"}');
+      const retryParsed = this.parseResponse(response);
+      if (retryParsed.toolCalls.length > 0 || response.includes('"commands"')) {
+        parsed = retryParsed;
+      }
+      // If retry also failed, keep original parsed (which has the text as summary)
     }
 
     const { toolCalls, summary } = parsed;
@@ -155,14 +159,23 @@ export class OneShotExecutor {
       ? `Working directory: ${this.options.workspaceRoot}\nYou can use absolute paths anywhere on the filesystem.`
       : `Workspace root: ${this.options.workspaceRoot}\nAll file paths must be inside this workspace.`;
 
-    return `TASK: ${task}
+    return `You are a task execution agent. Analyze the task and respond with a JSON object.
+
+TASK: ${task}
 
 ${fsNote}
 
-TOOLS:
+AVAILABLE TOOLS:
 ${toolDocs}
 
-Return a JSON with "commands" array and "summary" string. Each command has "tool" and "input". No markdown, no backticks, no explanation — raw JSON only.`;
+RESPONSE FORMAT (strict JSON, nothing else):
+{"commands": [{"tool": "tool_name", "input": {...}}], "summary": "what was done"}
+
+RULES:
+- If the task requires file operations or shell commands, include them in "commands".
+- If the task is a simple question or greeting that needs no tools, respond with: {"commands": [], "summary": "your answer here"}
+- NEVER include markdown, backticks, or explanations outside the JSON.
+- The response MUST start with { and end with }.`;
   }
 
   private parseResponse(response: string): { toolCalls: ToolCall[]; summary: string } {
@@ -194,8 +207,12 @@ Return a JSON with "commands" array and "summary" string. Each command has "tool
       if (result) return result;
     }
 
-    // No valid JSON found
-    return { toolCalls: [], summary: `Failed to parse LLM response: ${response.slice(0, 300)}` };
+    // No valid JSON with "commands" found — treat the whole response as a text answer
+    const cleanText = response
+      .replace(/```[\s\S]*?```/g, "")  // strip code blocks
+      .replace(/\n{2,}/g, "\n")
+      .trim();
+    return { toolCalls: [], summary: cleanText || "No response from AI." };
   }
 
   /**
