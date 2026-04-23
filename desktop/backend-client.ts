@@ -105,6 +105,38 @@ export class DesktopBackendClient {
     }
   }
 
+  /**
+   * Like dispose() but waits for the child process to actually exit (with a
+   * hard timeout). Use from `will-quit` so the app does not exit before the
+   * backend has finished flushing and closing file handles.
+   */
+  async disposeAsync(timeoutMs = 3000): Promise<void> {
+    const stale = this.process;
+    if (!stale) {
+      this.dispose();
+      return;
+    }
+
+    const exitPromise = new Promise<void>((resolve) => {
+      const onExit = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        try {
+          stale.removeListener("exit", onExit);
+        } catch {
+          // process already gone — nothing to clean up
+        }
+        resolve();
+      }, timeoutMs);
+      stale.once("exit", onExit);
+    });
+
+    this.dispose();
+    await exitPromise;
+  }
+
   async restart(): Promise<void> {
     this.dispose();
     this.ensureProcess();

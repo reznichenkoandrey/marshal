@@ -38,6 +38,16 @@ const dom = {
   dirPicker: document.getElementById("dir-picker"),
   dirLabel: document.getElementById("dir-label"),
   dirDropdown: document.getElementById("dir-dropdown"),
+  translateBtn: document.getElementById("translate-btn"),
+  settingsBtn: document.getElementById("settings-btn"),
+  settingsModal: document.getElementById("settings-modal"),
+  settingsForm: document.getElementById("settings-form"),
+  settingsBridgeMode: document.getElementById("settings-bridge-mode"),
+  settingsClaudeModel: document.getElementById("settings-claude-model"),
+  settingsCodexModel: document.getElementById("settings-codex-model"),
+  settingsProviderHint: document.getElementById("settings-provider-hint"),
+  settingsSave: document.getElementById("settings-save"),
+  settingsStatus: document.getElementById("settings-status"),
   themeToggle: document.getElementById("theme-toggle"),
   messages: document.getElementById("messages"),
   welcome: document.getElementById("welcome"),
@@ -623,6 +633,19 @@ function restartPolling() {
   startPolling();
 }
 
+// Stop polling when the window is hidden (menu-bar-style blur → hide on
+// macOS) or unloaded. Without this, the interval keeps invoking IPC and
+// keeps the backend busy while the user isn't even looking at the UI.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    stopPolling();
+  } else if (!state.pollHandle) {
+    startPolling();
+  }
+});
+
+window.addEventListener("beforeunload", stopPolling);
+
 // ── Event bindings ──
 
 function bindEvents() {
@@ -639,6 +662,22 @@ function bindEvents() {
   document.addEventListener("click", (e) => {
     if (!dom.dirPicker.contains(e.target) && !dom.dirDropdown.contains(e.target)) {
       closeDirDropdown();
+    }
+  });
+
+  // Translator
+  dom.translateBtn?.addEventListener("click", () => api.openTranslator?.());
+
+  // Settings
+  dom.settingsBtn?.addEventListener("click", openSettings);
+  dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
+  dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
+  document.querySelectorAll('[data-close="settings"]').forEach((el) =>
+    el.addEventListener("click", closeSettings)
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !dom.settingsModal?.classList.contains("hidden")) {
+      closeSettings();
     }
   });
 
@@ -676,6 +715,85 @@ function bindEvents() {
     e.preventDefault();
     handleSubmit();
   });
+}
+
+// ── Settings modal ──
+
+const PROVIDER_HINTS = {
+  "claude-cli":
+    "Uses the local `claude` CLI. Requires Claude Code installed and `claude auth` completed with a Pro or Max subscription.",
+  "codex-cli":
+    "Uses the local `codex` CLI. Requires Codex CLI installed and `codex login` completed with a ChatGPT Plus/Pro/Business/Enterprise account.",
+  "claude":
+    "Uses the Anthropic Messages API. Requires ANTHROPIC_API_KEY in the app's .env file (pay-per-token billing).",
+  "api":
+    "Uses an OpenAI-compatible endpoint (Groq, OpenRouter, OpenAI). Requires MARSHAL_API_KEY and MARSHAL_API_BASE in .env.",
+  "claude-web":
+    "Automates claude.ai in a Playwright browser. Slow and fragile — use only as a fallback.",
+  "playwright":
+    "Automates chatgpt.com in a Playwright browser. Slow and fragile — use only as a fallback.",
+  "extension":
+    "Routes requests through the Marshal Chrome extension bridge."
+};
+
+async function openSettings() {
+  if (!api?.getSettings) return;
+  try {
+    const current = await api.getSettings();
+    dom.settingsBridgeMode.value = current.bridgeMode;
+    dom.settingsClaudeModel.value = current.claudeModel ?? "";
+    dom.settingsCodexModel.value = current.codexModel ?? "";
+    refreshSettingsVisibility();
+    clearSettingsStatus();
+    dom.settingsModal.classList.remove("hidden");
+  } catch (err) {
+    console.error("openSettings failed", err);
+  }
+}
+
+function closeSettings() {
+  dom.settingsModal?.classList.add("hidden");
+}
+
+function refreshSettingsVisibility() {
+  const mode = dom.settingsBridgeMode.value;
+  dom.settingsProviderHint.textContent = PROVIDER_HINTS[mode] ?? "";
+  document.querySelectorAll("[data-visible-for]").forEach((el) => {
+    const applicable = el.getAttribute("data-visible-for").split(",").map((s) => s.trim());
+    el.classList.toggle("hidden", !applicable.includes(mode));
+  });
+}
+
+function showSettingsStatus(message, kind) {
+  dom.settingsStatus.textContent = message;
+  dom.settingsStatus.classList.remove("hidden", "success", "error");
+  if (kind) dom.settingsStatus.classList.add(kind);
+}
+
+function clearSettingsStatus() {
+  dom.settingsStatus.classList.add("hidden");
+  dom.settingsStatus.textContent = "";
+}
+
+async function saveSettingsFromForm() {
+  if (!api?.updateSettings) return;
+  const payload = {
+    bridgeMode: dom.settingsBridgeMode.value,
+    claudeModel: dom.settingsClaudeModel.value.trim(),
+    codexModel: dom.settingsCodexModel.value.trim()
+  };
+  dom.settingsSave.disabled = true;
+  showSettingsStatus("Saving and restarting backend…", null);
+  try {
+    await api.updateSettings(payload);
+    showSettingsStatus("Saved. New settings are active.", "success");
+    setTimeout(closeSettings, 900);
+  } catch (err) {
+    console.error("saveSettings failed", err);
+    showSettingsStatus(`Failed: ${err?.message ?? err}`, "error");
+  } finally {
+    dom.settingsSave.disabled = false;
+  }
 }
 
 function handleSubmit() {

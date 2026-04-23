@@ -92,15 +92,27 @@ async function bootstrap(): Promise<void> {
       showMainWindow();
     });
 
+    // Mark quitting early so other listeners (e.g. blur → hide) stop firing.
     app.on("before-quit", () => {
       isQuitting = true;
-      if (trayRefreshTimer) {
-        clearInterval(trayRefreshTimer);
-        trayRefreshTimer = null;
-      }
-      clipboardMonitor?.stop();
-      globalShortcut.unregister("CommandOrControl+Shift+2");
-      backendClient.dispose();
+    });
+
+    // Async teardown must finish before the process exits. `will-quit` fires
+    // after every window is closed and supports `event.preventDefault()` so we
+    // can await backend/child-process exit without losing state.
+    let teardownPromise: Promise<void> | null = null;
+    app.on("will-quit", (event) => {
+      if (teardownPromise) return;
+      event.preventDefault();
+      teardownPromise = performTeardown()
+        .catch((err) => {
+          console.error("[marshal] teardown failed:", err);
+        })
+        .finally(() => {
+          // Re-invoke quit — the guard (`teardownPromise` non-null) lets the
+          // second pass proceed without preventing default again.
+          app.exit(0);
+        });
     });
 
     app.on("window-all-closed", () => {
@@ -235,6 +247,18 @@ function ensureTranslator(): { service: TranslatorService; window: TranslatorWin
   return { service: translatorService, window: translatorWindow };
 }
 
+async function performTeardown(): Promise<void> {
+  if (trayRefreshTimer) {
+    clearInterval(trayRefreshTimer);
+    trayRefreshTimer = null;
+  }
+  clipboardMonitor?.stop();
+  // Release every registered accelerator, including any new ones added later.
+  // Safer than tracking each shortcut by name.
+  globalShortcut.unregisterAll();
+  await backendClient.disposeAsync();
+}
+
 function initTranslator(): void {
   translatorService = new TranslatorService();
   translatorWindow = new TranslatorWindow(preloadPath);
@@ -346,9 +370,11 @@ function createMainWindow(): void {
   });
 
   mainWindow.on("blur", () => {
-    if (process.platform === "darwin" && !isQuitting) {
-      mainWindow?.hide();
-    }
+    if (process.platform !== "darwin" || isQuitting) return;
+    // Keep the window open while DevTools is driving the focus, otherwise the
+    // devtools panel becomes unusable (parent hides the moment you click into it).
+    if (mainWindow?.webContents.isDevToolsOpened()) return;
+    mainWindow?.hide();
   });
 
   void mainWindow.loadFile(rendererHtmlPath);

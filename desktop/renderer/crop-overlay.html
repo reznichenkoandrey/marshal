@@ -141,9 +141,19 @@
 
       let startX = 0, startY = 0, isDragging = false;
 
+      // Channels are assigned per-overlay by the main process and delivered via
+      // `crop-init`. Default names are kept as a fallback for older payloads.
+      let selectChannel = "marshal:crop-selected";
+      let cancelChannel = "marshal:crop-cancelled";
+
       // onCropInit is no longer used for display (screenshot shown via OS transparency)
-      // but keep the listener so the main process flow is not broken
-      api.onCropInit(() => {});
+      // but we still read the channel names to isolate this overlay from others.
+      api.onCropInit((_event, payload) => {
+        if (payload && typeof payload === "object" && payload.channels) {
+          selectChannel = payload.channels.select ?? selectChannel;
+          cancelChannel = payload.channels.cancel ?? cancelChannel;
+        }
+      });
 
       document.addEventListener("mousedown", (e) => {
         startX = e.clientX;
@@ -193,15 +203,18 @@
         const h = Math.abs(e.clientY - startY);
 
         if (w < 10 || h < 10) {
-          api.cancelCrop();
+          api.cancelCrop(cancelChannel);
           return;
         }
 
-        api.selectCrop({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
+        api.selectCrop(
+          { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) },
+          selectChannel
+        );
       });
 
       document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") api.cancelCrop();
+        if (e.key === "Escape") api.cancelCrop(cancelChannel);
       });
     </script>
   </body>

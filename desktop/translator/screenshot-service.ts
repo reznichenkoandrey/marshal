@@ -3,6 +3,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { BrowserWindow, desktopCapturer, ipcMain, screen, Display, systemPreferences } from "electron";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -84,6 +85,13 @@ export class ScreenshotService {
     const { width, height } = display.bounds;
     return new Promise((resolve) => {
       const { x, y } = display.bounds;
+      // Per-invocation unique ipc channels prevent two concurrent overlays
+      // (e.g. hotkey + toolbar button fired in quick succession) from
+      // cross-firing each other's crop-selected / crop-cancelled events.
+      const token = randomUUID();
+      const selectChannel = `marshal:crop-selected:${token}`;
+      const cancelChannel = `marshal:crop-cancelled:${token}`;
+
       this.cropWindow = new BrowserWindow({
         // Cover the entire display without using fullscreen mode.
         // setFullScreen(true) breaks transparency on macOS — avoid it.
@@ -114,9 +122,12 @@ export class ScreenshotService {
 
       void this.cropWindow.loadFile(path.join(this.rendererDir, "crop-overlay.html"));
 
-      // Send screenshot data once the window is ready
+      // Send overlay init (channel names + legacy dataUrl) once ready.
       this.cropWindow.webContents.on("did-finish-load", () => {
-        this.cropWindow?.webContents.send("crop-init", screenshotDataUrl);
+        this.cropWindow?.webContents.send("crop-init", {
+          dataUrl: screenshotDataUrl,
+          channels: { select: selectChannel, cancel: cancelChannel }
+        });
       });
 
       // Receive selected region from renderer
@@ -125,21 +136,23 @@ export class ScreenshotService {
         resolve(region);
       };
 
-      const onCancel = () => {
+      const onCancel = (): void => {
         cleanup();
         resolve(null);
       };
 
-      ipcMain.once("marshal:crop-selected", onRegion);
-      ipcMain.once("marshal:crop-cancelled", onCancel);
+      ipcMain.once(selectChannel, onRegion);
+      ipcMain.once(cancelChannel, onCancel);
 
       this.cropWindow.on("closed", () => {
-        ipcMain.removeListener("marshal:crop-selected", onRegion);
-        ipcMain.removeListener("marshal:crop-cancelled", onCancel);
+        ipcMain.removeListener(selectChannel, onRegion);
+        ipcMain.removeListener(cancelChannel, onCancel);
         resolve(null);
       });
 
-      const cleanup = () => {
+      const cleanup = (): void => {
+        ipcMain.removeListener(selectChannel, onRegion);
+        ipcMain.removeListener(cancelChannel, onCancel);
         if (this.cropWindow && !this.cropWindow.isDestroyed()) {
           this.cropWindow.close();
         }

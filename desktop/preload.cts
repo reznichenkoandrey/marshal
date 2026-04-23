@@ -46,12 +46,23 @@ const translatorApi = {
     registerListener<[Record<string, unknown>]>("translator-result", cb),
   onError: (cb: (event: IpcRendererEvent, data: { message: string }) => void) =>
     registerListener<[{ message: string }]>("translator-error", cb),
-  // Crop overlay
-  onCropInit: (cb: (event: IpcRendererEvent, dataUrl: string) => void) =>
-    registerListener<[string]>("crop-init", cb),
-  selectCrop: (region: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.send("marshal:crop-selected", region),
-  cancelCrop: () => ipcRenderer.send("marshal:crop-cancelled")
+  // Crop overlay. Each overlay gets a unique pair of channels (see
+  // desktop/translator/screenshot-service.ts) — renderer receives them via
+  // `onCropInit` and echoes them back in `selectCrop` / `cancelCrop`.
+  onCropInit: (
+    cb: (
+      event: IpcRendererEvent,
+      payload: { dataUrl?: string; channels?: { select: string; cancel: string } } | string
+    ) => void
+  ) =>
+    registerListener<[
+      { dataUrl?: string; channels?: { select: string; cancel: string } } | string
+    ]>("crop-init", cb),
+  selectCrop: (
+    region: { x: number; y: number; width: number; height: number },
+    channel = "marshal:crop-selected"
+  ) => ipcRenderer.send(channel, region),
+  cancelCrop: (channel = "marshal:crop-cancelled") => ipcRenderer.send(channel)
 };
 
 contextBridge.exposeInMainWorld("marshalTranslator", translatorApi);

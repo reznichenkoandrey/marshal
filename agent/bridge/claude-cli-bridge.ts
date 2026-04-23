@@ -1,0 +1,176 @@
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import type { ReasoningBridge, ReasoningBridgeOptions } from "./types.ts";
+
+const CLAUDE_BIN = process.env.MARSHAL_CLAUDE_BIN ?? "claude";
+const DEFAULT_MODEL = process.env.MARSHAL_CLAUDE_MODEL ?? "sonnet";
+const MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Claude Code CLI auto-selects API-key billing whenever ANTHROPIC_API_KEY is
+ * present in the environment, even if the user has an active Pro/Max OAuth
+ * session. To guarantee the reasoning cost is billed to the subscription we
+ * strip any API-key-style variables before spawning the subprocess.
+ */
+function sanitizeEnvForSubscription(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    // Strip every ANTHROPIC_* variable. Any of them can flip Claude Code from
+    // OAuth subscription mode into API-key mode or a custom endpoint:
+    //   ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BEARER_TOKEN → API billing
+    //   ANTHROPIC_BASE_URL / ANTHROPIC_VERTEX_* / CLAUDE_CODE_USE_BEDROCK → 3P provider
+    //   ANTHROPIC_MODEL → overrides model selection
+    if (key.startsWith("ANTHROPIC_")) continue;
+    if (key === "CLAUDE_CODE_USE_BEDROCK" || key === "CLAUDE_CODE_USE_VERTEX") continue;
+    if (typeof value === "string") clean[key] = value;
+  }
+  return clean;
+}
+
+type ClaudeJsonResult = {
+  type?: string;
+  subtype?: string;
+  is_error?: boolean;
+  result?: string;
+  session_id?: string;
+};
+
+/**
+ * Claude Code CLI bridge. Uses the local `claude` binary as a subprocess
+ * so the reasoning cost is billed to the user's Claude Pro/Max subscription
+ * instead of the Anthropic API.
+ *
+ * Requires: `claude` CLI on PATH and `claude auth` already completed.
+ * Conversation continuity is achieved via --session-id / --resume.
+ * All built-in Claude Code tools are disabled — the bridge is used purely
+ * as a reasoning engine; Marshal's own Toolbox executes side effects.
+ */
+export class ClaudeCliBridge implements ReasoningBridge {
+  private sessionId: string | null = null;
+  private systemPrompt: string | null = null;
+
+  constructor(_options: ReasoningBridgeOptions = {}) {}
+
+  async initialize(): Promise<void> {
+    try {
+      await this.runClaude(["--version"], "");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Claude CLI not available (${CLAUDE_BIN}). Install it from https://docs.claude.com/claude-code and run \`claude auth\` with your Pro/Max subscription. Detail: ${detail}`
+      );
+    }
+  }
+
+  async openLoginWindow(): Promise<void> {
+    // Auth is delegated to the `claude auth` subcommand outside of this process.
+  }
+
+  async resetConversation(): Promise<void> {
+    this.sessionId = null;
+  }
+
+  async prime(initialPrompt: string): Promise<void> {
+    this.systemPrompt = initialPrompt;
+  }
+
+  async ask(prompt: string): Promise<string> {
+    const isFirstTurn = this.sessionId === null;
+    // Arg rationale:
+    //   -p                        — non-interactive "print" mode.
+    //   --output-format json      — single JSON result blob (see ClaudeJsonResult).
+    //   --tools ""                — disable EVERY built-in tool. The empty
+    //                               string is the documented sentinel per
+    //                               `claude --help`: "Use \"\" to disable
+    //                               all tools". Marshal's own Toolbox is the
+    //                               sole source of side effects.
+    //   --permission-mode bypassPermissions — belt & suspenders: even if a
+    //                               tool slips through the above, it cannot
+    //                               prompt interactively.
+    const args: string[] = [
+      "-p",
+      "--output-format", "json",
+      "--model", DEFAULT_MODEL,
+      "--tools", "",
+      "--permission-mode", "bypassPermissions"
+    ];
+
+    if (isFirstTurn) {
+      const newId = randomUUID();
+      this.sessionId = newId;
+      args.push("--session-id", newId);
+      if (this.systemPrompt) {
+        args.push("--system-prompt", this.systemPrompt);
+      }
+    } else {
+      args.push("--resume", this.sessionId as string);
+    }
+
+    const raw = await this.runClaude(args, prompt);
+
+    let parsed: ClaudeJsonResult;
+    try {
+      parsed = JSON.parse(raw.trim()) as ClaudeJsonResult;
+    } catch {
+      throw new Error(`Claude CLI returned non-JSON output: ${raw.slice(0, 500)}`);
+    }
+
+    if (parsed.is_error) {
+      throw new Error(`Claude CLI reported an error: ${parsed.result ?? "unknown"}`);
+    }
+
+    if (typeof parsed.session_id === "string" && parsed.session_id.length > 0) {
+      this.sessionId = parsed.session_id;
+    }
+
+    return parsed.result ?? "";
+  }
+
+  async close(): Promise<void> {
+    this.sessionId = null;
+    this.systemPrompt = null;
+  }
+
+  private runClaude(args: string[], stdin: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(CLAUDE_BIN, args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: sanitizeEnvForSubscription(process.env)
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let stdoutBytes = 0;
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > MAX_BUFFER_BYTES) {
+          child.kill("SIGKILL");
+          reject(new Error(`Claude CLI stdout exceeded ${MAX_BUFFER_BYTES} bytes`));
+          return;
+        }
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+
+      child.on("error", (err) => {
+        reject(new Error(`Failed to spawn ${CLAUDE_BIN}: ${err.message}`));
+      });
+
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(`${CLAUDE_BIN} exited with code ${code}: ${stderr.slice(0, 500) || stdout.slice(0, 500)}`));
+        }
+      });
+
+      if (stdin.length > 0) {
+        child.stdin.write(stdin);
+      }
+      child.stdin.end();
+    });
+  }
+}

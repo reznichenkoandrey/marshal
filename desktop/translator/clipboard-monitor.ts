@@ -124,10 +124,14 @@ export class ClipboardMonitor extends EventEmitter {
    * Polls clipboard text every 150 ms.
    * Can only detect double-copy when the clipboard TEXT changes.
    * Used when the Swift watcher is unavailable (non-macOS or first build).
+   *
+   * Seeds timing state from `this.lastChangeTimestamp` so that when the Swift
+   * watcher dies mid-session the very next double-copy is still detected —
+   * previously a fresh local `lastChangeTime = 0` silently dropped the first
+   * double-copy after the switch.
    */
   private startPollingFallback(): void {
     let lastText = clipboard.readText();
-    let lastChangeTime = 0;
     const POLL_MS = 150;
 
     this.pollingTimer = setInterval(() => {
@@ -135,14 +139,14 @@ export class ClipboardMonitor extends EventEmitter {
       if (!current.trim() || current === lastText) return;
 
       const now = Date.now();
-      const elapsed = now - lastChangeTime;
+      const elapsed = now - this.lastChangeTimestamp;
 
-      if (lastChangeTime > 0 && elapsed <= DOUBLE_COPY_WINDOW_MS) {
+      if (this.lastChangeTimestamp > 0 && elapsed <= DOUBLE_COPY_WINDOW_MS) {
         this.safeEmit(current);
       }
 
       lastText = current;
-      lastChangeTime = now;
+      this.lastChangeTimestamp = now;
     }, POLL_MS);
 
     console.log("[ClipboardMonitor] polling fallback active");
