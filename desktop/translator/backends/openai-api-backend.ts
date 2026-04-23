@@ -109,6 +109,10 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
     }
   }
 
+  private isGemini(model: string): boolean {
+    return model.startsWith("gemini") || this.baseUrl.includes("googleapis.com");
+  }
+
   private async chat(model: string, messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
     const body: Record<string, unknown> = {
       model,
@@ -118,6 +122,13 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
     };
     if (options.json) {
       body.response_format = { type: "json_object" };
+    }
+    // Gemini 2.5 models default to "thinking" mode that spends the token
+    // budget on internal reasoning before replying — a translator doesn't
+    // benefit from this and often returns an empty response when max_tokens
+    // is hit by thinking alone. Suppress it whenever we're talking to Gemini.
+    if (this.isGemini(model)) {
+      body.reasoning_effort = "none";
     }
 
     // Retry on rate-limit (429) and transient 5xx responses with exponential

@@ -5,6 +5,13 @@
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
+      :root {
+        --accent: #4d9aff;
+        --accent-chip-text: #0b0b0d;
+        --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", system-ui, sans-serif;
+      }
+
       html, body {
         width: 100vw;
         height: 100vh;
@@ -12,12 +19,13 @@
         cursor: crosshair;
         background: transparent;
         user-select: none;
+        font-family: var(--font-sans);
       }
 
       /*
        * Initial dark overlay — covers entire screen before user starts dragging.
-       * The BrowserWindow is transparent:true, so OS content shows through
-       * semi-transparent areas (no screenshot needed).
+       * BrowserWindow is transparent:true, so OS content shows through the
+       * semi-transparent backdrop (no screenshot capture needed).
        */
       #overlay {
         position: fixed;
@@ -29,48 +37,50 @@
 
       /*
        * Selection box:
-       *  - transparent background → shows the real screen through (OS transparency)
-       *  - box-shadow 9999px rgba → dims everything outside the selection
-       * Combined: inside = bright real screen, outside = dimmed real screen.
+       *  - transparent background → real screen visible inside
+       *  - box-shadow 9999px → dims everything outside the selection
        */
       #selection {
         position: fixed;
-        border: 1.5px solid rgba(137, 180, 250, 0.95);
+        border: 1.5px solid var(--accent);
         background: transparent;
         display: none;
         z-index: 3;
-        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.48);
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.52);
+        border-radius: 2px;
       }
 
       /* Corner handles */
       .corner {
         position: absolute;
-        width: 8px;
-        height: 8px;
-        background: #89b4fa;
-        border-radius: 1px;
+        width: 10px;
+        height: 10px;
+        background: var(--accent);
+        border-radius: 2px;
+        box-shadow: 0 0 0 2px rgba(11, 11, 13, 0.6);
       }
-      .corner-tl { top: -1px; left: -1px; }
-      .corner-tr { top: -1px; right: -1px; }
-      .corner-bl { bottom: -1px; left: -1px; }
-      .corner-br { bottom: -1px; right: -1px; }
+      .corner-tl { top: -2px; left: -2px; }
+      .corner-tr { top: -2px; right: -2px; }
+      .corner-bl { bottom: -2px; left: -2px; }
+      .corner-br { bottom: -2px; right: -2px; }
 
       /* "Release to translate" label inside the selection */
       #sel-hint {
         position: absolute;
-        bottom: 8px;
+        bottom: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(30, 30, 46, 0.88);
-        color: #cdd6f4;
-        font-family: -apple-system, sans-serif;
+        background: rgba(19, 19, 22, 0.88);
+        backdrop-filter: blur(6px);
+        color: #f5f5f7;
         font-size: 11px;
         font-weight: 500;
-        padding: 3px 8px;
-        border-radius: 4px;
+        padding: 4px 10px;
+        border-radius: 6px;
         white-space: nowrap;
         display: none;
         pointer-events: none;
+        border: 1px solid rgba(255, 255, 255, 0.08);
       }
 
       /* Initial center hint */
@@ -80,37 +90,39 @@
         left: 50%;
         transform: translate(-50%, -50%);
         color: #ffffff;
-        font-family: -apple-system, sans-serif;
         font-size: 15px;
         font-weight: 500;
-        text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
         pointer-events: none;
         z-index: 4;
         text-align: center;
         line-height: 1.7;
+        letter-spacing: -0.01em;
       }
 
       #hint span {
         display: block;
         font-size: 12px;
-        opacity: 0.6;
-        margin-top: 2px;
+        opacity: 0.65;
+        margin-top: 4px;
+        font-weight: 400;
       }
 
       /* Size label near cursor */
       #size-label {
         position: fixed;
-        background: #89b4fa;
-        color: #1e1e2e;
-        font-family: -apple-system, sans-serif;
+        background: var(--accent);
+        color: var(--accent-chip-text);
         font-size: 10px;
         font-weight: 700;
-        padding: 2px 6px;
+        font-feature-settings: "tnum";
+        padding: 3px 8px;
         border-radius: 4px;
         pointer-events: none;
         z-index: 5;
         display: none;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.02em;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
     </style>
   </head>
@@ -146,8 +158,6 @@
       let selectChannel = "marshal:crop-selected";
       let cancelChannel = "marshal:crop-cancelled";
 
-      // onCropInit is no longer used for display (screenshot shown via OS transparency)
-      // but we still read the channel names to isolate this overlay from others.
       api.onCropInit((_event, payload) => {
         if (payload && typeof payload === "object" && payload.channels) {
           selectChannel = payload.channels.select ?? selectChannel;
@@ -160,7 +170,6 @@
         startY = e.clientY;
         isDragging = true;
 
-        // Hide initial overlay — selection box-shadow takes over the darkening
         overlay.style.display = "none";
         hint.style.display = "none";
 
@@ -187,8 +196,8 @@
         selHint.style.display = (w > 80 && h > 40) ? "block" : "none";
 
         sizeLabel.style.display = "block";
-        sizeLabel.style.left = (e.clientX + 12) + "px";
-        sizeLabel.style.top = (e.clientY + 12) + "px";
+        sizeLabel.style.left = (e.clientX + 14) + "px";
+        sizeLabel.style.top = (e.clientY + 14) + "px";
         sizeLabel.textContent = `${Math.round(w)} × ${Math.round(h)}`;
       });
 

@@ -6,8 +6,23 @@ const BRIDGE_PORT = 3210;
 const BRIDGE_URL = `http://127.0.0.1:${BRIDGE_PORT}`;
 const SESSION_STORAGE_KEY = "marshalChatSessionId";
 const PROVIDER_STORAGE_KEY = "marshalChatProvider";
+const APPEARANCE_STORAGE_KEY = "marshalAppearance";
 const DEFAULT_PROVIDER = "claude-cli";
 const REQUEST_TIMEOUT_MS = 300_000;
+
+type Appearance = "light" | "dark" | "system";
+const APPEARANCES: readonly Appearance[] = ["light", "dark", "system"];
+
+// Icons helper is exposed on window by icons.js (loaded before this script).
+declare global {
+  interface Window {
+    MarshalIcons?: {
+      render: (name: string, options?: { size?: number; strokeWidth?: number; className?: string }) => string;
+      apply: (root?: Document | HTMLElement) => void;
+      paths: Record<string, string>;
+    };
+  }
+}
 
 type Role = "user" | "assistant" | "system";
 
@@ -26,6 +41,7 @@ interface CapturedContext {
 // -- DOM refs --
 const providerSelect = document.getElementById("providerSelect") as HTMLSelectElement;
 const resetBtn = document.getElementById("resetBtn") as HTMLButtonElement;
+const themeBtn = document.getElementById("themeBtn") as HTMLButtonElement;
 const promptInput = document.getElementById("promptInput") as HTMLTextAreaElement;
 const sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
 const stopBtn = document.getElementById("stopBtn") as HTMLButtonElement;
@@ -40,6 +56,7 @@ const clearContextBtn = document.getElementById("clearContextBtn") as HTMLButton
 
 let sessionId = "";
 let provider = DEFAULT_PROVIDER;
+let appearance: Appearance = "system";
 let pickerActive = false;
 let pendingContext: CapturedContext | null = null;
 let currentAbort: AbortController | null = null;
@@ -47,12 +64,53 @@ let currentAbort: AbortController | null = null;
 void init();
 
 async function init(): Promise<void> {
+  // Render all [data-icon] placeholders in the static HTML before wiring up
+  // events so the DOM has its final shape.
+  window.MarshalIcons?.apply();
+
   sessionId = await ensureSessionId();
   provider = await loadProvider();
   providerSelect.value = provider;
+
+  appearance = await loadAppearance();
+  applyAppearance(appearance);
+
   bindEvents();
   renderWelcome();
   void pingBridge();
+}
+
+async function loadAppearance(): Promise<Appearance> {
+  const stored = await chrome.storage.local.get(APPEARANCE_STORAGE_KEY);
+  const value = stored[APPEARANCE_STORAGE_KEY];
+  return typeof value === "string" && (APPEARANCES as readonly string[]).includes(value)
+    ? (value as Appearance)
+    : "system";
+}
+
+async function saveAppearance(value: Appearance): Promise<void> {
+  await chrome.storage.local.set({ [APPEARANCE_STORAGE_KEY]: value });
+}
+
+function applyAppearance(value: Appearance): void {
+  const root = document.documentElement;
+  if (value === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", value);
+  refreshThemeBtnIcon();
+}
+
+function refreshThemeBtnIcon(): void {
+  if (!themeBtn || !window.MarshalIcons) return;
+  const name = appearance === "light" ? "sun" : appearance === "dark" ? "moon" : "monitor";
+  themeBtn.innerHTML = window.MarshalIcons.render(name, { size: 14 });
+  themeBtn.title = `Appearance: ${appearance} (click to cycle)`;
+}
+
+async function cycleAppearance(): Promise<void> {
+  const idx = APPEARANCES.indexOf(appearance);
+  appearance = APPEARANCES[(idx + 1) % APPEARANCES.length];
+  await saveAppearance(appearance);
+  applyAppearance(appearance);
 }
 
 async function loadProvider(): Promise<string> {
@@ -69,6 +127,7 @@ function bindEvents(): void {
   sendBtn.addEventListener("click", () => void handleSend());
   stopBtn.addEventListener("click", () => handleStop());
   resetBtn.addEventListener("click", () => void handleReset());
+  themeBtn.addEventListener("click", () => void cycleAppearance());
   captureTextBtn.addEventListener("click", () => void startCapture("text"));
   captureHtmlBtn.addEventListener("click", () => void startCapture("html"));
   cancelPickerBtn.addEventListener("click", () => void cancelPicker());

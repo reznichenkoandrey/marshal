@@ -4,360 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Marshal Translator</title>
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #1e1e2e;
-        color: #cdd6f4;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        -webkit-app-region: drag;
-      }
-
-      /* ── Header ── */
-      .header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 10px;
-        background: #181825;
-        border-bottom: 1px solid #313244;
-        flex-shrink: 0;
-        -webkit-app-region: drag;
-        user-select: none;
-        gap: 6px;
-      }
-
-      .header-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: #89b4fa;
-        letter-spacing: 0.5px;
-        flex-shrink: 0;
-      }
-
-      .header-center {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        flex: 1;
-        -webkit-app-region: no-drag;
-      }
-
-      .lang-toggle {
-        display: flex;
-        align-items: center;
-        background: #313244;
-        border-radius: 6px;
-        overflow: hidden;
-        font-size: 11px;
-      }
-
-      .lang-btn {
-        padding: 3px 8px;
-        border: none;
-        background: transparent;
-        color: #a6adc8;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-        font-size: 11px;
-        font-weight: 500;
-      }
-      .lang-btn.active { background: #89b4fa; color: #1e1e2e; }
-
-      .header-right {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        -webkit-app-region: no-drag;
-        flex-shrink: 0;
-      }
-
-      .icon-btn {
-        width: 26px;
-        height: 26px;
-        border: none;
-        background: transparent;
-        color: #6c7086;
-        cursor: pointer;
-        border-radius: 5px;
-        font-size: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: background 0.15s, color 0.15s;
-        flex-shrink: 0;
-      }
-      .icon-btn:hover { background: #313244; color: #cdd6f4; }
-      .icon-btn.close:hover { background: #f38ba820; color: #f38ba8; }
-      .icon-btn:disabled { opacity: 0.4; cursor: default; }
-      .icon-btn:disabled:hover { background: transparent; color: #6c7086; }
-
-      /* ── Input section ── */
-      .input-section {
-        display: flex;
-        flex-direction: column;
-        border-bottom: 1px solid #313244;
-        flex-shrink: 0;
-        -webkit-app-region: no-drag;
-      }
-
-      .input-textarea {
-        width: 100%;
-        min-height: 100px;
-        max-height: 130px;
-        padding: 10px 12px 6px;
-        background: transparent;
-        border: none;
-        outline: none;
-        resize: none;
-        font: inherit;
-        font-size: 13px;
-        color: #cdd6f4;
-        line-height: 1.5;
-        user-select: text;
-        -webkit-app-region: no-drag;
-      }
-      .input-textarea::placeholder { color: #45475a; }
-
-      .input-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 3px 8px 6px;
-        gap: 6px;
-        user-select: none;
-      }
-
-      .toolbar-left { display: flex; gap: 4px; }
-
-      .toolbar-btn {
-        padding: 3px 8px;
-        border: 1px solid #313244;
-        background: transparent;
-        color: #a6adc8;
-        border-radius: 5px;
-        font-size: 11px;
-        cursor: pointer;
-        transition: border-color 0.15s, color 0.15s;
-      }
-      .toolbar-btn:hover { border-color: #89b4fa; color: #cdd6f4; }
-
-      .translate-btn {
-        padding: 4px 12px;
-        background: #89b4fa;
-        border: none;
-        border-radius: 5px;
-        color: #1e1e2e;
-        font-size: 11px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s;
-        flex-shrink: 0;
-      }
-      .translate-btn:hover { background: #74c7ec; }
-      .translate-btn:disabled { background: #313244; color: #45475a; cursor: default; }
-
-      /* ── Result section ── */
-      .result-section {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        position: relative;
-        -webkit-app-region: no-drag;
-        min-height: 0;
-      }
-
-      .result-label {
-        font-size: 10px;
-        color: #45475a;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding: 7px 12px 4px;
-        flex-shrink: 0;
-        user-select: none;
-        border-bottom: 1px solid #1e1e2e;
-      }
-
-      .result-text {
-        flex: 1;
-        padding: 8px 12px;
-        font-size: 13px;
-        line-height: 1.6;
-        color: #cdd6f4;
-        white-space: pre-wrap;
-        word-break: break-word;
-        overflow-y: auto;
-        user-select: text;
-        display: none;
-      }
-
-      /* ── State overlays ── */
-      .state-overlay {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        color: #6c7086;
-        font-size: 12px;
-        text-align: center;
-        padding: 16px;
-        user-select: none;
-      }
-
-      .spinner {
-        width: 20px;
-        height: 20px;
-        border: 2px solid #313244;
-        border-top-color: #89b4fa;
-        border-radius: 50%;
-        animation: spin 0.7s linear infinite;
-        margin-bottom: 4px;
-      }
-      @keyframes spin { to { transform: rotate(360deg); } }
-
-      .state-hint { font-size: 10px; color: #45475a; margin-top: 2px; }
-
-      .error-msg {
-        padding: 8px 12px;
-        color: #f38ba8;
-        font-size: 11px;
-        line-height: 1.4;
-        user-select: none;
-        display: none;
-      }
-
-      /* ── Footer ── */
-      .footer {
-        padding: 5px 12px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-top: 1px solid #313244;
-        flex-shrink: 0;
-        background: #181825;
-        -webkit-app-region: no-drag;
-        user-select: none;
-      }
-
-      .lang-badge { font-size: 10px; color: #45475a; letter-spacing: 0.3px; }
-
-      .copy-btn {
-        padding: 3px 10px;
-        background: #313244;
-        border: none;
-        border-radius: 5px;
-        color: #cdd6f4;
-        font-size: 11px;
-        cursor: pointer;
-        transition: background 0.15s;
-      }
-      .copy-btn:hover { background: #45475a; }
-      .copy-btn.copied { color: #a6e3a1; }
-
-      /* ── History panel ── */
-      .history-panel {
-        position: absolute;
-        top: 38px;
-        right: 8px;
-        width: 280px;
-        max-height: 300px;
-        background: #11111b;
-        border: 1px solid #313244;
-        border-radius: 6px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        z-index: 20;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        -webkit-app-region: no-drag;
-      }
-      .history-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 6px 10px;
-        border-bottom: 1px solid #313244;
-        background: #181825;
-      }
-      .history-title {
-        font-size: 11px;
-        font-weight: 600;
-        color: #cdd6f4;
-        letter-spacing: 0.3px;
-      }
-      .history-clear {
-        background: transparent;
-        border: none;
-        color: #f38ba8;
-        font-size: 10px;
-        cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 3px;
-      }
-      .history-clear:hover { background: #313244; }
-      .history-list { overflow-y: auto; flex: 1; }
-      .history-item {
-        padding: 6px 10px;
-        border-bottom: 1px solid #1e1e2e;
-        cursor: pointer;
-        transition: background 0.1s;
-      }
-      .history-item:last-child { border-bottom: none; }
-      .history-item:hover { background: #1e1e2e; }
-      .history-item-lang {
-        font-size: 9px;
-        color: #6c7086;
-        letter-spacing: 0.5px;
-        margin-bottom: 2px;
-      }
-      .history-item-text {
-        font-size: 11px;
-        color: #cdd6f4;
-        line-height: 1.3;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      .history-empty {
-        padding: 16px;
-        text-align: center;
-        color: #45475a;
-        font-size: 11px;
-      }
-    </style>
+    <link rel="stylesheet" href="./translator.css" />
   </head>
   <body>
     <!-- Header -->
     <div class="header">
-      <span class="header-title">🌐 Translator</span>
+      <span class="header-title">
+        <span data-icon="languages" data-icon-size="14"></span>
+        Translator
+      </span>
 
       <div class="header-center">
-        <div class="lang-toggle">
-          <button class="lang-btn active" data-lang="uk">UK</button>
-          <button class="lang-btn" data-lang="en">EN</button>
+        <div class="lang-toggle" role="tablist" aria-label="Target language">
+          <button class="lang-btn active" data-lang="uk" role="tab">UK</button>
+          <button class="lang-btn" data-lang="en" role="tab">EN</button>
         </div>
       </div>
 
       <div class="header-right">
-        <!-- History -->
-        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">⟲</button>
-        <!-- Screen capture button -->
-        <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)">⌖</button>
-        <!-- Upload image button -->
-        <button class="icon-btn" id="btn-upload" title="Upload image">📂</button>
+        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">
+          <span data-icon="rotate-ccw" data-icon-size="14"></span>
+        </button>
+        <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)">
+          <span data-icon="crop" data-icon-size="14"></span>
+        </button>
+        <button class="icon-btn" id="btn-upload" title="Upload image">
+          <span data-icon="folder-open" data-icon-size="14"></span>
+        </button>
         <input type="file" id="file-input" accept="image/*" hidden />
-        <!-- Close -->
-        <button class="icon-btn close" id="close-btn" title="Close (Esc)">✕</button>
+        <button class="icon-btn close" id="close-btn" title="Close (Esc)">
+          <span data-icon="x" data-icon-size="14"></span>
+        </button>
       </div>
     </div>
 
@@ -375,15 +52,24 @@
       <textarea
         id="input-text"
         class="input-textarea"
-        placeholder="Type or paste text… (⌘↵ to translate)"
+        placeholder="Type or paste text…  ⌘↵ to translate"
         spellcheck="false"
       ></textarea>
       <div class="input-toolbar">
         <div class="toolbar-left">
-          <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard">📋 Paste</button>
-          <button class="toolbar-btn" id="btn-clear" title="Clear">✕ Clear</button>
+          <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard">
+            <span data-icon="clipboard" data-icon-size="12"></span>
+            Paste
+          </button>
+          <button class="toolbar-btn" id="btn-clear" title="Clear">
+            <span data-icon="eraser" data-icon-size="12"></span>
+            Clear
+          </button>
         </div>
-        <button class="translate-btn" id="btn-translate" disabled>Translate ↓</button>
+        <button class="translate-btn" id="btn-translate" disabled>
+          <span data-icon="arrow-down" data-icon-size="12"></span>
+          Translate
+        </button>
       </div>
     </div>
 
@@ -399,7 +85,9 @@
 
       <div class="state-overlay" id="state-empty" style="display:flex">
         <span>Enter text or capture a screen region</span>
-        <span class="state-hint">⌘C ⌘C — double-copy · ⌘⇧T — copied text · ⌘⇧2 — capture screen</span>
+        <span class="state-hint">
+          <kbd>⌘C</kbd> <kbd>⌘C</kbd> double-copy · <kbd>⌘⇧T</kbd> copied text · <kbd>⌘⇧2</kbd> capture
+        </span>
       </div>
 
       <div class="error-msg" id="error-msg"></div>
@@ -408,9 +96,13 @@
     <!-- Footer -->
     <div class="footer">
       <span class="lang-badge" id="lang-badge"></span>
-      <button class="copy-btn" id="copy-btn">Copy</button>
+      <button class="copy-btn" id="copy-btn">
+        <span data-icon="copy" data-icon-size="12"></span>
+        Copy
+      </button>
     </div>
 
+    <script src="./icons.js"></script>
     <script src="./translator.js"></script>
   </body>
 </html>

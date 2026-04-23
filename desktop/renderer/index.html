@@ -6,13 +6,17 @@
     <title>Marshal</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body data-theme="light">
+  <body>
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <span class="sidebar-title">Marshal</span>
         <div class="sidebar-actions">
-          <button id="clear-all-btn" class="sidebar-btn" title="Clear all chats">&#128465;</button>
-          <button id="new-chat-btn" class="sidebar-btn primary" title="New chat">+ New</button>
+          <button id="clear-all-btn" class="icon-btn danger" title="Clear all conversations">
+            <span data-icon="trash"></span>
+          </button>
+          <button id="new-chat-btn" class="icon-btn accent" title="New conversation">
+            <span data-icon="plus"></span>
+          </button>
         </div>
       </div>
       <div id="session-list" class="session-list"></div>
@@ -21,37 +25,43 @@
 
     <main class="chat-main">
       <header class="chat-header">
-        <button id="menu-btn" class="icon-btn">&#9776;</button>
-        <button id="dir-picker" class="dir-picker">
-          <span class="dir-icon">&#128193;</span>
-          <span id="dir-label">~/</span>
-          <span class="dir-arrow">&#9662;</span>
+        <button id="menu-btn" class="icon-btn" title="Open sidebar">
+          <span data-icon="menu"></span>
         </button>
-        <div id="dir-dropdown" class="dir-dropdown hidden">
-          <!-- Recent dirs populated by JS -->
-        </div>
+        <button id="dir-picker" class="dir-picker" aria-expanded="false">
+          <span data-icon="folder" data-icon-size="14"></span>
+          <span id="dir-label">~/</span>
+          <span class="dir-arrow" data-icon="chevron-down" data-icon-size="14"></span>
+        </button>
+        <div id="dir-dropdown" class="dir-dropdown hidden"></div>
         <div class="header-spacer"></div>
-        <button id="translate-btn" class="icon-btn" title="Open Translator (⌘⇧T)">&#127760;</button>
-        <button id="settings-btn" class="icon-btn" title="Settings">&#9881;</button>
-        <button id="theme-toggle" class="icon-btn">&#9681;</button>
+        <button id="translate-btn" class="icon-btn" title="Open Translator (⌘⇧T)">
+          <span data-icon="languages"></span>
+        </button>
+        <button id="settings-btn" class="icon-btn" title="Settings">
+          <span data-icon="settings"></span>
+        </button>
+        <button id="theme-toggle" class="icon-btn" title="Appearance"></button>
       </header>
 
       <div id="messages" class="messages-container">
         <div id="welcome" class="welcome">
           <div class="welcome-icon">M</div>
           <h1>Marshal</h1>
-          <p>Personal AI assistant. Describe a task below.</p>
+          <p>Personal AI assistant. Describe a task below or pick a conversation from the sidebar.</p>
         </div>
       </div>
 
       <div class="input-bar">
         <div id="attachments-preview" class="attachments-preview"></div>
         <form id="composer" class="composer-form">
-          <button type="button" id="attach-btn" class="icon-btn" title="Attach file">&#128206;</button>
+          <button type="button" id="attach-btn" class="icon-btn" title="Attach files">
+            <span data-icon="paperclip"></span>
+          </button>
           <input type="file" id="file-input" multiple hidden />
-          <textarea id="task-input" rows="1" placeholder="Describe a task..." class="auto-resize"></textarea>
-          <button type="submit" id="send-btn" class="send-btn" disabled>
-            <span class="send-icon">&uarr;</span>
+          <textarea id="task-input" rows="1" placeholder="Describe a task…" class="auto-resize"></textarea>
+          <button type="submit" id="send-btn" class="send-btn" disabled aria-label="Send">
+            <span data-icon="arrow-up" data-icon-size="18"></span>
           </button>
         </form>
       </div>
@@ -62,10 +72,31 @@
       <div class="modal-panel">
         <header class="modal-header">
           <h2 id="settings-title">Settings</h2>
-          <button type="button" class="icon-btn" data-close="settings" aria-label="Close">&times;</button>
+          <button type="button" class="icon-btn" data-close="settings" aria-label="Close">
+            <span data-icon="x"></span>
+          </button>
         </header>
 
         <form id="settings-form" class="modal-body">
+          <div class="field">
+            <label>Appearance</label>
+            <div id="appearance-segmented" class="segmented" role="tablist" aria-label="Appearance">
+              <button type="button" class="segmented-btn" data-appearance="light" role="tab">
+                <span data-icon="sun" data-icon-size="14"></span>
+                <span>Light</span>
+              </button>
+              <button type="button" class="segmented-btn" data-appearance="dark" role="tab">
+                <span data-icon="moon" data-icon-size="14"></span>
+                <span>Dark</span>
+              </button>
+              <button type="button" class="segmented-btn" data-appearance="system" role="tab">
+                <span data-icon="monitor" data-icon-size="14"></span>
+                <span>System</span>
+              </button>
+            </div>
+            <p class="field-hint">System follows macOS appearance. Changes apply instantly.</p>
+          </div>
+
           <div class="field">
             <label for="settings-bridge-mode">Reasoning provider</label>
             <select id="settings-bridge-mode" name="bridgeMode">
@@ -104,10 +135,11 @@
               <label for="settings-translator-backend">Translator backend</label>
               <select id="settings-translator-backend" name="translatorBackend">
                 <option value="auto">Follow main provider — recommended</option>
+                <option value="apple-vision">Apple Vision + Groq — fast, local OCR, no limits (macOS)</option>
                 <option value="claude-cli">Claude CLI (Pro/Max subscription)</option>
                 <option value="codex-cli">Codex CLI (ChatGPT Plus/Pro subscription)</option>
                 <option value="claude-api">Anthropic API (ANTHROPIC_API_KEY)</option>
-                <option value="openai-api">OpenAI-compatible API (Groq / OpenRouter / OpenAI)</option>
+                <option value="openai-api">OpenAI-compatible API (Groq / Gemini / OpenRouter / OpenAI)</option>
               </select>
               <p class="field-hint">
                 Translator uses the same billing as your main reasoning provider by default. Pin an explicit backend
@@ -177,12 +209,13 @@
         </form>
 
         <footer class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close="settings">Cancel</button>
+          <button type="button" class="btn btn-ghost" data-close="settings">Cancel</button>
           <button type="button" id="settings-save" class="btn btn-primary">Save &amp; restart backend</button>
         </footer>
       </div>
     </div>
 
+    <script src="./icons.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

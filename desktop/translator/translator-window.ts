@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserWindow, screen } from "electron";
 
-const WINDOW_WIDTH = 440;
-const WINDOW_HEIGHT = 400;
+const WINDOW_WIDTH = 460;
+const WINDOW_HEIGHT = 440;
 const CURSOR_OFFSET = 16; // px gap between cursor and window edge
 
 const currentFilePath = fileURLToPath(import.meta.url);

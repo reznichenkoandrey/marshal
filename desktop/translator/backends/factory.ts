@@ -1,3 +1,4 @@
+import { AppleVisionTranslatorBackend } from "./apple-vision-backend.ts";
 import { ClaudeApiTranslatorBackend } from "./claude-api-backend.ts";
 import { ClaudeCliTranslatorBackend } from "./claude-cli-backend.ts";
 import { CodexCliTranslatorBackend } from "./codex-cli-backend.ts";
@@ -9,7 +10,8 @@ export const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendId[] = [
   "codex-cli",
   "claude-api",
   "openai-api",
-  "groq"
+  "groq",
+  "apple-vision"
 ];
 
 export function createTranslatorBackend(id: TranslatorBackendId): TranslatorBackend {
@@ -26,6 +28,8 @@ export function createTranslatorBackend(id: TranslatorBackendId): TranslatorBack
       // Legacy alias kept for existing settings.json files. Same transport as
       // openai-api but preserves the historical id in the resolved backend.
       return new OpenAiApiTranslatorBackend("groq");
+    case "apple-vision":
+      return new AppleVisionTranslatorBackend();
     default: {
       const _exhaustive: never = id;
       throw new Error(`Unknown translator backend: ${String(_exhaustive)}`);

@@ -9,7 +9,8 @@ export type TranslatorBackendId =
   | "codex-cli"
   | "claude-api"
   | "openai-api"
-  | "groq";
+  | "groq"
+  | "apple-vision";
 
 /**
  * Reasoning provider selected in Settings → Reasoning provider. Mirrors the

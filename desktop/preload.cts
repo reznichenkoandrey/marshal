@@ -100,6 +100,7 @@ const desktopApi = {
     claudeModel?: string;
     codexModel?: string;
     translatorBackend?: string;
+    appearance?: string;
     dictationEnabled?: boolean;
     dictationHotkey?: string;
     dictationBackend?: string;

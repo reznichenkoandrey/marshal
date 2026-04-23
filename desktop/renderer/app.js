@@ -1,13 +1,23 @@
 // Marshal Desktop — Chat UI controller
 
 const STORAGE_KEYS = {
-  theme: "marshal-theme",
+  appearance: "marshal-appearance",
   recentDirs: "marshal-recent-dirs",
   workingDir: "marshal-working-dir",
   activeProject: "marshal-active-project"
 };
 
 const MAX_RECENT_DIRS = 5;
+const APPEARANCE_VALUES = ["light", "dark", "system"];
+
+function loadAppearance() {
+  const stored = localStorage.getItem(STORAGE_KEYS.appearance);
+  if (APPEARANCE_VALUES.includes(stored)) return stored;
+  // Backward-compat: migrate the old `marshal-theme` key.
+  const legacy = localStorage.getItem("marshal-theme");
+  if (legacy === "light" || legacy === "dark") return legacy;
+  return "system";
+}
 
 // ── State ──
 
@@ -17,7 +27,7 @@ const state = {
   activeSession: null,
   pendingFiles: [],
   sidebarOpen: false,
-  theme: localStorage.getItem(STORAGE_KEYS.theme) || "light",
+  appearance: loadAppearance(),
   workingDir: localStorage.getItem(STORAGE_KEYS.workingDir) || "~/",
   recentDirs: JSON.parse(localStorage.getItem(STORAGE_KEYS.recentDirs) || "[]"),
   pollHandle: null,
@@ -25,6 +35,12 @@ const state = {
   projectId: localStorage.getItem(STORAGE_KEYS.activeProject) || null,
   isTaskRunning: false
 };
+
+// BroadcastChannel keeps the translator window in sync when the user flips
+// the theme from the main window (and vice versa).
+const appearanceChannel = typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("marshal-appearance")
+  : null;
 
 // ── DOM refs ──
 
@@ -56,6 +72,7 @@ const dom = {
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
+  appearanceSegmented: document.getElementById("appearance-segmented"),
   themeToggle: document.getElementById("theme-toggle"),
   messages: document.getElementById("messages"),
   welcome: document.getElementById("welcome"),
@@ -74,7 +91,8 @@ const api = window.marshalDesktop;
 // ── Bootstrap ──
 
 async function bootstrap() {
-  applyTheme(state.theme);
+  applyAppearance(state.appearance, { broadcast: false });
+  window.MarshalIcons?.apply();
   updateDirLabel();
   bindEvents();
   await ensureDefaultProject();
@@ -435,7 +453,7 @@ function renderSessionList() {
 
   if (state.sessions.length === 0) {
     const empty = document.createElement("div");
-    empty.style.cssText = "padding: 16px; color: var(--text-tertiary); font-size: 13px; text-align: center;";
+    empty.className = "session-list-empty";
     empty.textContent = "No conversations yet";
     dom.sessionList.appendChild(empty);
     return;
@@ -461,7 +479,7 @@ function renderSessionList() {
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "session-delete-btn";
-    deleteBtn.textContent = "\u00d7";
+    deleteBtn.innerHTML = window.MarshalIcons?.render("x", { size: 14 }) ?? "\u00d7";
     deleteBtn.title = "Delete session";
 
     textDiv.addEventListener("click", () => {
@@ -564,6 +582,7 @@ function toggleDirDropdown() {
   if (isHidden) {
     renderDirDropdown();
     dom.dirDropdown.classList.remove("hidden");
+    dom.dirPicker.setAttribute("aria-expanded", "true");
   } else {
     closeDirDropdown();
   }
@@ -571,6 +590,7 @@ function toggleDirDropdown() {
 
 function closeDirDropdown() {
   dom.dirDropdown.classList.add("hidden");
+  dom.dirPicker?.setAttribute("aria-expanded", "false");
 }
 
 // ── Sidebar ──
@@ -587,17 +607,69 @@ function closeSidebar() {
   dom.sidebarOverlay.classList.add("hidden");
 }
 
-// ── Theme ──
+// ── Appearance (light / dark / system) ──
 
-function applyTheme(theme) {
-  state.theme = theme;
-  document.body.dataset.theme = theme;
-  localStorage.setItem(STORAGE_KEYS.theme, theme);
+function applyAppearance(value, { broadcast = true } = {}) {
+  const next = APPEARANCE_VALUES.includes(value) ? value : "system";
+  state.appearance = next;
+  localStorage.setItem(STORAGE_KEYS.appearance, next);
+  // Remove legacy key so migration doesn't re-trigger.
+  localStorage.removeItem("marshal-theme");
+
+  const root = document.documentElement;
+  if (next === "system") {
+    root.removeAttribute("data-theme");
+  } else {
+    root.setAttribute("data-theme", next);
+  }
+
+  refreshThemeToggleIcon();
+  refreshAppearanceSegmented();
+
+  if (broadcast) {
+    appearanceChannel?.postMessage({ appearance: next });
+  }
 }
 
-function toggleTheme() {
-  applyTheme(state.theme === "light" ? "dark" : "light");
+function cycleAppearance() {
+  const idx = APPEARANCE_VALUES.indexOf(state.appearance);
+  const next = APPEARANCE_VALUES[(idx + 1) % APPEARANCE_VALUES.length];
+  applyAppearance(next);
 }
+
+function refreshThemeToggleIcon() {
+  if (!dom.themeToggle || !window.MarshalIcons) return;
+  const iconName =
+    state.appearance === "light" ? "sun" :
+    state.appearance === "dark" ? "moon" : "monitor";
+  dom.themeToggle.innerHTML = window.MarshalIcons.render(iconName, { size: 18 });
+  dom.themeToggle.title = `Appearance: ${state.appearance} (click to cycle)`;
+}
+
+function refreshAppearanceSegmented() {
+  if (!dom.appearanceSegmented) return;
+  dom.appearanceSegmented.querySelectorAll(".segmented-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
+    btn.setAttribute("aria-selected", btn.dataset.appearance === state.appearance ? "true" : "false");
+  });
+}
+
+// Re-apply the system palette when macOS flips appearance and the user is on
+// "system" — no-op otherwise because `data-theme` is explicit.
+const systemMedia = window.matchMedia("(prefers-color-scheme: dark)");
+systemMedia.addEventListener?.("change", () => {
+  if (state.appearance === "system") {
+    // CSS handles the actual repaint; we just nudge the toggle icon.
+    refreshThemeToggleIcon();
+  }
+});
+
+appearanceChannel?.addEventListener("message", (event) => {
+  const next = event.data?.appearance;
+  if (APPEARANCE_VALUES.includes(next) && next !== state.appearance) {
+    applyAppearance(next, { broadcast: false });
+  }
+});
 
 // ── Textarea auto-resize ──
 
@@ -699,8 +771,13 @@ function bindEvents() {
     }
   });
 
-  // Theme
-  dom.themeToggle.addEventListener("click", toggleTheme);
+  // Appearance — header icon cycles; segmented control in Settings
+  dom.themeToggle?.addEventListener("click", cycleAppearance);
+  dom.appearanceSegmented?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".segmented-btn");
+    if (!btn?.dataset.appearance) return;
+    applyAppearance(btn.dataset.appearance);
+  });
 
   // File attachments
   dom.attachBtn.addEventListener("click", () => dom.fileInput.click());
@@ -783,6 +860,7 @@ async function openSettings() {
       dom.settingsDictationPrompt.value = current.dictationPrompt ?? "";
     }
     refreshSettingsVisibility();
+    refreshAppearanceSegmented();
     clearSettingsStatus();
     dom.settingsModal.classList.remove("hidden");
   } catch (err) {

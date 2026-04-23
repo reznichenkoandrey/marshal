@@ -8,6 +8,43 @@ let currentTranslation = "";
 let historyItems = [];       // cached list of HistoryItem, most recent first
 let historyIndex = -1;       // cursor into historyItems when navigating with ↑/↓
 
+// ── Appearance sync ──
+// The main window owns the appearance choice (light / dark / system) and
+// stores it in the shared default session's localStorage. The translator just
+// mirrors it — apply on load, on focus (in case we missed a storage event),
+// and whenever the key changes via `storage` / BroadcastChannel.
+
+const APPEARANCE_VALUES = ["light", "dark", "system"];
+
+function currentAppearance() {
+  const raw = localStorage.getItem("marshal-appearance");
+  return APPEARANCE_VALUES.includes(raw) ? raw : "system";
+}
+
+function applyAppearance(value) {
+  const next = APPEARANCE_VALUES.includes(value) ? value : "system";
+  const root = document.documentElement;
+  if (next === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", next);
+}
+
+applyAppearance(currentAppearance());
+
+window.addEventListener("storage", (e) => {
+  if (e.key === "marshal-appearance") applyAppearance(e.newValue);
+});
+window.addEventListener("focus", () => applyAppearance(currentAppearance()));
+
+if (typeof BroadcastChannel !== "undefined") {
+  const channel = new BroadcastChannel("marshal-appearance");
+  channel.addEventListener("message", (event) => {
+    if (event.data?.appearance) applyAppearance(event.data.appearance);
+  });
+}
+
+// Render all [data-icon] placeholders once the script loads.
+window.MarshalIcons?.apply();
+
 // ── DOM refs ──
 const dom = {
   langBtns: document.querySelectorAll(".lang-btn"),
@@ -118,10 +155,19 @@ dom.btnPaste.addEventListener("click", async () => {
       dom.inputText.value = text;
       dom.btnTranslate.disabled = false;
       dom.inputText.focus();
+      triggerTextTranslate();
     }
   } catch {
     dom.inputText.focus();
   }
+});
+
+// ── Auto-translate on Cmd+V paste into textarea ──
+dom.inputText.addEventListener("paste", () => {
+  // Wait for the browser to commit the pasted text, then fire the translation.
+  queueMicrotask(() => {
+    if (dom.inputText.value.trim()) triggerTextTranslate();
+  });
 });
 
 // ── Clear ──
@@ -189,13 +235,15 @@ dom.fileInput.addEventListener("change", () => {
 });
 
 // ── Copy ──
+const defaultCopyHTML = dom.copyBtn.innerHTML;
 dom.copyBtn.addEventListener("click", () => {
   if (!currentTranslation) return;
   navigator.clipboard.writeText(currentTranslation).then(() => {
-    dom.copyBtn.textContent = "Copied!";
+    const checkSvg = window.MarshalIcons?.render("check", { size: 12 }) ?? "";
+    dom.copyBtn.innerHTML = `${checkSvg}<span>Copied!</span>`;
     dom.copyBtn.classList.add("copied");
     setTimeout(() => {
-      dom.copyBtn.textContent = "Copy";
+      dom.copyBtn.innerHTML = defaultCopyHTML;
       dom.copyBtn.classList.remove("copied");
     }, 1500);
   });

@@ -13,28 +13,33 @@
   overlay.style.cssText = `
     position: fixed;
     pointer-events: none;
-    background: rgba(14, 116, 255, 0.15);
-    border: 2px solid #0e74ff;
-    border-radius: 3px;
+    background: rgba(77, 154, 255, 0.14);
+    border: 2px solid #4d9aff;
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(0, 0, 0, 0.18);
     z-index: 2147483646;
-    transition: all 0.08s ease;
+    transition: top 0.08s ease, left 0.08s ease, width 0.08s ease, height 0.08s ease;
     display: none;
   `;
 
   const tooltip = document.createElement("div");
   tooltip.style.cssText = `
     position: fixed;
-    top: 8px;
+    top: 12px;
     left: 50%;
     transform: translateX(-50%);
-    padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    border-radius: 8px;
+    padding: 8px 14px;
+    background: rgba(11, 11, 13, 0.92);
+    backdrop-filter: blur(8px);
+    color: #f5f5f7;
+    font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
     z-index: 2147483647;
     pointer-events: none;
     white-space: nowrap;
+    letter-spacing: 0.01em;
   `;
   tooltip.textContent = "Click an element to capture \u2022 Esc to cancel";
 

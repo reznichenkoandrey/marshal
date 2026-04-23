@@ -24,6 +24,14 @@ const staticAssets = [
   {
     from: path.join(root, "chrome-extension", "src", "sidepanel", "sidepanel.css"),
     to: path.join(distDir, "src", "sidepanel", "sidepanel.css")
+  },
+  {
+    from: path.join(root, "chrome-extension", "src", "sidepanel", "design-tokens.css"),
+    to: path.join(distDir, "src", "sidepanel", "design-tokens.css")
+  },
+  {
+    from: path.join(root, "chrome-extension", "src", "sidepanel", "icons.js"),
+    to: path.join(distDir, "src", "sidepanel", "icons.js")
   }
 ];
 
@@ -57,6 +65,12 @@ if (process.platform === "darwin") {
       out: path.join(root, "dist", "desktop", "dictation", "audio-recorder"),
       label: "audio-recorder",
       fallbackNote: "voice dictation will be disabled"
+    },
+    {
+      src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
+      out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
+      label: "apple-vision-ocr",
+      fallbackNote: "local OCR will be unavailable, fall back to cloud vision backends"
     }
   ];
 

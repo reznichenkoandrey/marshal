@@ -17,13 +17,25 @@
         <option value="claude-web">Claude Web (Playwright)</option>
         <option value="playwright">ChatGPT Web (Playwright)</option>
       </select>
-      <button id="resetBtn" title="Reset conversation">&#x21BB;</button>
+      <button id="themeBtn" class="icon-btn" title="Toggle appearance"></button>
+      <button id="resetBtn" class="icon-btn" title="Reset conversation">
+        <span data-icon="refresh-cw" data-icon-size="14"></span>
+      </button>
     </div>
 
     <div class="toolbar-row capture-row">
-      <button id="captureTextBtn" class="capture-btn" title="Click an element on the page, grab its visible text">📍 Pick text</button>
-      <button id="captureHtmlBtn" class="capture-btn" title="Click an element on the page, grab its HTML">📍 Pick HTML</button>
-      <button id="cancelPickerBtn" class="capture-btn cancel-btn" hidden>Cancel picker</button>
+      <button id="captureTextBtn" class="capture-btn" title="Click an element on the page, grab its visible text">
+        <span data-icon="mouse-pointer" data-icon-size="12"></span>
+        Pick text
+      </button>
+      <button id="captureHtmlBtn" class="capture-btn" title="Click an element on the page, grab its HTML">
+        <span data-icon="code" data-icon-size="12"></span>
+        Pick HTML
+      </button>
+      <button id="cancelPickerBtn" class="capture-btn cancel-btn" hidden>
+        <span data-icon="x" data-icon-size="12"></span>
+        Cancel
+      </button>
     </div>
 
     <div id="statusText" role="status"></div>
@@ -33,20 +45,29 @@
     <div id="messageList"></div>
 
     <div id="contextChip" class="context-chip" hidden>
-      <span class="context-label">Context attached</span>
+      <span class="context-label">Context</span>
       <span id="contextPreview"></span>
-      <button id="clearContextBtn" title="Clear attached context">×</button>
+      <button id="clearContextBtn" title="Clear attached context">
+        <span data-icon="x" data-icon-size="12"></span>
+      </button>
     </div>
 
     <div class="composer">
-      <textarea id="promptInput" rows="3" placeholder="Ask Claude about the current page, or anything else… (Shift+Enter = newline)"></textarea>
+      <textarea id="promptInput" rows="3" placeholder="Ask about the current page, or anything else…  (Shift+Enter = newline)"></textarea>
       <div class="composer-actions">
-        <button id="sendBtn" class="action-btn primary">Ask Claude</button>
-        <button id="stopBtn" class="action-btn stop" hidden>Stop</button>
+        <button id="sendBtn" class="action-btn primary">
+          <span data-icon="send" data-icon-size="14"></span>
+          Ask
+        </button>
+        <button id="stopBtn" class="action-btn stop" hidden>
+          <span data-icon="square" data-icon-size="12"></span>
+          Stop
+        </button>
       </div>
     </div>
   </main>
 
+  <script src="icons.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

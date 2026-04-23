@@ -22,11 +22,18 @@ export type DictationBackend = "whisper-cpp" | "groq";
 // similar scripts (e.g. Ukrainian vs Russian).
 export type DictationLanguage = "auto" | "uk" | "en";
 
+export type Appearance = "light" | "dark" | "system";
+
 export type MarshalSettings = {
   bridgeMode: BridgeMode;
   claudeModel: string;
   codexModel: string;
   translatorBackend: TranslatorBackendChoice;
+  /**
+   * UI appearance preference. `"system"` follows the OS `prefers-color-scheme`
+   * at paint time; explicit values force the theme regardless of OS setting.
+   */
+  appearance: Appearance;
   dictationEnabled: boolean;
   dictationHotkey: string;
   dictationBackend: DictationBackend;
@@ -48,6 +55,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   // translator and the main chat billed to the same account without asking the
   // user to duplicate their choice.
   translatorBackend: "auto",
+  appearance: "system",
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
   dictationBackend: "whisper-cpp",
@@ -58,13 +66,15 @@ const DEFAULT_SETTINGS: MarshalSettings = {
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
 const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
+const VALID_APPEARANCES: readonly Appearance[] = ["light", "dark", "system"];
 const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendChoice[] = [
   "auto",
   "claude-cli",
   "codex-cli",
   "claude-api",
   "openai-api",
-  "groq"
+  "groq",
+  "apple-vision"
 ];
 
 const VALID_MODES: readonly BridgeMode[] = [
@@ -163,11 +173,19 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     ? (translatorBackendCandidate as TranslatorBackendChoice)
     : DEFAULT_SETTINGS.translatorBackend;
 
+  const appearanceCandidate = typeof input.appearance === "string"
+    ? input.appearance.trim().toLowerCase()
+    : DEFAULT_SETTINGS.appearance;
+  const appearance = (VALID_APPEARANCES as readonly string[]).includes(appearanceCandidate)
+    ? (appearanceCandidate as Appearance)
+    : DEFAULT_SETTINGS.appearance;
+
   return {
     bridgeMode,
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
     codexModel: typeof input.codexModel === "string" ? input.codexModel : DEFAULT_SETTINGS.codexModel,
     translatorBackend,
+    appearance,
     dictationEnabled: typeof input.dictationEnabled === "boolean"
       ? input.dictationEnabled
       : DEFAULT_SETTINGS.dictationEnabled,
