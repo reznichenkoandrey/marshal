@@ -288,7 +288,7 @@ export class LocalBridgeServer {
 
     const sessionId = String(body.sessionId ?? "default");
     const context = typeof body.context === "string" ? body.context : "";
-    const systemPrompt = typeof body.systemPrompt === "string" ? body.systemPrompt : null;
+    const customSystemPrompt = typeof body.systemPrompt === "string" ? body.systemPrompt : null;
     const fullPrompt = context ? `${context}\n\n---\n\n${prompt}` : prompt;
 
     let bridge = this.chatBridges.get(sessionId);
@@ -301,9 +301,7 @@ export class LocalBridgeServer {
         writeJson(response, 500, { ok: false, error: message });
         return;
       }
-      if (systemPrompt) {
-        await bridge.prime(systemPrompt);
-      }
+      await bridge.prime(customSystemPrompt ?? DEFAULT_BROWSER_SYSTEM_PROMPT);
       this.chatBridges.set(sessionId, bridge);
     }
 
@@ -336,6 +334,15 @@ export class LocalBridgeServer {
     }
   }
 }
+
+const DEFAULT_BROWSER_SYSTEM_PROMPT = [
+  "You are Claude, running inside a browser side-panel extension called Marshal.",
+  "The user is browsing the web. For every turn you will be given the current page URL and title,",
+  "and optionally a picked element's text or HTML that the user selected.",
+  "Answer in the user's language (match the question's language — usually Ukrainian or English).",
+  "Keep replies concise and practical. Do not assume you have access to file-system tools or a repo;",
+  "this is a browser chat, not a coding session."
+].join(" ");
 
 const sharedServers = new Map<number, LocalBridgeServer>();
 

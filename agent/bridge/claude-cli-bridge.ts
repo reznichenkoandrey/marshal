@@ -1,10 +1,17 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import type { ReasoningBridge, ReasoningBridgeOptions } from "./types.ts";
 
 const CLAUDE_BIN = process.env.MARSHAL_CLAUDE_BIN ?? "claude";
 const DEFAULT_MODEL = process.env.MARSHAL_CLAUDE_MODEL ?? "sonnet";
 const MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+// Claude Code CLI auto-loads ./CLAUDE.md from its working directory. When the
+// Electron app spawns the CLI inline, cwd defaults to the marshal project
+// root — so Claude reads our dev-time house rules and thinks every user
+// question is about this repo. Force the CLI into a neutral tmpdir so the
+// browser side-panel chat stays generic.
+const NEUTRAL_CWD = tmpdir();
 
 /**
  * Claude Code CLI auto-selects API-key billing whenever ANTHROPIC_API_KEY is
@@ -135,7 +142,8 @@ export class ClaudeCliBridge implements ReasoningBridge {
     return new Promise((resolve, reject) => {
       const child = spawn(CLAUDE_BIN, args, {
         stdio: ["pipe", "pipe", "pipe"],
-        env: sanitizeEnvForSubscription(process.env)
+        env: sanitizeEnvForSubscription(process.env),
+        cwd: NEUTRAL_CWD
       });
 
       let stdout = "";

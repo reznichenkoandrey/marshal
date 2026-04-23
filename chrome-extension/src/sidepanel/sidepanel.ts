@@ -102,7 +102,8 @@ async function handleSend(): Promise<void> {
   const prompt = promptInput.value.trim();
   if (!prompt) return;
 
-  const contextBlock = buildContextBlock();
+  const pageInfo = await getActivePageInfo();
+  const contextBlock = buildContextBlock(pageInfo);
   const displayContext = pendingContext ? ` (with picked ${pendingContext.kind})` : "";
 
   appendMessage({ role: "user", text: prompt + displayContext, timestamp: Date.now() });
@@ -174,14 +175,30 @@ async function handleReset(): Promise<void> {
   }
 }
 
-function buildContextBlock(): string {
-  if (!pendingContext) return "";
-  const header = pendingContext.kind === "html" ? "Picked HTML element" : "Picked text";
-  return [
-    `--- ${header} from ${pendingContext.sourceUrl} ---`,
-    pendingContext.payload,
-    "--- end context ---"
-  ].join("\n");
+function buildContextBlock(pageInfo: { url: string; title: string }): string {
+  const sections: string[] = [];
+
+  if (pageInfo.url && pageInfo.url !== "about:blank") {
+    sections.push(`Current page: ${pageInfo.title || "(no title)"}\nURL: ${pageInfo.url}`);
+  }
+
+  if (pendingContext) {
+    const header = pendingContext.kind === "html" ? "Picked HTML element" : "Picked text";
+    sections.push(
+      [`--- ${header} from ${pendingContext.sourceUrl} ---`, pendingContext.payload, "--- end context ---"].join("\n")
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
+async function getActivePageInfo(): Promise<{ url: string; title: string }> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return { url: tab?.url ?? "", title: tab?.title ?? "" };
+  } catch {
+    return { url: "", title: "" };
+  }
 }
 
 // ============================================================
