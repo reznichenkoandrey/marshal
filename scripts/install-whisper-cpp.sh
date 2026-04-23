@@ -14,6 +14,28 @@
 
 set -euo pipefail
 
+# ── Preflight: required tools ──
+# Fail fast with an actionable message instead of dying halfway through the
+# clone (#48). Non-interactive — user stays in control of `brew install`.
+missing=()
+for cmd in git cmake; do
+  if ! command -v "$cmd" > /dev/null 2>&1; then
+    missing+=("$cmd")
+  fi
+done
+
+if (( ${#missing[@]} > 0 )); then
+  echo "[whisper] missing required tools: ${missing[*]}" >&2
+  if command -v brew > /dev/null 2>&1; then
+    echo "[whisper] install them with:" >&2
+    echo "  brew install ${missing[*]}" >&2
+  else
+    echo "[whisper] install Homebrew first (https://brew.sh), then:" >&2
+    echo "  brew install ${missing[*]}" >&2
+  fi
+  exit 1
+fi
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WHISPER_DIR="$ROOT_DIR/.whisper"
 REPO_DIR="$WHISPER_DIR/whisper.cpp"
