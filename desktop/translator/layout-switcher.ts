@@ -23,12 +23,22 @@
 
 import { clipboard, globalShortcut } from "electron";
 import { EventEmitter } from "node:events";
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const DEFAULT_LAYOUT_SWITCH_HOTKEY = "CommandOrControl+Alt+L";
 const COPY_COMMIT_DELAY_MS = 120;
 const BEFORE_PASTE_DELAY_MS = 40;
 const PASTE_COMMIT_DELAY_MS = 120;
+const SEND_KEY_TIMEOUT_MS = 3_000;
+
+// Path to the compiled Swift helper (see desktop/translator/send-keystroke.swift
+// + scripts/postbuild.mjs). Lives in the same dist folder as this module.
+const currentFilePath = fileURLToPath(import.meta.url);
+const translatorDistDir = path.dirname(currentFilePath);
+const DEFAULT_SEND_KEY_BIN = path.join(translatorDistDir, "send-keystroke");
+const SEND_KEY_BIN = process.env.MARSHAL_SEND_KEY_BIN ?? DEFAULT_SEND_KEY_BIN;
 
 // US QWERTY → Ukrainian-PC (ЙЦУКЕН), lowercase + shifted pairs. Digits and
 // most punctuation share the same physical key in both layouts, so we only
@@ -176,33 +186,59 @@ export class LayoutSwitcher extends EventEmitter {
 
 function sendKeystroke(letter: "c" | "v"): Promise<void> {
   return new Promise((resolve, reject) => {
-    // 10 s timeout so the first-run macOS Automation prompt ("Electron wants
-    // to control System Events") has time to be answered. After the user
-    // clicks OK once, subsequent calls return in <50 ms.
-    exec(
-      `osascript -e 'tell application "System Events" to keystroke "${letter}" using command down'`,
-      { timeout: 10_000 },
-      (err, _stdout, stderr) => {
-        if (!err) {
-          resolve();
-          return;
-        }
-        const killed = (err as NodeJS.ErrnoException & { killed?: boolean }).killed;
-        const errText = stderr?.toString().toLowerCase() ?? "";
-        if (killed || errText.includes("-1743") || errText.includes("not authorized")) {
-          reject(new Error(
-            "macOS blocked Cmd+" + letter.toUpperCase() + " simulation. " +
-            "Enable it in System Settings → Privacy & Security → Automation → " +
-            "Electron → System Events. If the tumblr is missing, run " +
-            "`tccutil reset AppleEvents` in a terminal, restart Marshal, then " +
-            "press ⌘⌥L again and click OK on the prompt."
-          ));
-          return;
-        }
-        reject(err);
+    let child;
+    try {
+      child = spawn(SEND_KEY_BIN, [letter], { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (err) {
+      reject(wrapSpawnError(err));
+      return;
+    }
+
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error(`send-keystroke timed out after ${SEND_KEY_TIMEOUT_MS}ms`));
+    }, SEND_KEY_TIMEOUT_MS);
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(wrapSpawnError(err));
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(
+          `send-keystroke exited ${code}: ${stderr.slice(0, 200) || "(no stderr)"}. ` +
+          "If the terminal shows nothing changed in the foreground app, enable " +
+          "Accessibility for Electron in System Settings → Privacy & Security → " +
+          "Accessibility."
+        ));
       }
-    );
+    });
   });
+}
+
+function wrapSpawnError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Failed to launch send-keystroke at ${SEND_KEY_BIN}: ${message}. ` +
+    "Run `npm run build` so the Swift helper gets compiled."
+  );
 }
 
 function sleep(ms: number): Promise<void> {

@@ -71,6 +71,12 @@ if (process.platform === "darwin") {
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",
       fallbackNote: "local OCR will be unavailable, fall back to cloud vision backends"
+    },
+    {
+      src: path.join(root, "desktop", "translator", "send-keystroke.swift"),
+      out: path.join(root, "dist", "desktop", "translator", "send-keystroke"),
+      label: "send-keystroke",
+      fallbackNote: "Cmd+Option+L layout switch will be unavailable"
     }
   ];
 
