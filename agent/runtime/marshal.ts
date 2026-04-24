@@ -16,8 +16,12 @@ import type {
   RuntimePriorMessage
 } from "./types.ts";
 
+// "auto" no longer includes browser_* tools. Previously a doc/file question
+// could trigger an unwanted Chromium window because the model has a slight
+// tendency to reach for browser tools when any are available. Users who
+// want web automation should pick the "browser" route explicitly.
 const ROUTE_TOOL_MAP: Record<ExecutionRoute, ToolName[]> = {
-  auto: ALL_TOOL_NAMES,
+  auto: ["read_file", "write_file", "list_dir", "run_shell"],
   local: ["read_file", "write_file", "list_dir", "run_shell"],
   browser: ["browser_navigate", "browser_click", "browser_type"]
 };
@@ -53,7 +57,12 @@ export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<st
     bridgeMode === "playwright";
   const bridge = options.bridge ?? createReasoningBridge({ projectName: options.chatProjectName });
   const sandbox = new FileSandbox(options.workspaceRoot, { unrestricted: isUnrestricted });
-  const browserManager = new PlaywrightBrowserManager(options.browserHeadless ?? false);
+  // Default to headless for auto/local routes — no reason to pop a visible
+  // Chromium window unless the user explicitly picked the "browser" route to
+  // watch the automation. Callers can still force visibility via options.
+  const browserManager = new PlaywrightBrowserManager(
+    options.browserHeadless ?? route !== "browser"
+  );
   const allowedTools = ROUTE_TOOL_MAP[route];
 
   // Build task description with context (prior turns + attachments).
