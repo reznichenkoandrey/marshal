@@ -12,6 +12,18 @@ export type RuntimeAttachment = {
   uploadedAt: string;
 };
 
+/**
+ * Prior user/assistant turn from the same chat session. Passed to
+ * {@link runMarshalTask} so the reasoning bridge sees conversation history,
+ * not just the newest message. Attachments from prior turns are kept here so
+ * the model can re-read them on follow-up questions.
+ */
+export type RuntimePriorMessage = {
+  role: "user" | "assistant";
+  text: string;
+  attachments: RuntimeAttachment[];
+};
+
 export type MarshalRuntimeEvent =
   | {
       type: "task_started";

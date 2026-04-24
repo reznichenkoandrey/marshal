@@ -9,7 +9,12 @@ import { FileSandbox } from "../tools/fs.ts";
 import { PlaywrightBrowserManager } from "../tools/playwright-manager.ts";
 import { ShellTool } from "../tools/shell.ts";
 import { Toolbox } from "../tools/index.ts";
-import type { ExecutionRoute, MarshalRuntimeEvent, RuntimeAttachment } from "./types.ts";
+import type {
+  ExecutionRoute,
+  MarshalRuntimeEvent,
+  RuntimeAttachment,
+  RuntimePriorMessage
+} from "./types.ts";
 
 const ROUTE_TOOL_MAP: Record<ExecutionRoute, ToolName[]> = {
   auto: ALL_TOOL_NAMES,
@@ -21,6 +26,13 @@ export type RunMarshalTaskOptions = {
   task: string;
   route?: ExecutionRoute;
   attachments?: RuntimeAttachment[];
+  /**
+   * Prior user/assistant messages from the same chat session, oldest first.
+   * Excludes the current user message (which is the `task` arg). When omitted
+   * the task runs as a fresh, zero-context conversation — the pre-#73
+   * behaviour.
+   */
+  priorMessages?: RuntimePriorMessage[];
   workspaceRoot?: string;
   memoryDir?: string;
   chatProjectName?: string;
@@ -44,8 +56,15 @@ export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<st
   const browserManager = new PlaywrightBrowserManager(options.browserHeadless ?? false);
   const allowedTools = ROUTE_TOOL_MAP[route];
 
-  // Build task description with context
-  const taskText = buildExecutionTask(options.task, route, options.attachments ?? [], sandbox.root, isUnrestricted);
+  // Build task description with context (prior turns + attachments).
+  const taskText = buildExecutionTask(
+    options.task,
+    route,
+    options.attachments ?? [],
+    sandbox.root,
+    isUnrestricted,
+    options.priorMessages ?? []
+  );
 
   try {
     await Promise.all([bridge.initialize(), sandbox.initialize()]);
@@ -103,23 +122,80 @@ export function getDefaultSessionMemory(sessionId: string): string {
   return path.resolve(process.cwd(), "operator-data", "sessions", sessionId, "memory");
 }
 
-function buildExecutionTask(
+/**
+ * Build the single prompt string fed to the reasoning bridge. Includes:
+ *   - full prior conversation (user + assistant), so the model sees context;
+ *   - the current user message with a route hint;
+ *   - a consolidated attachment list with absolute paths — from both the
+ *     current turn and any prior turn. The model can re-read old uploads via
+ *     the `read_file` tool even when the user didn't re-attach them.
+ *
+ * Exported for unit testing. In production it's only called from
+ * {@link runMarshalTask}.
+ */
+export function buildExecutionTask(
   task: string,
   route: ExecutionRoute,
   attachments: RuntimeAttachment[],
   workspaceRoot: string,
-  _unrestricted = false
+  _unrestricted = false,
+  priorMessages: RuntimePriorMessage[] = []
 ): string {
-  const attachmentBlock =
-    attachments.length === 0
-      ? ""
-      : "\n\nAttachments:\n" + attachments.map(
-          (a, i) => `${i + 1}. ${a.name} (${a.mimeType}) at ${a.relativePath}`
-        ).join("\n");
-
   const routeHint =
     route === "browser" ? " (use browser tools only)" :
     route === "local" ? " (use file/shell tools only)" : "";
 
-  return `${task}${routeHint}${attachmentBlock}`;
+  const historyBlock = formatHistoryBlock(priorMessages);
+
+  // Consolidate ALL attachments the user has ever uploaded in this chat —
+  // current turn + every prior turn — deduplicated by id, using absolute
+  // paths so the model can read them regardless of sandbox root. Without
+  // this, turn-2 follow-up questions about a turn-1 .docx fell back to
+  // hallucination (#73).
+  const priorAttachments = priorMessages.flatMap((m) => m.attachments);
+  const seen = new Set<string>();
+  const mergedAttachments: RuntimeAttachment[] = [];
+  for (const a of [...priorAttachments, ...attachments]) {
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
+    mergedAttachments.push(a);
+  }
+
+  const attachmentBlock =
+    mergedAttachments.length === 0
+      ? ""
+      : "\n\nAttachments (available for the entire chat, read via read_file if needed):\n" +
+        mergedAttachments.map(
+          (a, i) => `${i + 1}. ${a.name} (${a.mimeType}) at ${a.absolutePath}`
+        ).join("\n");
+
+  const currentBlock = historyBlock.length > 0
+    ? `New message from user:\n${task}${routeHint}`
+    : `${task}${routeHint}`;
+
+  return `${historyBlock}${currentBlock}${attachmentBlock}`;
+}
+
+function formatHistoryBlock(priorMessages: RuntimePriorMessage[]): string {
+  if (priorMessages.length === 0) return "";
+
+  const lines: string[] = ["Previous conversation in this chat:\n"];
+  let turnIndex = 0;
+  for (const msg of priorMessages) {
+    if (msg.role === "user") {
+      turnIndex += 1;
+      lines.push(`User (turn ${turnIndex}):`);
+      lines.push(msg.text.trim());
+      if (msg.attachments.length > 0) {
+        const names = msg.attachments.map((a) => a.name).join(", ");
+        lines.push(`[User attached: ${names}]`);
+      }
+    } else {
+      lines.push(`Assistant (turn ${turnIndex}):`);
+      lines.push(msg.text.trim());
+    }
+    lines.push("");
+  }
+  lines.push("---\n");
+  return lines.join("\n");
 }

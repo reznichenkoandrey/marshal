@@ -1,9 +1,14 @@
 import { createReasoningBridge } from "../agent/bridge/factory.ts";
 import type { ReasoningBridge } from "../agent/bridge/types.ts";
 import { runMarshalTask } from "../agent/runtime/marshal.ts";
-import type { ExecutionRoute, MarshalRuntimeEvent } from "../agent/runtime/types.ts";
+import type {
+  ExecutionRoute,
+  MarshalRuntimeEvent,
+  RuntimePriorMessage
+} from "../agent/runtime/types.ts";
 import { OperatorSessionStore } from "./session-store.ts";
 import type {
+  OperatorMessage,
   OperatorProjectSummary,
   OperatorSession,
   OperatorSessionSummary,
@@ -159,6 +164,7 @@ export class OperatorTaskService {
         task: task.prompt,
         route: task.route,
         attachments: task.attachments,
+        priorMessages: collectPriorMessages(session.messages, taskId),
         workspaceRoot: workDir,
         memoryDir: paths.memoryDir,
         bridge: this.getSharedBridge(),
@@ -207,6 +213,27 @@ export class OperatorTaskService {
 
 export function normalizeRoute(value: unknown): ExecutionRoute {
   return value === "local" || value === "browser" ? value : "auto";
+}
+
+/**
+ * Build the `priorMessages` list for {@link runMarshalTask} out of a session's
+ * stored messages. Drops:
+ *   - system messages (they carry no signal worth paying tokens for);
+ *   - the current task's own user message (it's re-sent as the fresh prompt).
+ *
+ * Exported for unit-testing the filter logic without booting a real session.
+ */
+export function collectPriorMessages(
+  messages: OperatorMessage[],
+  currentTaskId: string
+): RuntimePriorMessage[] {
+  return messages
+    .filter((m) => m.role !== "system" && m.taskId !== currentTaskId)
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      text: m.text,
+      attachments: m.attachments
+    }));
 }
 
 export function sanitizeUploads(value: unknown[]): UploadPayload[] {
