@@ -20,10 +20,11 @@ type OneShotOptions = {
   maxIterations?: number;
 };
 
-const DEFAULT_MAX_ITERATIONS = 6;
+const DEFAULT_MAX_ITERATIONS = 5;
 // Cap individual tool-result strings so extremely long file reads or shell
 // dumps don't blow the model's context window. 40 KB per tool per round.
 const MAX_RESULT_BYTES = 40 * 1024;
+const DEBUG = process.env.MARSHAL_AGENT_DEBUG === "1";
 
 /**
  * Executor for the JSON-command protocol. Drives a loop:
@@ -54,15 +55,25 @@ export class OneShotExecutor {
   }
 
   async execute(task: string): Promise<string> {
-    await this.options.onEvent?.({ type: "planning_started", route: "auto" });
-
     const maxIterations = this.options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     let currentPrompt: string = this.buildPrompt(task);
     let lastSummary = "";
     let totalSteps = 0;
 
     for (let iter = 0; iter < maxIterations; iter++) {
+      // Emit a planning event per iteration so the UI timeline keeps ticking
+      // — otherwise mid-task rounds leave the user staring at a typing
+      // indicator for 10-30 s while the model thinks.
+      await this.options.onEvent?.({ type: "planning_started", route: "auto" });
+      if (DEBUG) {
+        process.stderr.write(`[executor] iter ${iter + 1}/${maxIterations} → bridge.ask (${currentPrompt.length}B)\n`);
+      }
+
+      const askStartedAt = Date.now();
       const response = await this.bridge.ask(currentPrompt);
+      if (DEBUG) {
+        process.stderr.write(`[executor] iter ${iter + 1} ← ${response.length}B in ${Date.now() - askStartedAt}ms\n`);
+      }
       let parsed = this.parseResponse(response);
 
       // On the first iteration, if the model ignored the JSON format, ask
@@ -91,12 +102,12 @@ export class OneShotExecutor {
         return summary || lastSummary || "No response from AI.";
       }
 
-      if (iter === 0) {
-        await this.options.onEvent?.({
-          type: "plan_ready",
-          steps: toolCalls.map((tc) => `${tc.tool}: ${JSON.stringify(tc.input)}`)
-        });
-      }
+      // Per-iteration plan_ready so the timeline reflects newly planned tools
+      // whenever the model pivots mid-task, not only on the very first round.
+      await this.options.onEvent?.({
+        type: "plan_ready",
+        steps: toolCalls.map((tc) => `${tc.tool}: ${JSON.stringify(tc.input)}`)
+      });
 
       const results: ToolExecutionResult[] = [];
       for (let i = 0; i < toolCalls.length; i++) {

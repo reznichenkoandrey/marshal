@@ -6,6 +6,11 @@ import type { ReasoningBridge, ReasoningBridgeOptions } from "./types.ts";
 const CLAUDE_BIN = process.env.MARSHAL_CLAUDE_BIN ?? "claude";
 const DEFAULT_MODEL = process.env.MARSHAL_CLAUDE_MODEL ?? "sonnet";
 const MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+// Cap single-turn wall time so a stuck CLI (auth reprompt, network freeze,
+// runaway generation) doesn't hang the whole task forever. Configurable via
+// env for slow networks / very long docs.
+const TURN_TIMEOUT_MS = Number(process.env.MARSHAL_CLAUDE_TIMEOUT_MS ?? 120_000);
+const DEBUG = process.env.MARSHAL_AGENT_DEBUG === "1";
 // Claude Code CLI auto-loads ./CLAUDE.md from its working directory. When the
 // Electron app spawns the CLI inline, cwd defaults to the marshal project
 // root — so Claude reads our dev-time house rules and thinks every user
@@ -140,6 +145,11 @@ export class ClaudeCliBridge implements ReasoningBridge {
 
   private runClaude(args: string[], stdin: string): Promise<string> {
     return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      if (DEBUG) {
+        process.stderr.write(`[claude-cli] → ${args.slice(0, 4).join(" ")}… (${stdin.length}B stdin)\n`);
+      }
+
       const child = spawn(CLAUDE_BIN, args, {
         stdio: ["pipe", "pipe", "pipe"],
         env: sanitizeEnvForSubscription(process.env),
@@ -149,10 +159,29 @@ export class ClaudeCliBridge implements ReasoningBridge {
       let stdout = "";
       let stderr = "";
       let stdoutBytes = 0;
+      let settled = false;
+
+      // Hard timeout — SIGKILL if the CLI hasn't replied by TURN_TIMEOUT_MS.
+      // Prevents indefinite hangs on auth re-prompts or silent network failures.
+      const timeoutHandle = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { child.kill("SIGKILL"); } catch { /* already gone */ }
+        reject(
+          new Error(
+            `Claude CLI timed out after ${TURN_TIMEOUT_MS}ms. ` +
+            `Set MARSHAL_CLAUDE_TIMEOUT_MS to raise the cap, or run \`claude auth\` ` +
+            `and verify your subscription session is valid.`
+          )
+        );
+      }, TURN_TIMEOUT_MS);
 
       child.stdout.on("data", (chunk: Buffer) => {
         stdoutBytes += chunk.length;
         if (stdoutBytes > MAX_BUFFER_BYTES) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutHandle);
           child.kill("SIGKILL");
           reject(new Error(`Claude CLI stdout exceeded ${MAX_BUFFER_BYTES} bytes`));
           return;
@@ -164,10 +193,21 @@ export class ClaudeCliBridge implements ReasoningBridge {
       });
 
       child.on("error", (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutHandle);
         reject(new Error(`Failed to spawn ${CLAUDE_BIN}: ${err.message}`));
       });
 
       child.on("close", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutHandle);
+        if (DEBUG) {
+          process.stderr.write(
+            `[claude-cli] ← exit ${code} in ${Date.now() - startedAt}ms (${stdout.length}B stdout)\n`
+          );
+        }
         if (code === 0) {
           resolve(stdout);
         } else {
