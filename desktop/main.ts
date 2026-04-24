@@ -12,6 +12,8 @@ import { runCountdown } from "./capture/countdown-window.ts";
 import { pickArea } from "./capture/area-picker.ts";
 import { RecordingIndicator } from "./capture/recording-indicator.ts";
 import { VideoRecorder } from "./capture/video-recorder.ts";
+import { GifDialog } from "./capture/gif-dialog.ts";
+import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
@@ -45,6 +47,8 @@ let captureWindow: CaptureWindow | null = null;
 let videoRecorder: VideoRecorder | null = null;
 let recordingIndicator: RecordingIndicator | null = null;
 let isRecording = false;
+let gifDialog: GifDialog | null = null;
+let lastRecordingPath: string | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
 let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
@@ -342,6 +346,72 @@ function registerIpcHandlers(): void {
     await stopVideoRecording();
     return { ok: true };
   });
+
+  handleIpc("marshal:gif-start", async (_event, opts: {
+    inputPath: string;
+    fps: number;
+    width: number;
+    loop: boolean;
+  }) => {
+    if (!gifDialog) throw new Error("GIF dialog not initialised");
+    const outputPath = opts.inputPath.replace(/\.[^./]+$/u, "") + ".gif";
+    try {
+      await GifEncoder.convert(
+        { inputPath: opts.inputPath, outputPath, fps: opts.fps, width: opts.width, loop: opts.loop },
+        (progress) => gifDialog?.sendProgress(progress)
+      );
+      gifDialog.sendDone(outputPath);
+      if (Notification.isSupported()) {
+        const name = outputPath.split("/").pop() ?? outputPath;
+        const notif = new Notification({
+          title: "Marshal — GIF saved",
+          body: name,
+          silent: true
+        });
+        notif.on("click", () => void shell.showItemInFolder(outputPath));
+        notif.show();
+      }
+      return { outputPath };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      gifDialog.sendError(message);
+      throw new Error(message);
+    }
+  });
+
+  handleIpc("marshal:gif-close", () => {
+    gifDialog?.close();
+    return { ok: true };
+  });
+}
+
+async function openGifConverter(): Promise<void> {
+  if (!gifDialog) return;
+
+  if (!GifEncoder.isAvailable()) {
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — ffmpeg not found",
+        body: "Install ffmpeg (e.g. `brew install ffmpeg`) or run `npm install`.",
+        silent: true
+      }).show();
+    }
+    return;
+  }
+
+  let initialPath = lastRecordingPath;
+  if (!initialPath || !fs.existsSync(initialPath)) {
+    const result = await dialog.showOpenDialog({
+      title: "Pick a video to convert",
+      defaultPath: app.getPath("desktop"),
+      properties: ["openFile"],
+      filters: [{ name: "Video", extensions: ["mov", "mp4", "m4v"] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) return;
+    initialPath = result.filePaths[0];
+  }
+
+  gifDialog.open({ inputPath: initialPath });
 }
 
 async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
@@ -440,6 +510,7 @@ async function performTeardown(): Promise<void> {
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
+  gifDialog?.close();
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
@@ -496,6 +567,7 @@ function initCapture(): void {
   captureService = new CaptureService(preloadPath);
   captureWindow = new CaptureWindow(preloadPath);
   recordingIndicator = new RecordingIndicator(preloadPath);
+  gifDialog = new GifDialog(preloadPath);
 
   if (VideoRecorder.isAvailable()) {
     videoRecorder = new VideoRecorder();
@@ -619,16 +691,24 @@ async function stopVideoRecording(): Promise<void> {
   if (!videoRecorder || !isRecording) return;
   try {
     const outPath = await videoRecorder.stop();
+    lastRecordingPath = outPath;
     cleanupRecording();
     if (Notification.isSupported()) {
       const name = outPath.split("/").pop() ?? outPath;
+      const body = GifEncoder.isAvailable()
+        ? `${name}\nClick to convert to GIF…`
+        : name;
       const notif = new Notification({
         title: "Marshal — Recording saved",
-        body: name,
+        body,
         silent: true
       });
       notif.on("click", () => {
-        void shell.showItemInFolder(outPath);
+        if (GifEncoder.isAvailable() && gifDialog) {
+          gifDialog.open({ inputPath: outPath });
+        } else {
+          void shell.showItemInFolder(outPath);
+        }
       });
       notif.show();
     }
@@ -654,6 +734,67 @@ function defaultVideoFilename(): string {
   const d = new Date();
   const pad = (n: number): string => n.toString().padStart(2, "0");
   return `Marshal ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}.mov`;
+}
+
+function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
+  const items: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: "Capture area",
+      accelerator: "CommandOrControl+Alt+3",
+      click: () => void runCapture("area")
+    },
+    {
+      label: "Capture full screen",
+      accelerator: "CommandOrControl+Alt+4",
+      click: () => void runCapture("fullscreen")
+    },
+    { type: "separator" }
+  ];
+
+  if (isRecording) {
+    items.push({ label: "Stop recording", click: () => void stopVideoRecording() });
+  } else {
+    items.push({
+      label: "Record full screen",
+      accelerator: "CommandOrControl+Alt+6",
+      enabled: videoRecorder !== null,
+      click: () => void toggleVideoRecording("fullscreen")
+    });
+    if (videoRecorder) {
+      items.push({
+        label: "Record area",
+        click: () => void toggleVideoRecording("area")
+      });
+    }
+  }
+
+  items.push(
+    { type: "separator" },
+    {
+      label: "Convert video to GIF…",
+      enabled: GifEncoder.isAvailable(),
+      click: () => void openGifConverter()
+    }
+  );
+
+  return items;
+}
+
+function buildTrayMenu(): Electron.Menu {
+  return Menu.buildFromTemplate([
+    { label: "Open Marshal", click: () => showMainWindow() },
+    { label: "Open Translator", click: () => translatorWindow?.show() },
+    { type: "separator" },
+    { label: "Capture", submenu: buildCaptureSubmenu() },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
 }
 
 function initTranslator(): void {
@@ -817,48 +958,7 @@ function createTray(): void {
   // Right click = context menu (not left click)
   tray.on("right-click", () => {
     if (!tray) return;
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: "Open Marshal",
-        click: () => showMainWindow()
-      },
-      {
-        label: "Open Translator",
-        click: () => translatorWindow?.show()
-      },
-      { type: "separator" },
-      {
-        label: "Capture area",
-        accelerator: "CommandOrControl+Alt+3",
-        click: () => void runCapture("area")
-      },
-      {
-        label: "Capture full screen",
-        accelerator: "CommandOrControl+Alt+4",
-        click: () => void runCapture("fullscreen")
-      },
-      { type: "separator" },
-      isRecording
-        ? { label: "Stop recording", click: () => void stopVideoRecording() }
-        : {
-            label: "Record full screen",
-            accelerator: "CommandOrControl+Alt+6",
-            enabled: videoRecorder !== null,
-            click: () => void toggleVideoRecording("fullscreen")
-          },
-      ...(!isRecording && videoRecorder
-        ? [{ label: "Record area", click: () => void toggleVideoRecording("area") }]
-        : []),
-      { type: "separator" },
-      {
-        label: "Quit",
-        click: () => {
-          isQuitting = true;
-          app.quit();
-        }
-      }
-    ]);
-    tray!.popUpContextMenu(contextMenu);
+    tray!.popUpContextMenu(buildTrayMenu());
   });
 
   void refreshTrayState();

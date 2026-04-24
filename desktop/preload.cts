@@ -137,7 +137,19 @@ const captureApi = {
   recordingToggle: (paused: boolean) => ipcRenderer.invoke("marshal:recording-toggle", { paused }),
   recordingStop: () => ipcRenderer.invoke("marshal:recording-stop"),
   onRecordingPaused: (cb: (event: IpcRendererEvent, payload: { paused: boolean }) => void) =>
-    registerListener<[{ paused: boolean }]>("marshal:recording-paused", cb)
+    registerListener<[{ paused: boolean }]>("marshal:recording-paused", cb),
+  // GIF dialog ↔ main.
+  gifStart: (opts: { inputPath: string; fps: number; width: number; loop: boolean }) =>
+    ipcRenderer.invoke("marshal:gif-start", opts),
+  gifClose: () => ipcRenderer.invoke("marshal:gif-close"),
+  onGifInit: (cb: (event: IpcRendererEvent, payload: { inputPath: string }) => void) =>
+    registerListener<[{ inputPath: string }]>("marshal:gif-init", cb),
+  onGifProgress: (cb: (event: IpcRendererEvent, payload: { progress: number }) => void) =>
+    registerListener<[{ progress: number }]>("marshal:gif-progress", cb),
+  onGifDone: (cb: (event: IpcRendererEvent, payload: { outputPath: string }) => void) =>
+    registerListener<[{ outputPath: string }]>("marshal:gif-done", cb),
+  onGifError: (cb: (event: IpcRendererEvent, payload: { message: string }) => void) =>
+    registerListener<[{ message: string }]>("marshal:gif-error", cb)
 };
 
 contextBridge.exposeInMainWorld("marshalCapture", captureApi);
