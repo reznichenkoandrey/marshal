@@ -310,19 +310,31 @@ function renderMessages(session, scroll = true) {
     }
   }
 
-  // Show running task indicator
+  // Render events for the currently running / queued task. The assistant
+  // message is only created AFTER completion, so during the wait we attach
+  // the timeline pill directly under the user message the task belongs to.
+  // Previously this checked `!messages.some(m.taskId === active)` — but the
+  // user message already carries that taskId, so the check was always false
+  // and the pill never rendered while we were waiting. Now: render unless an
+  // assistant reply already exists.
+  const activeTask = tasks.find((t) => t.status === "running" || t.status === "queued");
+  if (
+    activeTask &&
+    !messages.some((m) => m.role === "assistant" && m.taskId === activeTask.id)
+  ) {
+    const eventsEl = renderToolEvents(activeTask);
+    if (eventsEl) {
+      // Keep expanded while running so the user sees planning/tool activity
+      // instead of staring at a blank typing indicator for 10-30 s.
+      eventsEl.open = true;
+      dom.messages.appendChild(eventsEl);
+    }
+  }
+
+  // Show running task indicator below the live timeline.
   if (state.isTaskRunning) {
     const typingRow = createTypingIndicator();
     dom.messages.appendChild(typingRow);
-  }
-
-  // Render events for active running task not yet associated with a message
-  const activeTask = tasks.find((t) => t.status === "running" || t.status === "queued");
-  if (activeTask && !messages.some((m) => m.taskId === activeTask.id)) {
-    const eventsEl = renderToolEvents(activeTask);
-    if (eventsEl) {
-      dom.messages.appendChild(eventsEl);
-    }
   }
 
   if (scroll) {
