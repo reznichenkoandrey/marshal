@@ -16,12 +16,31 @@ type OneShotOptions = {
   workspaceRoot: string;
   unrestricted: boolean;
   onEvent?: (event: MarshalRuntimeEvent) => Promise<void> | void;
+  /** Cap how many request→tools→request round-trips we allow. Default 6. */
+  maxIterations?: number;
 };
 
+const DEFAULT_MAX_ITERATIONS = 6;
+// Cap individual tool-result strings so extremely long file reads or shell
+// dumps don't blow the model's context window. 40 KB per tool per round.
+const MAX_RESULT_BYTES = 40 * 1024;
+
 /**
- * One-shot executor: sends a SINGLE prompt to the LLM with the task + tool schemas,
- * receives a JSON array of tool calls + summary, executes them sequentially.
- * Much simpler than the multi-round AgentLoop.
+ * Executor for the JSON-command protocol. Drives a loop:
+ *   1. Ask bridge with the task prompt.
+ *   2. Parse {commands, summary} from response.
+ *   3. If commands is empty → summary is the final answer, return.
+ *   4. Otherwise execute each command, feed the results back to the bridge,
+ *      and go to step 1 (next iteration).
+ *
+ * The bridge keeps conversation state across iterations (Claude CLI --resume,
+ * API turn history, etc.) so subsequent asks don't re-send the task prompt —
+ * they only carry the new tool results.
+ *
+ * Name kept as `OneShotExecutor` for git-blame continuity; behaviour is now
+ * multi-round. Upstream `runMarshalTask` creates a fresh bridge session per
+ * task via `bridge.resetConversation()`, so iterations here are safely scoped
+ * to the current user message.
  */
 export class OneShotExecutor {
   private bridge: OneShotBridge;
@@ -35,102 +54,115 @@ export class OneShotExecutor {
   }
 
   async execute(task: string): Promise<string> {
-    const prompt = this.buildPrompt(task);
-
     await this.options.onEvent?.({ type: "planning_started", route: "auto" });
 
-    // Single LLM call — get all tool commands at once
-    let response = await this.bridge.ask(prompt);
-    let parsed = this.parseResponse(response);
+    const maxIterations = this.options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    let currentPrompt: string = this.buildPrompt(task);
+    let lastSummary = "";
+    let totalSteps = 0;
 
-    // Retry once if the response didn't contain the expected JSON format
-    if (parsed.toolCalls.length === 0 && !response.includes('"commands"') && !response.includes('"summary"')) {
-      response = await this.bridge.ask('Respond with ONLY a JSON object like: {"commands": [], "summary": "your answer"}');
-      const retryParsed = this.parseResponse(response);
-      if (retryParsed.toolCalls.length > 0 || response.includes('"commands"')) {
-        parsed = retryParsed;
+    for (let iter = 0; iter < maxIterations; iter++) {
+      const response = await this.bridge.ask(currentPrompt);
+      let parsed = this.parseResponse(response);
+
+      // On the first iteration, if the model ignored the JSON format, ask
+      // once more with an explicit reminder. Subsequent iterations assume the
+      // format has been learned.
+      if (
+        iter === 0 &&
+        parsed.toolCalls.length === 0 &&
+        !response.includes('"commands"') &&
+        !response.includes('"summary"')
+      ) {
+        const retry = await this.bridge.ask(
+          'Respond with ONLY a JSON object like: {"commands": [], "summary": "your answer"}'
+        );
+        const retryParsed = this.parseResponse(retry);
+        if (retryParsed.toolCalls.length > 0 || retry.includes('"commands"')) {
+          parsed = retryParsed;
+        }
       }
-      // If retry also failed, keep original parsed (which has the text as summary)
-    }
 
-    const { toolCalls, summary } = parsed;
+      const { toolCalls, summary } = parsed;
+      if (summary) lastSummary = summary;
 
-    await this.options.onEvent?.({
-      type: "plan_ready",
-      steps: toolCalls.map((tc) => `${tc.tool}: ${JSON.stringify(tc.input)}`)
-    });
+      if (toolCalls.length === 0) {
+        // Model has nothing more to execute — the summary IS the final answer.
+        return summary || lastSummary || "No response from AI.";
+      }
 
-    // Execute each tool call sequentially
-    const results: ToolExecutionResult[] = [];
-    for (let i = 0; i < toolCalls.length; i++) {
-      const call = toolCalls[i];
-      const toolName = call.tool as ToolName;
-
-      await this.options.onEvent?.({
-        type: "step_started",
-        step: `${call.tool}: ${JSON.stringify(call.input)}`,
-        stepIndex: i,
-        totalSteps: toolCalls.length,
-        iteration: 1
-      });
-
-      const stepLabel = `${call.tool}: ${JSON.stringify(call.input)}`;
-
-      await this.options.onEvent?.({
-        type: "action_requested",
-        step: stepLabel,
-        stepIndex: i,
-        action: toolName,
-        thought: `Executing ${call.tool}`,
-        input: call.input
-      });
-
-      try {
-        const result = await this.tools.execute(toolName, call.input);
-        results.push(result);
-
+      if (iter === 0) {
         await this.options.onEvent?.({
-          type: "tool_completed",
-          step: stepLabel,
-          stepIndex: i,
-          action: toolName,
-          summary: result.summary
-        });
-
-        await this.options.onEvent?.({
-          type: "step_completed",
-          step: stepLabel,
-          stepIndex: i,
-          totalSteps: toolCalls.length,
-          summary: result.summary
-        });
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-
-        await this.options.onEvent?.({
-          type: "tool_failed",
-          step: stepLabel,
-          stepIndex: i,
-          action: toolName,
-          error: errorMsg
-        });
-
-        // Continue with remaining tool calls (don't abort on single failure)
-        results.push({
-          ok: false,
-          tool: toolName,
-          summary: `Failed: ${errorMsg}`,
-          data: { error: errorMsg }
+          type: "plan_ready",
+          steps: toolCalls.map((tc) => `${tc.tool}: ${JSON.stringify(tc.input)}`)
         });
       }
+
+      const results: ToolExecutionResult[] = [];
+      for (let i = 0; i < toolCalls.length; i++) {
+        const call = toolCalls[i];
+        const toolName = call.tool as ToolName;
+        const stepIndex = totalSteps++;
+        const stepLabel = `${call.tool}: ${JSON.stringify(call.input)}`;
+
+        await this.options.onEvent?.({
+          type: "step_started",
+          step: stepLabel,
+          stepIndex,
+          totalSteps: stepIndex + 1,
+          iteration: iter + 1
+        });
+        await this.options.onEvent?.({
+          type: "action_requested",
+          step: stepLabel,
+          stepIndex,
+          action: toolName,
+          thought: summary || `Executing ${call.tool}`,
+          input: call.input
+        });
+
+        try {
+          const result = await this.tools.execute(toolName, call.input);
+          results.push(result);
+          await this.options.onEvent?.({
+            type: "tool_completed",
+            step: stepLabel,
+            stepIndex,
+            action: toolName,
+            summary: result.summary
+          });
+          await this.options.onEvent?.({
+            type: "step_completed",
+            step: stepLabel,
+            stepIndex,
+            totalSteps: stepIndex + 1,
+            summary: result.summary
+          });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          await this.options.onEvent?.({
+            type: "tool_failed",
+            step: stepLabel,
+            stepIndex,
+            action: toolName,
+            error: errorMsg
+          });
+          results.push({
+            ok: false,
+            tool: toolName,
+            summary: `Failed: ${errorMsg}`,
+            data: { error: errorMsg }
+          });
+        }
+      }
+
+      currentPrompt = this.buildFollowupPrompt(results);
     }
 
-    // Build final result
-    const succeeded = results.filter((r) => r.ok).length;
-    const failed = results.filter((r) => !r.ok).length;
-    const resultSummary = summary || `Executed ${succeeded}/${toolCalls.length} commands${failed > 0 ? ` (${failed} failed)` : ""}.`;
-
-    return resultSummary;
+    return (
+      lastSummary ||
+      `Reached the ${maxIterations}-iteration cap before the model produced a final answer.`
+    );
   }
 
   private buildPrompt(task: string): string {
@@ -139,7 +171,7 @@ export class OneShotExecutor {
         case "write_file":
           return `- write_file: Create/overwrite a file.\n  Input: {"path": "absolute or relative path", "content": "file contents"}`;
         case "read_file":
-          return `- read_file: Read a file.\n  Input: {"path": "absolute or relative path"}`;
+          return `- read_file: Read a file. Auto-extracts plain text from .docx, .doc, .rtf, .pages on macOS (no need to unzip).\n  Input: {"path": "absolute or relative path"}`;
         case "list_dir":
           return `- list_dir: List directory contents.\n  Input: {"path": "absolute or relative path"}`;
         case "run_shell":
@@ -159,7 +191,7 @@ export class OneShotExecutor {
       ? `Working directory: ${this.options.workspaceRoot}\nYou can use absolute paths anywhere on the filesystem.`
       : `Workspace root: ${this.options.workspaceRoot}\nAll file paths must be inside this workspace.`;
 
-    return `You are a task execution agent. Analyze the task and respond with a JSON object.
+    return `You are a task execution agent. Work in rounds: plan tools, receive their results, then decide what to do next.
 
 TASK: ${task}
 
@@ -169,13 +201,37 @@ AVAILABLE TOOLS:
 ${toolDocs}
 
 RESPONSE FORMAT (strict JSON, nothing else):
-{"commands": [{"tool": "tool_name", "input": {...}}], "summary": "what was done"}
+{"commands": [{"tool": "tool_name", "input": {...}}], "summary": "short status OR final answer"}
 
 RULES:
-- If the task requires file operations or shell commands, include them in "commands".
-- If the task is a simple question or greeting that needs no tools, respond with: {"commands": [], "summary": "your answer here"}
+- If you need to read files, inspect state, or run shell commands to answer, put those calls in "commands". The system will execute them and come back to you with the results on the next round.
+- Only return commands: [] when you have enough information to answer the user — at that point "summary" must contain the FINAL answer written for the user, not a plan.
+- If a prior attachment has already been read in earlier commands or by the user in previous turns, use that content directly instead of re-reading.
 - NEVER include markdown, backticks, or explanations outside the JSON.
 - The response MUST start with { and end with }.`;
+  }
+
+  /**
+   * Next-round prompt: just the previous round's tool results. The bridge
+   * already holds the full conversation (task + prior assistant JSON), so we
+   * don't re-send the task here.
+   */
+  private buildFollowupPrompt(results: ToolExecutionResult[]): string {
+    const resultBlocks = results.map((r, i) => {
+      const header = `Tool ${i + 1}: ${r.tool} — ${r.ok ? "ok" : "failed"}`;
+      const body = truncateForPrompt(formatResultBody(r));
+      return `${header}\n${body}`;
+    }).join("\n\n---\n\n");
+
+    return `Tool results from the last round:
+
+${resultBlocks}
+
+Respond with the same JSON object format:
+- If you still need more tool calls, include them in "commands".
+- If you now have enough to answer the user, return {"commands": [], "summary": "<final answer for the user>"}.
+
+JSON only — no markdown, no prose outside the JSON.`;
   }
 
   private parseResponse(response: string): { toolCalls: ToolCall[]; summary: string } {
@@ -345,4 +401,38 @@ RULES:
 
     return out.join('');
   }
+}
+
+function formatResultBody(result: ToolExecutionResult): string {
+  const parts: string[] = [];
+  if (result.summary) parts.push(result.summary);
+  const data = result.data ?? {};
+  const keys = Object.keys(data);
+  if (keys.length > 0) {
+    // Prefer the common `content`/`stdout` keys verbatim; fall back to a
+    // compact JSON dump of everything else.
+    const content =
+      typeof (data as { content?: unknown }).content === "string"
+        ? String((data as { content?: unknown }).content)
+        : typeof (data as { stdout?: unknown }).stdout === "string"
+          ? String((data as { stdout?: unknown }).stdout)
+          : null;
+    if (content !== null) {
+      parts.push(content);
+    } else {
+      try {
+        parts.push(JSON.stringify(data, null, 2));
+      } catch {
+        // Circular or unserialisable — fall through.
+      }
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function truncateForPrompt(text: string): string {
+  if (text.length <= MAX_RESULT_BYTES) return text;
+  const head = text.slice(0, MAX_RESULT_BYTES);
+  const droppedBytes = text.length - MAX_RESULT_BYTES;
+  return `${head}\n… [truncated ${droppedBytes} bytes]`;
 }

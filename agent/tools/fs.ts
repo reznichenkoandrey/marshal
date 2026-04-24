@@ -1,5 +1,24 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+// Formats where `fs.readFile(... "utf8")` returns binary garbage instead of
+// text. macOS ships `textutil`, which converts any of these to plain text
+// without extra deps. If textutil fails (not macOS, unknown format, corrupted
+// file) we fall back to the raw utf8 read so callers still get *something*.
+const RICH_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".docx",
+  ".doc",
+  ".rtf",
+  ".rtfd",
+  ".pages",
+  ".odt"
+]);
+
+const MAX_EXTRACT_BYTES = 16 * 1024 * 1024;
 
 export type FileSandboxOptions = {
   unrestricted?: boolean;
@@ -23,7 +42,7 @@ export class FileSandbox {
 
   async readFile(relativePath: string): Promise<{ path: string; content: string }> {
     const absolutePath = this.resolveWithinRoot(relativePath);
-    const content = await fs.readFile(absolutePath, "utf8");
+    const content = await readWithExtraction(absolutePath);
     return {
       path: this.toRelative(absolutePath),
       content
@@ -71,4 +90,28 @@ export class FileSandbox {
     const relativePath = path.relative(this.root, absolutePath);
     return relativePath || ".";
   }
+}
+
+/**
+ * Read a file as plain text, auto-extracting rich-text binary formats
+ * (.docx/.doc/.rtf/.pages/.odt) via `textutil` on macOS. Exported for tests.
+ */
+export async function readWithExtraction(absolutePath: string): Promise<string> {
+  const ext = path.extname(absolutePath).toLowerCase();
+  if (RICH_TEXT_EXTENSIONS.has(ext) && process.platform === "darwin") {
+    try {
+      const { stdout } = await execFileAsync(
+        "textutil",
+        ["-convert", "txt", "-stdout", absolutePath],
+        { maxBuffer: MAX_EXTRACT_BYTES, encoding: "utf8" }
+      );
+      const text = stdout.trim();
+      if (text.length > 0) return stdout;
+    } catch {
+      // textutil may be missing, the file may be corrupted, or the format
+      // may not be supported — fall back to the raw utf8 read so the caller
+      // at least sees bytes instead of throwing.
+    }
+  }
+  return fs.readFile(absolutePath, "utf8");
 }
