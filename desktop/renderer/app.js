@@ -360,37 +360,69 @@ function renderToolEvents(task) {
   const events = task.events || [];
   if (events.length === 0) return null;
 
-  const group = document.createElement("div");
-  group.className = "tool-events-group";
+  // One collapsible pill per task (previously one card per event). The summary
+  // shows the latest event + step count; expanding reveals the full timeline.
+  const details = document.createElement("details");
+  details.className = "tool-timeline";
 
-  for (const event of events) {
-    const card = document.createElement("details");
-    card.className = "tool-card";
+  const latest = events[events.length - 1];
+  const isDone = task.status === "completed" || task.status === "failed";
+  // Keep terminal states collapsed by default — they rarely need drilling into.
+  // Running tasks stay collapsed too; the summary is live-updated anyway.
+  details.open = false;
 
-    const summary = document.createElement("summary");
-    const icon = document.createElement("span");
-    icon.className = "tool-card-icon";
-    icon.textContent = getEventIcon(event.type, task.status);
+  const summary = document.createElement("summary");
+  summary.className = "tool-timeline-summary";
 
-    const label = document.createElement("span");
-    label.className = "tool-card-label";
-    label.textContent = formatEventLabel(event);
+  const icon = document.createElement("span");
+  icon.className = "tool-timeline-icon";
+  icon.textContent = getEventIcon(latest.type, task.status);
+  summary.appendChild(icon);
 
-    summary.appendChild(icon);
-    summary.appendChild(label);
-    card.appendChild(summary);
+  const label = document.createElement("span");
+  label.className = "tool-timeline-label";
+  label.textContent = formatEventLabel(latest);
+  summary.appendChild(label);
 
-    if (event.detail || event.payload) {
-      const content = document.createElement("div");
-      content.className = "tool-card-content";
-      content.textContent = event.detail || JSON.stringify(event.payload, null, 2);
-      card.appendChild(content);
-    }
-
-    group.appendChild(card);
+  if (events.length > 1) {
+    const count = document.createElement("span");
+    count.className = "tool-timeline-count";
+    count.textContent = `${events.length}`;
+    count.title = `${events.length} steps`;
+    summary.appendChild(count);
   }
 
-  return group;
+  details.appendChild(summary);
+
+  const list = document.createElement("ul");
+  list.className = "tool-timeline-list";
+  for (const ev of events) {
+    const li = document.createElement("li");
+    const liIcon = document.createElement("span");
+    liIcon.className = "tool-timeline-list-icon";
+    liIcon.textContent = getEventIcon(ev.type, task.status);
+    li.appendChild(liIcon);
+
+    const liLabel = document.createElement("span");
+    liLabel.textContent = formatEventLabel(ev);
+    li.appendChild(liLabel);
+
+    if (ev.detail || ev.payload) {
+      const detail = document.createElement("pre");
+      detail.className = "tool-timeline-detail";
+      detail.textContent = ev.detail || JSON.stringify(ev.payload, null, 2);
+      li.appendChild(detail);
+    }
+
+    list.appendChild(li);
+  }
+  details.appendChild(list);
+
+  // Collapsed terminal tasks: keep summary single-line; for running tasks the
+  // caller will re-render when new events arrive.
+  void isDone;
+
+  return details;
 }
 
 function getEventIcon(eventType, taskStatus) {

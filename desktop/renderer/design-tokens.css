@@ -86,7 +86,7 @@
   --accent: #0066ff;
   --accent-hover: #0053d6;
   --accent-pressed: #0047b8;
-  --accent-ring: rgba(0, 102, 255, 0.28);
+  --accent-ring: rgba(0, 102, 255, 0.14);
   --accent-soft: rgba(0, 102, 255, 0.08);
   --accent-soft-hover: rgba(0, 102, 255, 0.14);
   --accent-text: #0053d6;
@@ -106,7 +106,7 @@
   --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.12);
   --shadow-overlay: 0 24px 64px rgba(0, 0, 0, 0.18);
-  --shadow-focus: 0 0 0 3px var(--accent-ring);
+  --shadow-focus: 0 0 0 1.5px var(--accent-ring);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.14);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.22);
@@ -146,7 +146,7 @@
     --accent: #4d9aff;
     --accent-hover: #78b2ff;
     --accent-pressed: #a0c8ff;
-    --accent-ring: rgba(77, 154, 255, 0.38);
+    --accent-ring: rgba(77, 154, 255, 0.22);
     --accent-soft: rgba(77, 154, 255, 0.14);
     --accent-soft-hover: rgba(77, 154, 255, 0.22);
     --accent-text: #78b2ff;
