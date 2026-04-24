@@ -98,7 +98,8 @@ describe("saveSettings", () => {
       dictationBackend: "groq",
       dictationLanguage: "uk",
       dictationAutoPaste: true,
-      dictationPrompt: "React, Magento, PR"
+      dictationPrompt: "React, Magento, PR",
+      captureDefaultFolder: ""
     });
   });
 

@@ -1,0 +1,296 @@
+/*
+ * Capture editor — frameless window with top toolbar, canvas viewport,
+ * and bottom status bar. Uses the shared design tokens.
+ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--text-default);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  user-select: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Top toolbar — draggable where not a button */
+.toolbar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-2) 84px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 44px;
+  position: relative;
+  z-index: 2;
+}
+
+.toolbar .group,
+.toolbar .spacer,
+.toolbar .sep,
+.toolbar button,
+.toolbar input,
+.toolbar label {
+  -webkit-app-region: no-drag;
+}
+
+.toolbar .group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+}
+
+.toolbar .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-default);
+  margin: 0 var(--space-1);
+}
+
+.toolbar .spacer { flex: 1; }
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast);
+}
+
+.tool:hover { background: var(--bg-hover); }
+.tool:active { background: var(--bg-pressed); }
+.tool.active {
+  background: var(--bg-surface);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.style-pickers { padding: 2px 6px; }
+
+.color-swatch {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.color-swatch input[type="color"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.color-chip {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--border-default);
+}
+
+.stroke-width {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.stroke-w {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.stroke-w:hover { background: var(--bg-hover); }
+.stroke-w.active {
+  background: var(--bg-surface);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.stroke-w .dot {
+  display: inline-block;
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.primary {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+
+.primary:hover { background: var(--accent-hover); }
+.primary:active { background: var(--accent-pressed); }
+
+/* Viewport */
+.viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background:
+    linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%) 0 0/20px 20px,
+    linear-gradient(-45deg, var(--bg-muted) 25%, transparent 25%) 0 10px/20px 20px,
+    linear-gradient(45deg, transparent 75%, var(--bg-muted) 75%) 10px -10px/20px 20px,
+    linear-gradient(-45deg, transparent 75%, var(--bg-muted) 75%) -10px 0/20px 20px,
+    var(--bg-app);
+  overflow: auto;
+  position: relative;
+}
+
+.canvas-wrap {
+  position: relative;
+  box-shadow: var(--shadow-lg);
+  background: #fff;
+  transform-origin: top left;
+  cursor: crosshair;
+}
+
+#base-canvas,
+#draw-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+#base-canvas { position: relative; }
+
+.text-input {
+  position: absolute;
+  z-index: 5;
+  border: 1px dashed var(--accent);
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font: 400 18px var(--font-sans);
+  padding: 4px 6px;
+  outline: none;
+  resize: none;
+  min-width: 80px;
+  min-height: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  border-radius: 3px;
+}
+
+.hidden { display: none !important; }
+
+/* Statusbar */
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  min-height: 44px;
+}
+
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+}
+
+.zoom #zoom-label {
+  min-width: 42px;
+  text-align: center;
+}
+
+.drag-hint {
+  -webkit-app-region: drag;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--fs-sm);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+
+.ghost:hover { background: var(--bg-hover); }
+.ghost:active { background: var(--bg-pressed); }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  color: var(--text-default);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--fs-sm);
+  z-index: 100;
+  transition: opacity var(--dur-base), transform var(--dur-base);
+}
+
+.toast.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px);
+}

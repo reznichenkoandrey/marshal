@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Marshal — Capture Editor</title>
+    <link rel="stylesheet" href="design-tokens.css" />
+    <link rel="stylesheet" href="capture-editor.css" />
+  </head>
+  <body>
+    <!-- Top toolbar: tools + style pickers -->
+    <header class="toolbar" role="toolbar">
+      <div class="group">
+        <button class="tool" data-tool="select" title="Select (V)" aria-label="Select">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 7 16 2-7 7-2Z"/></svg>
+        </button>
+        <button class="tool" data-tool="crop" title="Crop (C)" aria-label="Crop">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v16a2 2 0 0 0 2 2h16"/><path d="M22 18V8a2 2 0 0 0-2-2H6"/></svg>
+        </button>
+      </div>
+
+      <div class="sep" aria-hidden="true"></div>
+
+      <div class="group">
+        <button class="tool" data-tool="rect" title="Rectangle (R)" aria-label="Rectangle">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>
+        </button>
+        <button class="tool" data-tool="ellipse" title="Ellipse (O)" aria-label="Ellipse">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="8" ry="6"/></svg>
+        </button>
+        <button class="tool" data-tool="line" title="Line (L)" aria-label="Line">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20 20 4"/></svg>
+        </button>
+        <button class="tool" data-tool="arrow" title="Arrow (A)" aria-label="Arrow">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><path d="M13 4h7v7"/></svg>
+        </button>
+        <button class="tool" data-tool="text" title="Text (T)" aria-label="Text">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg>
+        </button>
+        <button class="tool" data-tool="rect-fill" title="Highlight (H)" aria-label="Highlight">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" opacity=".6"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>
+        </button>
+        <button class="tool" data-tool="counter" title="Counter (N)" aria-label="Counter">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><text x="12" y="16" text-anchor="middle" font-size="11" fill="currentColor" stroke="none" font-weight="700">1</text></svg>
+        </button>
+        <button class="tool" data-tool="pen" title="Pen (P)" aria-label="Pen">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5 19 9l-11 11H3.5v-4.5Z"/></svg>
+        </button>
+        <button class="tool" data-tool="blur" title="Blur (B)" aria-label="Blur">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7" cy="7" r="1.5"/><circle cx="12" cy="7" r="1.5"/><circle cx="17" cy="7" r="1.5"/><circle cx="7" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="17" cy="12" r="1.5"/><circle cx="7" cy="17" r="1.5"/><circle cx="12" cy="17" r="1.5"/><circle cx="17" cy="17" r="1.5"/></svg>
+        </button>
+      </div>
+
+      <div class="sep" aria-hidden="true"></div>
+
+      <div class="group style-pickers">
+        <label class="color-swatch" title="Stroke color">
+          <input type="color" id="stroke-color" value="#e5484d" />
+          <span class="color-chip" id="stroke-chip" style="background: #e5484d"></span>
+        </label>
+        <div class="stroke-width" role="group" aria-label="Stroke width">
+          <button data-width="2" class="stroke-w">
+            <span class="dot" style="width:6px;height:6px"></span>
+          </button>
+          <button data-width="4" class="stroke-w active">
+            <span class="dot" style="width:10px;height:10px"></span>
+          </button>
+          <button data-width="8" class="stroke-w">
+            <span class="dot" style="width:14px;height:14px"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="group">
+        <button class="tool" id="undo" title="Undo (⌘Z)" aria-label="Undo">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+        </button>
+        <button class="tool" id="redo" title="Redo (⌘⇧Z)" aria-label="Redo">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>
+        </button>
+      </div>
+
+      <button class="primary" id="save-as" title="Save as… (⌘S)">Save as…</button>
+    </header>
+
+    <!-- Canvas viewport -->
+    <main class="viewport" id="viewport">
+      <div class="canvas-wrap" id="canvas-wrap">
+        <canvas id="base-canvas"></canvas>
+        <canvas id="draw-canvas"></canvas>
+        <textarea id="text-input" class="text-input hidden" spellcheck="false"></textarea>
+      </div>
+    </main>
+
+    <!-- Bottom status/action bar -->
+    <footer class="statusbar">
+      <div class="zoom">
+        <button class="ghost" id="zoom-out" title="Zoom out">−</button>
+        <span id="zoom-label">100%</span>
+        <button class="ghost" id="zoom-in" title="Zoom in">+</button>
+        <button class="ghost" id="zoom-fit" title="Fit to window">Fit</button>
+      </div>
+      <div class="drag-hint">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><circle cx="6" cy="10" r="1.4"/><circle cx="6" cy="14" r="1.4"/><circle cx="12" cy="10" r="1.4"/><circle cx="12" cy="14" r="1.4"/><circle cx="18" cy="10" r="1.4"/><circle cx="18" cy="14" r="1.4"/></svg>
+        Drag me
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><circle cx="6" cy="10" r="1.4"/><circle cx="6" cy="14" r="1.4"/><circle cx="12" cy="10" r="1.4"/><circle cx="12" cy="14" r="1.4"/><circle cx="18" cy="10" r="1.4"/><circle cx="18" cy="14" r="1.4"/></svg>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="copy" title="Copy to clipboard (⌘C)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
+          Copy
+        </button>
+        <button class="ghost" id="pin" title="Pin on screen">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 4 6 6-4 1-3 3-5-5 3-3 1-4 2 2Z"/><path d="M9 15 3 21"/></svg>
+        </button>
+        <button class="ghost" id="save-quick" title="Save to default folder">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20h14a1 1 0 0 0 1-1V8l-5-5H6a1 1 0 0 0-1 1Z"/><path d="M7 3v6h8V3"/><path d="M7 15h10"/></svg>
+        </button>
+      </div>
+    </footer>
+
+    <!-- Live toast for save/copy feedback -->
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <script src="capture-editor.js" type="module"></script>
+  </body>
+</html>

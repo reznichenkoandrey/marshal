@@ -77,6 +77,12 @@ if (process.platform === "darwin") {
       out: path.join(root, "dist", "desktop", "translator", "send-keystroke"),
       label: "send-keystroke",
       fallbackNote: "Cmd+Option+L layout switch will be unavailable"
+    },
+    {
+      src: path.join(root, "desktop", "capture", "swift", "screen-recorder.swift"),
+      out: path.join(root, "dist", "desktop", "capture", "screen-recorder"),
+      label: "screen-recorder",
+      fallbackNote: "video recording (Cmd+Option+6) will be unavailable"
     }
   ];
 

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        -webkit-user-drag: none;
+        cursor: none;
+        font-family: -apple-system, "SF Pro Display", Inter, sans-serif;
+      }
+      #n {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 240px;
+        font-weight: 800;
+        color: #fff;
+        text-shadow:
+          0 0 40px rgba(0,0,0,0.65),
+          0 4px 24px rgba(0,0,0,0.55);
+        letter-spacing: -0.02em;
+        animation: pop 1s ease-out both;
+      }
+      @keyframes pop {
+        0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+        30%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+      }
+      #dot {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 320px;
+        height: 320px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(229,72,77,0.35), rgba(229,72,77,0) 70%);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="dot"></div>
+    <div id="n">3</div>
+    <script>
+      const el = document.getElementById("n");
+
+      function tick(n) {
+        if (n <= 0) { el.style.display = "none"; return; }
+        el.textContent = String(n);
+        el.style.animation = "none";
+        void el.offsetWidth; // reflow so animation restarts
+        el.style.animation = "pop 1s ease-out both";
+        setTimeout(() => tick(n - 1), 1000);
+      }
+
+      tick(3);
+    </script>
+  </body>
+</html>

@@ -113,9 +113,39 @@ const desktopApi = {
 
 contextBridge.exposeInMainWorld("marshalDesktop", desktopApi);
 
+// ── Capture API ──
+// Exposed to the capture editor and recording-indicator renderers. Namespaced
+// so the translator and capture windows don't accidentally share state.
+const captureApi = {
+  // Main → renderer: image payload for the editor.
+  onImageLoaded: (
+    cb: (
+      event: IpcRendererEvent,
+      payload: { base64: string; width: number; height: number; kind: "area" | "fullscreen" }
+    ) => void
+  ) =>
+    registerListener<[
+      { base64: string; width: number; height: number; kind: "area" | "fullscreen" }
+    ]>("marshal:capture-image-loaded", cb),
+  // Renderer → main: persist / copy / close operations.
+  saveAs: (base64Png: string) => ipcRenderer.invoke("marshal:capture-save-as", { base64: base64Png }),
+  saveQuick: (base64Png: string) => ipcRenderer.invoke("marshal:capture-save-quick", { base64: base64Png }),
+  copy: (base64Png: string) => ipcRenderer.invoke("marshal:capture-copy", { base64: base64Png }),
+  pin: (base64Png: string) => ipcRenderer.invoke("marshal:capture-pin", { base64: base64Png }),
+  close: () => ipcRenderer.invoke("marshal:capture-close"),
+  // Recording indicator ↔ main.
+  recordingToggle: (paused: boolean) => ipcRenderer.invoke("marshal:recording-toggle", { paused }),
+  recordingStop: () => ipcRenderer.invoke("marshal:recording-stop"),
+  onRecordingPaused: (cb: (event: IpcRendererEvent, payload: { paused: boolean }) => void) =>
+    registerListener<[{ paused: boolean }]>("marshal:recording-paused", cb)
+};
+
+contextBridge.exposeInMainWorld("marshalCapture", captureApi);
+
 declare global {
   interface Window {
     marshalDesktop: typeof desktopApi;
     marshalTranslator: typeof translatorApi;
+    marshalCapture: typeof captureApi;
   }
 }

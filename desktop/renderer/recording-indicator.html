@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        font-family: -apple-system, "SF Pro Text", Inter, sans-serif;
+      }
+      .pill {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px 0 14px;
+        background: rgba(19, 19, 22, 0.88);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        color: #fff;
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #e5484d;
+        box-shadow: 0 0 10px rgba(229,72,77,0.7);
+        animation: blink 1s infinite;
+      }
+      .dot.paused { animation: none; background: #fbbf24; box-shadow: 0 0 10px rgba(251,191,36,0.6); }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
+      }
+      #time {
+        flex: 1;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        font-size: 14px;
+        letter-spacing: 0.01em;
+      }
+      button {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background .15s ease-out, transform .1s ease-out;
+      }
+      button:hover { background: rgba(255,255,255,0.16); }
+      button:active { transform: scale(0.94); }
+      .stop { background: rgba(229,72,77,0.25); }
+      .stop:hover { background: rgba(229,72,77,0.45); }
+      .icon {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+      }
+      .icon.pause { border-left: 3px solid #fff; border-right: 3px solid #fff; width: 10px; }
+      .icon.play { width: 0; height: 0; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
+      .icon.square { background: #fff; width: 10px; height: 10px; border-radius: 1px; }
+    </style>
+  </head>
+  <body>
+    <div class="pill">
+      <span class="dot" id="dot"></span>
+      <span id="time">00:00</span>
+      <button id="toggle" title="Pause / Resume"><span class="icon pause" id="toggle-icon"></span></button>
+      <button id="stop" class="stop" title="Stop"><span class="icon square"></span></button>
+    </div>
+    <script type="module">
+      const api = window.marshalCapture;
+      const timeEl = document.getElementById("time");
+      const dotEl = document.getElementById("dot");
+      const toggleBtn = document.getElementById("toggle");
+      const toggleIcon = document.getElementById("toggle-icon");
+      const stopBtn = document.getElementById("stop");
+
+      let seconds = 0;
+      let paused = false;
+      let interval = setInterval(() => {
+        if (paused) return;
+        seconds += 1;
+        const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+        const ss = String(seconds % 60).padStart(2, "0");
+        timeEl.textContent = `${mm}:${ss}`;
+      }, 1000);
+
+      toggleBtn.addEventListener("click", () => {
+        paused = !paused;
+        dotEl.classList.toggle("paused", paused);
+        toggleIcon.className = paused ? "icon play" : "icon pause";
+        api.recordingToggle(paused);
+      });
+
+      stopBtn.addEventListener("click", () => {
+        clearInterval(interval);
+        api.recordingStop();
+      });
+
+      if (api && typeof api.onRecordingPaused === "function") {
+        api.onRecordingPaused((_event, payload) => {
+          paused = Boolean(payload && payload.paused);
+          dotEl.classList.toggle("paused", paused);
+          toggleIcon.className = paused ? "icon play" : "icon pause";
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -45,6 +45,11 @@ export type MarshalSettings = {
    * bundled default glossary actively hurts recognition for your vocabulary.
    */
   dictationPrompt: string;
+  /**
+   * Directory where "quick save" stores captured PNGs. Empty string → use
+   * ~/Desktop.
+   */
+  captureDefaultFolder: string;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -61,7 +66,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationBackend: "whisper-cpp",
   dictationLanguage: "auto",
   dictationAutoPaste: false,
-  dictationPrompt: DEFAULT_DICTATION_PROMPT
+  dictationPrompt: DEFAULT_DICTATION_PROMPT,
+  captureDefaultFolder: ""
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
@@ -197,6 +203,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.dictationAutoPaste,
     dictationPrompt: typeof input.dictationPrompt === "string"
       ? input.dictationPrompt
-      : DEFAULT_SETTINGS.dictationPrompt
+      : DEFAULT_SETTINGS.dictationPrompt,
+    captureDefaultFolder: typeof input.captureDefaultFolder === "string"
+      ? input.captureDefaultFolder
+      : DEFAULT_SETTINGS.captureDefaultFolder
   };
 }

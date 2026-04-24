@@ -3,9 +3,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { config as loadDotenv } from "dotenv";
-import { app, BrowserWindow, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
+import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
+import { CaptureWindow } from "./capture/capture-window.ts";
+import { runCountdown } from "./capture/countdown-window.ts";
+import { pickArea } from "./capture/area-picker.ts";
+import { RecordingIndicator } from "./capture/recording-indicator.ts";
+import { VideoRecorder } from "./capture/video-recorder.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
@@ -34,6 +40,11 @@ const backendClient = new DesktopBackendClient();
 let translatorService: TranslatorService | null = null;
 let translatorWindow: TranslatorWindow | null = null;
 let screenshotService: ScreenshotService | null = null;
+let captureService: CaptureService | null = null;
+let captureWindow: CaptureWindow | null = null;
+let videoRecorder: VideoRecorder | null = null;
+let recordingIndicator: RecordingIndicator | null = null;
+let isRecording = false;
 let clipboardMonitor: ClipboardMonitor | null = null;
 let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
@@ -90,6 +101,7 @@ async function bootstrap(): Promise<void> {
     createTray();
     scheduleTrayRefresh();
     initTranslator();
+    initCapture();
     initDictation();
     void initExtensionBridge();
 
@@ -270,6 +282,131 @@ function registerIpcHandlers(): void {
     }
     translatorWindow.show();
   });
+
+  // ── Capture IPC ─────────────────────────────────────────────────────────
+  handleIpc("marshal:capture-area", async () => {
+    await runCapture("area");
+  });
+  handleIpc("marshal:capture-fullscreen", async () => {
+    await runCapture("fullscreen");
+  });
+
+  handleIpc("marshal:capture-save-as", async (_event, input: { base64: string }) => {
+    const defaultName = defaultCaptureFilename();
+    const result = await dialog.showSaveDialog({
+      title: "Save capture",
+      defaultPath: path.join(app.getPath("desktop"), defaultName),
+      filters: [{ name: "PNG Image", extensions: ["png"] }]
+    });
+    if (result.canceled || !result.filePath) return { path: null };
+    fs.writeFileSync(result.filePath, Buffer.from(input.base64, "base64"));
+    return { path: result.filePath };
+  });
+
+  handleIpc("marshal:capture-save-quick", async (_event, input: { base64: string }) => {
+    const settings = loadSettings();
+    const folder = settings.captureDefaultFolder || app.getPath("desktop");
+    if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+    const filePath = path.join(folder, defaultCaptureFilename());
+    fs.writeFileSync(filePath, Buffer.from(input.base64, "base64"));
+    return { path: filePath };
+  });
+
+  handleIpc("marshal:capture-copy", (_event, input: { base64: string }) => {
+    const image = nativeImage.createFromBuffer(Buffer.from(input.base64, "base64"));
+    clipboard.writeImage(image);
+    return { ok: true };
+  });
+
+  handleIpc("marshal:capture-pin", (_event, input: { base64: string }) => {
+    openPinnedWindow(input.base64);
+    return { ok: true };
+  });
+
+  handleIpc("marshal:capture-close", () => {
+    captureWindow?.close();
+    return { ok: true };
+  });
+
+  handleIpc("marshal:recording-toggle", (_event, input: { paused: boolean }) => {
+    if (!videoRecorder || !isRecording) return { ok: false };
+    if (input.paused) {
+      videoRecorder.pause();
+    } else {
+      videoRecorder.resume();
+    }
+    return { ok: true };
+  });
+
+  handleIpc("marshal:recording-stop", async () => {
+    await stopVideoRecording();
+    return { ok: true };
+  });
+}
+
+async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
+  if (!captureService || !captureWindow) return;
+
+  // Hide Marshal's own windows so they don't leak into the frame.
+  translatorWindow?.hide();
+  const mainWasVisible = mainWindow?.isVisible() ?? false;
+  if (mainWasVisible) mainWindow?.hide();
+  await new Promise<void>((r) => setTimeout(r, 120));
+
+  try {
+    let result: CaptureResult | null;
+    if (kind === "area") {
+      result = await captureService.captureArea();
+    } else {
+      result = await captureService.captureFullscreen();
+    }
+    if (!result) return;
+    captureWindow.openEditor({ capture: result });
+  } catch (err) {
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Capture failed",
+        body: err instanceof Error ? err.message : String(err),
+        silent: true
+      }).show();
+    }
+    console.error("[marshal] capture failed:", err);
+  } finally {
+    if (mainWasVisible) mainWindow?.show();
+  }
+}
+
+function defaultCaptureFilename(): string {
+  const d = new Date();
+  const pad = (n: number): string => n.toString().padStart(2, "0");
+  return `Marshal ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}.png`;
+}
+
+function openPinnedWindow(base64Png: string): void {
+  const image = nativeImage.createFromBuffer(Buffer.from(base64Png, "base64"));
+  const { width, height } = image.getSize();
+  const win = new BrowserWindow({
+    width: Math.min(width, 900),
+    height: Math.min(height, 700),
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    alwaysOnTop: true,
+    resizable: true,
+    skipTaskbar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false }
+  });
+  win.setAlwaysOnTop(true, "floating");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  const dataUrl = `data:image/png;base64,${base64Png}`;
+  const html = `<!doctype html><html><head><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;background:transparent;overflow:hidden;-webkit-app-region:drag}
+    img{width:100%;height:100%;object-fit:contain;display:block;-webkit-user-drag:none;pointer-events:none}
+    body:hover .close{opacity:1}
+    .close{position:fixed;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:0;cursor:pointer;opacity:0;transition:opacity .15s;-webkit-app-region:no-drag;font:700 14px/1 system-ui}
+  </style></head><body><img src="${dataUrl}"/><button class="close" onclick="window.close()">×</button></body></html>`;
+  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
 function handleIpc(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
@@ -300,6 +437,9 @@ async function performTeardown(): Promise<void> {
   clipboardMonitor?.stop();
   layoutSwitcher?.stop();
   dictationService?.stop();
+  captureWindow?.close();
+  recordingIndicator?.hide();
+  videoRecorder?.kill();
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
@@ -350,6 +490,170 @@ function initDictation(): void {
   });
 
   void dictationService.start();
+}
+
+function initCapture(): void {
+  captureService = new CaptureService(preloadPath);
+  captureWindow = new CaptureWindow(preloadPath);
+  recordingIndicator = new RecordingIndicator(preloadPath);
+
+  if (VideoRecorder.isAvailable()) {
+    videoRecorder = new VideoRecorder();
+    videoRecorder.on("error", (err: Error) => {
+      console.error("[marshal] video recorder error:", err);
+      if (Notification.isSupported()) {
+        new Notification({
+          title: "Marshal — Recording error",
+          body: err.message,
+          silent: true
+        }).show();
+      }
+      cleanupRecording();
+    });
+  } else if (process.platform === "darwin") {
+    console.warn("[marshal] screen-recorder binary missing — video capture disabled");
+  }
+
+  // Hotkeys. Cmd+Shift+3/4/5/6 collide with macOS native screenshot shortcuts,
+  // so we use Cmd+Option+3 / 4 / 5 / 6 to avoid the clash. Users can later
+  // rebind via preferences (#72).
+  globalShortcut.register("CommandOrControl+Alt+3", () => {
+    void runCapture("area");
+  });
+  globalShortcut.register("CommandOrControl+Alt+4", () => {
+    void runCapture("fullscreen");
+  });
+  globalShortcut.register("CommandOrControl+Alt+6", () => {
+    void toggleVideoRecording("fullscreen");
+  });
+}
+
+async function toggleVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
+  if (!videoRecorder) {
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Recording unavailable",
+        body: "screen-recorder helper missing. Run `npm run build`.",
+        silent: true
+      }).show();
+    }
+    return;
+  }
+
+  if (isRecording) {
+    await stopVideoRecording();
+    return;
+  }
+
+  await startVideoRecording(kind);
+}
+
+async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
+  if (!videoRecorder || isRecording) return;
+
+  // Hide Marshal's own windows so they don't appear in the recording.
+  translatorWindow?.hide();
+  const mainWasVisible = mainWindow?.isVisible() ?? false;
+  if (mainWasVisible) mainWindow?.hide();
+
+  let area: { x: number; y: number; width: number; height: number } | null = null;
+
+  try {
+    if (kind === "area") {
+      const pick = await pickArea({ preloadPath });
+      if (!pick) {
+        if (mainWasVisible) mainWindow?.show();
+        return;
+      }
+      area = {
+        x: Math.round(pick.region.x),
+        y: Math.round(pick.region.y),
+        width: Math.round(pick.region.width),
+        height: Math.round(pick.region.height)
+      };
+    }
+
+    await runCountdown(preloadPath, 3);
+
+    const settings = loadSettings();
+    const folder = settings.captureDefaultFolder || app.getPath("desktop");
+    if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+    const outPath = path.join(folder, defaultVideoFilename());
+
+    isRecording = true;
+
+    await new Promise<void>((resolve, reject) => {
+      const onStarted = (): void => {
+        videoRecorder?.off("error", onError);
+        resolve();
+      };
+      const onError = (err: Error): void => {
+        videoRecorder?.off("started", onStarted);
+        reject(err);
+      };
+      videoRecorder!.once("started", onStarted);
+      videoRecorder!.once("error", onError);
+      if (area) {
+        videoRecorder!.startArea(area, outPath);
+      } else {
+        videoRecorder!.startFullscreen(outPath);
+      }
+    });
+
+    recordingIndicator?.show();
+    void refreshTrayState();
+  } catch (err) {
+    isRecording = false;
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Recording failed",
+        body: err instanceof Error ? err.message : String(err),
+        silent: true
+      }).show();
+    }
+    if (mainWasVisible) mainWindow?.show();
+  }
+}
+
+async function stopVideoRecording(): Promise<void> {
+  if (!videoRecorder || !isRecording) return;
+  try {
+    const outPath = await videoRecorder.stop();
+    cleanupRecording();
+    if (Notification.isSupported()) {
+      const name = outPath.split("/").pop() ?? outPath;
+      const notif = new Notification({
+        title: "Marshal — Recording saved",
+        body: name,
+        silent: true
+      });
+      notif.on("click", () => {
+        void shell.showItemInFolder(outPath);
+      });
+      notif.show();
+    }
+  } catch (err) {
+    cleanupRecording();
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Recording failed",
+        body: err instanceof Error ? err.message : String(err),
+        silent: true
+      }).show();
+    }
+  }
+}
+
+function cleanupRecording(): void {
+  isRecording = false;
+  recordingIndicator?.hide();
+  void refreshTrayState();
+}
+
+function defaultVideoFilename(): string {
+  const d = new Date();
+  const pad = (n: number): string => n.toString().padStart(2, "0");
+  return `Marshal ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}.mov`;
 }
 
 function initTranslator(): void {
@@ -524,6 +828,29 @@ function createTray(): void {
       },
       { type: "separator" },
       {
+        label: "Capture area",
+        accelerator: "CommandOrControl+Alt+3",
+        click: () => void runCapture("area")
+      },
+      {
+        label: "Capture full screen",
+        accelerator: "CommandOrControl+Alt+4",
+        click: () => void runCapture("fullscreen")
+      },
+      { type: "separator" },
+      isRecording
+        ? { label: "Stop recording", click: () => void stopVideoRecording() }
+        : {
+            label: "Record full screen",
+            accelerator: "CommandOrControl+Alt+6",
+            enabled: videoRecorder !== null,
+            click: () => void toggleVideoRecording("fullscreen")
+          },
+      ...(!isRecording && videoRecorder
+        ? [{ label: "Record area", click: () => void toggleVideoRecording("area") }]
+        : []),
+      { type: "separator" },
+      {
         label: "Quit",
         click: () => {
           isQuitting = true;
@@ -548,10 +875,13 @@ async function refreshTrayState(): Promise<void> {
     ? `Marshal\n${health.runningTasks} running, ${health.queuedTasks} queued`
     : "Marshal\nUnavailable";
 
-  tray.setToolTip(isDictating ? `${base}\n● Recording dictation…` : base);
+  const status: string[] = [];
+  if (isDictating) status.push("● Recording dictation…");
+  if (isRecording) status.push("● Recording screen…");
+  tray.setToolTip(status.length > 0 ? `${base}\n${status.join("\n")}` : base);
   // Show a single-character "recording" indicator next to the tray icon so
-  // the user can see at a glance that the mic is live.
-  tray.setTitle(isDictating ? "●" : "");
+  // the user can see at a glance that the mic or screen is live.
+  tray.setTitle(isDictating || isRecording ? "●" : "");
 
   // Context menu is set via right-click handler in createTray()
 }
