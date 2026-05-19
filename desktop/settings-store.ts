@@ -56,6 +56,18 @@ export type MarshalSettings = {
    * managed by macOS, not by a launchd plist we have to maintain ourselves.
    */
   launchAtLogin: boolean;
+  /**
+   * Check the GitHub Releases API on a schedule and surface new versions as
+   * a tray notification. Disabling this only stops the silent background
+   * check; the manual "Check for updates…" tray entry still works.
+   */
+  checkForUpdatesAutomatic: boolean;
+  /**
+   * Tag of the most recent release the user dismissed ("Skip this version").
+   * Suppresses repeat notifications for that one version. Cleared on every
+   * subsequent newer release so the user sees the next one.
+   */
+  lastDismissedVersion: string;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -74,7 +86,9 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationAutoPaste: false,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
   captureDefaultFolder: "",
-  launchAtLogin: false
+  launchAtLogin: false,
+  checkForUpdatesAutomatic: true,
+  lastDismissedVersion: ""
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
@@ -224,6 +238,12 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.captureDefaultFolder,
     launchAtLogin: typeof input.launchAtLogin === "boolean"
       ? input.launchAtLogin
-      : DEFAULT_SETTINGS.launchAtLogin
+      : DEFAULT_SETTINGS.launchAtLogin,
+    checkForUpdatesAutomatic: typeof input.checkForUpdatesAutomatic === "boolean"
+      ? input.checkForUpdatesAutomatic
+      : DEFAULT_SETTINGS.checkForUpdatesAutomatic,
+    lastDismissedVersion: typeof input.lastDismissedVersion === "string"
+      ? input.lastDismissedVersion
+      : DEFAULT_SETTINGS.lastDismissedVersion
   };
 }

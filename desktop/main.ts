@@ -11,6 +11,7 @@ import { CaptureWindow } from "./capture/capture-window.ts";
 import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { ScrollCapture } from "./capture/scroll-capture.ts";
+import { UpdateChecker, type UpdateCheckOutcome } from "./updater/update-checker.ts";
 import { runCountdown } from "./capture/countdown-window.ts";
 import { pickArea } from "./capture/area-picker.ts";
 import { RecordingIndicator } from "./capture/recording-indicator.ts";
@@ -49,6 +50,10 @@ let captureService: CaptureService | null = null;
 let captureWindow: CaptureWindow | null = null;
 let captureHistoryWindow: CaptureHistoryWindow | null = null;
 let floatingToolbar: FloatingToolbar | null = null;
+let updateChecker: UpdateChecker | null = null;
+let updateCheckTimer: NodeJS.Timeout | null = null;
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const UPDATE_CHECK_STARTUP_DELAY_MS = 60 * 1000; // 60 seconds after boot
 let videoRecorder: VideoRecorder | null = null;
 let recordingIndicator: RecordingIndicator | null = null;
 let isRecording = false;
@@ -123,6 +128,7 @@ async function bootstrap(): Promise<void> {
       initCapture();
       initDictation();
       void initExtensionBridge();
+      initUpdater();
     }
 
     app.on("activate", () => {
@@ -216,6 +222,7 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
@@ -671,6 +678,10 @@ async function performTeardown(): Promise<void> {
     clearInterval(trayRefreshTimer);
     trayRefreshTimer = null;
   }
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
   clipboardMonitor?.stop();
   layoutSwitcher?.stop();
   dictationService?.stop();
@@ -694,6 +705,113 @@ async function initExtensionBridge(): Promise<void> {
     console.log(`[marshal] extension bridge listening on http://127.0.0.1:${getSharedLocalBridgeServer().port}`);
   } catch (error) {
     console.error("[marshal] extension bridge failed to start:", error);
+  }
+}
+
+function initUpdater(): void {
+  updateChecker = new UpdateChecker({ currentVersion: app.getVersion() });
+
+  // First check fires 60 s after boot so we don't compete with cold-start work
+  // (backend fork, Swift helpers, translator init). Subsequent checks run on
+  // a 6-hour interval; both honour the "automatic" pref so a user who
+  // disabled background polling keeps the manual tray entry working.
+  setTimeout(() => {
+    if (loadSettings().checkForUpdatesAutomatic) {
+      void runScheduledUpdateCheck();
+    }
+  }, UPDATE_CHECK_STARTUP_DELAY_MS);
+
+  updateCheckTimer = setInterval(() => {
+    if (loadSettings().checkForUpdatesAutomatic) {
+      void runScheduledUpdateCheck();
+    }
+  }, UPDATE_CHECK_INTERVAL_MS);
+}
+
+/**
+ * Background-triggered update check. Shows a non-blocking notification when a
+ * new release lands and respects `lastDismissedVersion` so the user is not
+ * pinged again for a version they already skipped.
+ */
+async function runScheduledUpdateCheck(): Promise<void> {
+  if (!updateChecker) return;
+  const result = await updateChecker.check();
+  if (!("available" in result) || !result.available) return;
+  if ("error" in result) return;
+
+  const settings = loadSettings();
+  if (settings.lastDismissedVersion === result.latestVersion) return;
+
+  if (!Notification.isSupported()) return;
+  const notif = new Notification({
+    title: `Marshal ${result.latestVersion} is available`,
+    body: result.releaseNotes
+      ? result.releaseNotes.split("\n")[0].slice(0, 120)
+      : "Click to open the release page on GitHub.",
+    silent: true
+  });
+  notif.on("click", () => {
+    void shell.openExternal(result.releaseUrl);
+  });
+  notif.show();
+}
+
+/**
+ * Manual "Check for updates…" trigger from the tray menu. Always shows a
+ * dialog so the user gets feedback even when there's nothing new.
+ */
+async function runManualUpdateCheck(): Promise<void> {
+  if (!updateChecker) {
+    await dialog.showMessageBox({
+      type: "info",
+      title: "Marshal",
+      message: "Update checker is not running in this build."
+    });
+    return;
+  }
+  const result = await updateChecker.check();
+  await showUpdateDialog(result);
+}
+
+async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {
+  if ("error" in result) {
+    await dialog.showMessageBox({
+      type: "warning",
+      title: "Marshal — update check failed",
+      message: "Could not reach the GitHub Releases API.",
+      detail: result.error,
+      buttons: ["OK"]
+    });
+    return;
+  }
+
+  if (!result.available) {
+    await dialog.showMessageBox({
+      type: "info",
+      title: "Marshal",
+      message: `You're up to date (v${result.currentVersion}).`,
+      buttons: ["OK"]
+    });
+    return;
+  }
+
+  const buttons = ["Download", "Skip this version", "Later"];
+  const { response } = await dialog.showMessageBox({
+    type: "info",
+    title: `Marshal ${result.latestVersion} is available`,
+    message: `A new version of Marshal is available (you have v${result.currentVersion}).`,
+    detail: result.releaseNotes || "Open the release page for full notes.",
+    buttons,
+    defaultId: 0,
+    cancelId: 2
+  });
+
+  if (response === 0) {
+    // Prefer the direct .dmg link if the release attached one; fall back to
+    // the release HTML page so the user can pick the asset themselves.
+    void shell.openExternal(result.downloadUrl ?? result.releaseUrl);
+  } else if (response === 1) {
+    saveSettings({ lastDismissedVersion: result.latestVersion });
   }
 }
 
@@ -982,6 +1100,10 @@ function buildTrayMenu(): Electron.Menu {
         const next = saveSettings({ launchAtLogin: item.checked });
         applyLaunchAtLogin(next);
       }
+    },
+    {
+      label: "Check for Updates…",
+      click: () => void runManualUpdateCheck()
     },
     { type: "separator" },
     {

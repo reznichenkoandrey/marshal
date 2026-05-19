@@ -73,6 +73,7 @@ const dom = {
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
+  settingsCheckUpdates: document.getElementById("settings-check-updates"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   appearanceSegmented: document.getElementById("appearance-segmented"),
@@ -921,6 +922,9 @@ async function openSettings() {
     if (dom.settingsLaunchAtLogin) {
       dom.settingsLaunchAtLogin.checked = current.launchAtLogin ?? false;
     }
+    if (dom.settingsCheckUpdates) {
+      dom.settingsCheckUpdates.checked = current.checkForUpdatesAutomatic ?? true;
+    }
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
     clearSettingsStatus();
@@ -968,7 +972,8 @@ async function saveSettingsFromForm() {
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
-    launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false
+    launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
+    checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);

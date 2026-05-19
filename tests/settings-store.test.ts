@@ -100,8 +100,24 @@ describe("saveSettings", () => {
       dictationAutoPaste: true,
       dictationPrompt: "React, Magento, PR",
       captureDefaultFolder: "",
-      launchAtLogin: false
+      launchAtLogin: false,
+      checkForUpdatesAutomatic: true,
+      lastDismissedVersion: ""
     });
+  });
+
+  it("round-trips checkForUpdatesAutomatic and lastDismissedVersion", () => {
+    const saved = saveSettings({
+      checkForUpdatesAutomatic: false,
+      lastDismissedVersion: "0.2.0"
+    });
+    expect(saved.checkForUpdatesAutomatic).toBe(false);
+    expect(saved.lastDismissedVersion).toBe("0.2.0");
+  });
+
+  it("falls back to default checkForUpdatesAutomatic for non-boolean values", () => {
+    const saved = saveSettings({ checkForUpdatesAutomatic: "no" as unknown as boolean });
+    expect(saved.checkForUpdatesAutomatic).toBe(true);
   });
 
   it("defaults launchAtLogin to false", () => {

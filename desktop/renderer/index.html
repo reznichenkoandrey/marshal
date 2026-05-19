@@ -245,6 +245,21 @@
             </div>
           </fieldset>
 
+          <fieldset class="field-group">
+            <legend>Updates</legend>
+
+            <div class="field">
+              <input id="settings-check-updates" name="checkForUpdatesAutomatic" type="checkbox" />
+              <label for="settings-check-updates">Automatically check for updates</label>
+              <p class="field-hint">
+                Polls the GitHub Releases API once on launch and every 6 hours.
+                Notification surfaces new versions; you install the .dmg manually
+                (auto-install is gated on code-signing — see <code>#78</code>).
+                Manual check is always available from the tray menu.
+              </p>
+            </div>
+          </fieldset>
+
           <div id="settings-status" class="status-banner hidden"></div>
         </form>
 
