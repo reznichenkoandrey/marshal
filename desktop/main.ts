@@ -10,6 +10,7 @@ import { CaptureService, type CaptureResult } from "./capture/capture-service.ts
 import { CaptureWindow } from "./capture/capture-window.ts";
 import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
+import { ScrollCapture } from "./capture/scroll-capture.ts";
 import { runCountdown } from "./capture/countdown-window.ts";
 import { pickArea } from "./capture/area-picker.ts";
 import { RecordingIndicator } from "./capture/recording-indicator.ts";
@@ -110,10 +111,19 @@ async function bootstrap(): Promise<void> {
     createMainWindow();
     createTray();
     scheduleTrayRefresh();
-    initTranslator();
-    initCapture();
-    initDictation();
-    void initExtensionBridge();
+
+    // `MARSHAL_HEADLESS=1` disables every subsystem that needs real hardware,
+    // user permissions, or a long-running native helper. It exists for the
+    // CI smoke test — a headless GitHub runner cannot grant Screen Recording
+    // / Accessibility, and uiohook-napi / Swift recorders deadlock when
+    // their TCC prompts time out. Skipping these branches keeps the IPC
+    // surface fully testable.
+    if (process.env.MARSHAL_HEADLESS !== "1") {
+      initTranslator();
+      initCapture();
+      initDictation();
+      void initExtensionBridge();
+    }
 
     app.on("activate", () => {
       if (!mainWindow) {
@@ -518,6 +528,91 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
   }
 }
 
+/**
+ * Experimental: ask the user to pick a region, then drive the page through a
+ * series of scrolls + frame grabs and stitch the result. Saves the final PNG
+ * to the user's capture folder and opens it in the annotation editor.
+ *
+ * Reuses the `pickArea` overlay so the user gets the same selection UX as a
+ * regular area capture. After picking, we wait ~600 ms before starting the
+ * scroll-capture subprocess so the overlay window is fully torn down — its
+ * compositor stack must be gone before the cursor warp + scroll events land,
+ * otherwise the very first frame will catch the overlay.
+ */
+async function runScrollingCapture(): Promise<void> {
+  if (!captureWindow) return;
+  if (!(await ScrollCapture.isAvailable())) {
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Scrolling capture unavailable",
+        body: "Swift helpers were not compiled. Run `npm run build` on macOS.",
+        silent: true
+      }).show();
+    }
+    return;
+  }
+
+  const mainWasVisible = mainWindow?.isVisible() ?? false;
+  translatorWindow?.hide();
+  if (mainWasVisible) mainWindow?.hide();
+
+  try {
+    const pick = await pickArea({ preloadPath });
+    if (!pick) return;
+
+    // Let the overlay window unmount; scroll events fire at HID level, so
+    // any lingering covers (even transparent) catch the cursor warp.
+    await new Promise<void>((r) => setTimeout(r, 600));
+
+    const settings = loadSettings();
+    const captureFolder = settings.captureDefaultFolder || path.join(app.getPath("home"), "Desktop");
+    await fs.promises.mkdir(captureFolder, { recursive: true });
+    const outName = `Marshal ${new Date().toISOString().replace(/[:.]/gu, "-")} (scrolling).png`;
+    const outPath = path.join(captureFolder, outName);
+
+    const service = new ScrollCapture();
+    const result = await service.run({
+      area: {
+        x: Math.round(pick.region.x),
+        y: Math.round(pick.region.y),
+        width: Math.round(pick.region.width),
+        height: Math.round(pick.region.height)
+      },
+      outPath
+    });
+
+    // Open the stitched PNG in the annotation editor for cropping / markup.
+    const pngBytes = await fs.promises.readFile(result.outPath);
+    captureWindow.openEditor({
+      capture: {
+        base64: pngBytes.toString("base64"),
+        width: 0,
+        height: 0,
+        kind: "area"
+      }
+    });
+
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Scrolling capture saved",
+        body: `${outName} (${result.frameCount} frames${result.settledEarly ? ", stopped on page bottom" : ""})`,
+        silent: true
+      }).show();
+    }
+  } catch (err) {
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Scrolling capture failed",
+        body: err instanceof Error ? err.message : String(err),
+        silent: true
+      }).show();
+    }
+    console.error("[marshal] scrolling capture failed:", err);
+  } finally {
+    if (mainWasVisible) mainWindow?.show();
+  }
+}
+
 function defaultCaptureFilename(): string {
   const d = new Date();
   const pad = (n: number): string => n.toString().padStart(2, "0");
@@ -860,6 +955,11 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
     {
       label: floatingToolbar?.isOpen() ? "Hide floating toolbar" : "Show floating toolbar",
       click: () => floatingToolbar?.toggle()
+    },
+    { type: "separator" },
+    {
+      label: "Scrolling capture (experimental)…",
+      click: () => void runScrollingCapture()
     }
   );
 
