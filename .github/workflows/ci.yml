@@ -56,3 +56,29 @@ jobs:
           else
             echo 'coverage summary not produced'
           fi
+
+  e2e:
+    name: e2e smoke (macOS)
+    runs-on: macos-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install dependencies
+        run: npm ci
+
+      - name: build
+        run: npm run build
+
+      - name: smoke
+        # Headless mode skips dictation / translator / capture / extension
+        # bridge init so the smoke does not block on macOS permission
+        # prompts that the runner cannot grant.
+        run: npm run test:e2e
+        env:
+          MARSHAL_HEADLESS: "1"

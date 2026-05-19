@@ -29,10 +29,16 @@ export default defineConfig({
         "agent/tools/fs.ts",
         "agent/runtime/marshal.ts",
         "agent/core/one-shot-executor.ts"
-      ]
-      // Thresholds intentionally omitted — coverage starts at ~45 %. Re-enable
-      // once the suite catches up; gating on a number we know we miss only
-      // adds noise.
+      ],
+      // Regression gate — ratchets upward as we add tests. Each new PR is
+      // expected to either keep coverage flat or bump the floor; a drop
+      // fails CI so we notice deletions / dead-code growth.
+      thresholds: {
+        lines: 55,
+        statements: 55,
+        functions: 60,
+        branches: 50
+      }
     }
   }
 });

@@ -35,11 +35,11 @@ try {
     // hang waiting on dialogs. The renderer window still opens for assertions.
     env: {
       ...process.env,
-      MARSHAL_DICTATION_ENABLED: "0",
-      // Skip the screen-recording permission prompt timer in initTranslator().
-      // It's a setTimeout(2000) so a longer timeout would also work; this is
-      // cheaper and keeps the test deterministic.
-      MARSHAL_SKIP_TCC_PROMPT: "1"
+      // Master headless switch — skips dictation, translator, capture, and
+      // extension-bridge init so the smoke test never hits Screen Recording
+      // / Accessibility / Mic prompts that block headless CI runners.
+      MARSHAL_HEADLESS: "1",
+      MARSHAL_DICTATION_ENABLED: "0"
     }
   });
 
@@ -55,23 +55,15 @@ try {
   const title = await window.title();
   console.log(`[e2e-smoke] window title: ${JSON.stringify(title)}`);
 
-  // App-level state — fetch settings via the existing IPC channel to prove
-  // backend wiring is alive end-to-end.
-  const settings = await app.evaluate(async ({ ipcMain }) => {
-    // ipcMain only emits — we use the same handler the renderer would call.
-    // Cheap proxy: read the settings file directly through Node fs in the
-    // main process context.
-    const fs = await import("node:fs");
-    const pathMod = await import("node:path");
-    const { app: electronApp } = await import("electron");
-    const file = pathMod.join(electronApp.getPath("userData"), "settings.json");
-    try {
-      return JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch {
-      return null;
-    }
-  });
-  console.log(`[e2e-smoke] settings.json present: ${settings !== null}`);
+  // App-level sanity check — read app.getPath("userData") to prove the main
+  // process initialised far enough that Electron paths are resolvable. We
+  // deliberately avoid `import()` inside the evaluated function: Playwright
+  // wraps the body in a synchronous worker that disables dynamic imports.
+  const userDataDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
+  console.log(`[e2e-smoke] userData dir: ${userDataDir}`);
+  if (!userDataDir) {
+    throw new Error("app.getPath('userData') returned empty — main process is not fully booted");
+  }
 
   await app.close();
   clearTimeout(timer);
