@@ -48,6 +48,7 @@ const stopBtn = document.getElementById("stopBtn") as HTMLButtonElement;
 const captureTextBtn = document.getElementById("captureTextBtn") as HTMLButtonElement;
 const captureHtmlBtn = document.getElementById("captureHtmlBtn") as HTMLButtonElement;
 const cancelPickerBtn = document.getElementById("cancelPickerBtn") as HTMLButtonElement;
+const captureFullpageBtn = document.getElementById("captureFullpageBtn") as HTMLButtonElement;
 const statusText = document.getElementById("statusText") as HTMLDivElement;
 const messageList = document.getElementById("messageList") as HTMLDivElement;
 const contextChip = document.getElementById("contextChip") as HTMLDivElement;
@@ -131,6 +132,7 @@ function bindEvents(): void {
   captureTextBtn.addEventListener("click", () => void startCapture("text"));
   captureHtmlBtn.addEventListener("click", () => void startCapture("html"));
   cancelPickerBtn.addEventListener("click", () => void cancelPicker());
+  captureFullpageBtn.addEventListener("click", () => void captureFullPage());
   clearContextBtn.addEventListener("click", () => clearContext());
   providerSelect.addEventListener("change", () => void handleProviderChange());
   promptInput.addEventListener("keydown", (event) => {
@@ -328,6 +330,45 @@ async function cancelPicker(): Promise<void> {
   pickerActive = false;
   setCaptureUI(false);
   setStatus("");
+}
+
+/**
+ * Ask the background worker to drive `chrome.debugger` for a full-page PNG
+ * and forward it to the desktop bridge. The desktop writes the file into
+ * the capture folder and the panel just shows a confirmation toast.
+ *
+ * The button is disabled during the round-trip — `chrome.debugger` shows a
+ * yellow "Marshal AI Bridge started debugging this browser" notification
+ * bar while it's attached, so we want the operation to feel snappy and
+ * unambiguous.
+ */
+async function captureFullPage(): Promise<void> {
+  captureFullpageBtn.disabled = true;
+  const previousLabel = captureFullpageBtn.textContent;
+  setStatus("Capturing full page…", "info");
+
+  try {
+    const result = (await chrome.runtime.sendMessage({ type: "marshal-fullpage-capture" })) as
+      | { ok: boolean; error?: string; savedPath?: string; bytes?: number }
+      | undefined;
+
+    if (!result?.ok) {
+      setStatus(result?.error ?? "Capture failed.", "error");
+      return;
+    }
+
+    const sizeKb = result.bytes ? Math.round(result.bytes / 1024) : 0;
+    const fileName = (result.savedPath ?? "").split("/").pop() ?? "screenshot.png";
+    setStatus(`Saved ${fileName} (${sizeKb} KB) in Marshal's capture folder.`, "success");
+  } catch (err) {
+    setStatus(`Capture failed: ${(err as Error).message}`, "error");
+  } finally {
+    captureFullpageBtn.disabled = false;
+    captureFullpageBtn.textContent = previousLabel;
+    // Re-render the icon that lives inside the button — textContent above
+    // wiped the inline SVG. Cheap to recompute via the icons helper.
+    window.MarshalIcons?.apply(captureFullpageBtn);
+  }
 }
 
 function handleBackgroundMessage(message: Record<string, unknown>): void {

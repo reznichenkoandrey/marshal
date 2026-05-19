@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { ClaudeApiBridge } from "./claude-api-bridge.ts";
@@ -249,6 +252,11 @@ export class LocalBridgeServer {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/capture/fullpage") {
+      await handleFullPageCapture(request, response);
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/session/hello") {
       const body = await readJsonBody(request);
       const tabId = typeof body.tabId === "number" ? body.tabId : null;
@@ -468,4 +476,93 @@ async function readJsonBody(request: http.IncomingMessage): Promise<Record<strin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Persist a full-page PNG sent by the Chrome extension into the user's
+ * configured capture folder. Refuses unreasonably large payloads so a
+ * malicious or buggy page cannot exhaust disk space.
+ */
+async function handleFullPageCapture(
+  request: http.IncomingMessage,
+  response: http.ServerResponse
+): Promise<void> {
+  // 60 MB upper bound on the base64 payload — empirically more than enough
+  // for a 4K full-page screenshot; ~45 MB raw PNG decoded.
+  const MAX_PAYLOAD_BYTES = 60 * 1024 * 1024;
+  const contentLength = Number(request.headers["content-length"] ?? 0);
+  if (contentLength > MAX_PAYLOAD_BYTES) {
+    writeJson(response, 413, { ok: false, error: "Capture payload too large" });
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const base64 = typeof body.base64 === "string" ? body.base64 : "";
+  if (!base64) {
+    writeJson(response, 400, { ok: false, error: "Missing base64 payload" });
+    return;
+  }
+
+  const url = typeof body.url === "string" ? body.url : "";
+  const title = typeof body.title === "string" ? body.title : "";
+  const capturedAt = typeof body.capturedAt === "number" ? body.capturedAt : Date.now();
+
+  const folder = process.env.MARSHAL_CAPTURE_FOLDER?.trim() || path.join(os.homedir(), "Desktop");
+  try {
+    await fs.promises.mkdir(folder, { recursive: true });
+  } catch (err) {
+    writeJson(response, 500, { ok: false, error: `Cannot create capture folder: ${(err as Error).message}` });
+    return;
+  }
+
+  const filename = buildFullPageFilename(url, title, capturedAt);
+  const filePath = path.join(folder, filename);
+
+  // Strip any `data:image/png;base64,` prefix that an over-eager client might
+  // include. We expect raw base64 from the debugger, but be tolerant.
+  const stripped = base64.replace(/^data:image\/[^;]+;base64,/u, "");
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(stripped, "base64");
+  } catch (err) {
+    writeJson(response, 400, { ok: false, error: `Invalid base64: ${(err as Error).message}` });
+    return;
+  }
+
+  try {
+    await fs.promises.writeFile(filePath, buffer);
+  } catch (err) {
+    writeJson(response, 500, { ok: false, error: `Cannot write capture: ${(err as Error).message}` });
+    return;
+  }
+
+  writeJson(response, 200, {
+    ok: true,
+    savedPath: filePath,
+    bytes: buffer.byteLength,
+    filename
+  });
+}
+
+function buildFullPageFilename(url: string, title: string, capturedAt: number): string {
+  const d = new Date(capturedAt);
+  const pad = (n: number): string => n.toString().padStart(2, "0");
+  const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+
+  // Prefer the page title for human readability; fall back to the host name
+  // when the title is empty (PDF viewer tabs, etc.). Sanitize anything that
+  // would be a path separator or shell metacharacter.
+  let label = title.trim() || hostname(url) || "Web page";
+  label = label.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim();
+  if (label.length > 60) label = label.slice(0, 60).trim();
+
+  return `Marshal ${ts} ${label} (full page).png`;
+}
+
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }

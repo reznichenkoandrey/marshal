@@ -153,6 +153,14 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
   process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
+  // Forwarded to the backend utility process so the local bridge server can
+  // persist captures (e.g. /capture/fullpage from the Chrome extension) into
+  // the same folder the rest of the capture pipeline uses.
+  if (settings.captureDefaultFolder) {
+    process.env.MARSHAL_CAPTURE_FOLDER = settings.captureDefaultFolder;
+  } else {
+    delete process.env.MARSHAL_CAPTURE_FOLDER;
+  }
 }
 
 function normalize(input: Partial<MarshalSettings>): MarshalSettings {
