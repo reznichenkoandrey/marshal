@@ -1349,8 +1349,8 @@ function scheduleTrayRefresh(): void {
 }
 
 function createTrayIcon(): Electron.NativeImage {
-  // macOS template image: black glyph on transparent background.
-  // Electron + macOS auto-adapt for dark/light mode.
+  // macOS template image: black glyph on transparent background, sized to
+  // 18×18 logical points (Electron + macOS auto-adapt for dark/light mode).
   // Use "Template" suffix in filename — Electron recognizes this convention.
   const trayIcon2xPath = path.join(projectRootDir, "assets", "tray-icon-template@2x.png");
   const trayIconPath = path.join(projectRootDir, "assets", "tray-icon-template.png");
@@ -1362,14 +1362,34 @@ function createTrayIcon(): Electron.NativeImage {
     img = img.resize({ width: 18, height: 18 });
   } else if (fs.existsSync(trayIconPath)) {
     img = nativeImage.createFromPath(trayIconPath);
+    if (img.isEmpty()) img = makeFallbackTrayIcon();
   } else {
-    // Inline fallback
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 32 32">
-      <path d="M8 24V8h3.2l4.8 8.2L20.8 8H24v16h-2.7V13l-4.1 6.9h-2.4L10.7 13V24z" fill="black"/>
-    </svg>`;
-    img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+    img = makeFallbackTrayIcon();
+  }
+
+  // Defensive: an empty NativeImage renders as nothing on macOS — the icon is
+  // gone from the menubar and the user thinks the app is broken. If the file
+  // lookups produced an empty image, use the inline glyph.
+  if (img.isEmpty()) {
+    img = makeFallbackTrayIcon();
   }
 
   img.setTemplateImage(true);
   return img;
+}
+
+/**
+ * Inline 18×18 "M" glyph used when assets/ is missing or unreadable. SVG
+ * created via nativeImage.createFromDataURL is sized by the SVG's intrinsic
+ * dimensions, so we declare width/height = 18 to match the standard macOS
+ * template icon size — otherwise the menubar renders the glyph too large or
+ * invisible.
+ */
+function makeFallbackTrayIcon(): Electron.NativeImage {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 32 32">
+    <path d="M8 24V8h3.2l4.8 8.2L20.8 8H24v16h-2.7V13l-4.1 6.9h-2.4L10.7 13V24z" fill="black"/>
+  </svg>`;
+  return nativeImage.createFromDataURL(
+    `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`
+  );
 }

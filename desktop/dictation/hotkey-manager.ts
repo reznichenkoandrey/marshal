@@ -139,29 +139,43 @@ export class PushToTalkHotkey extends EventEmitter {
     super();
     this.spec = parseHotkey(hotkey);
     this.debug = process.env.MARSHAL_DICTATION_DEBUG === "1";
+    // CRITICAL: any throw inside these handlers propagates back through
+    // uiohook-napi's `tsfn_to_js_proxy`, where `napi_call_function` returns
+    // `napi_pending_exception` → `NAPI_FATAL_IF_FAILED` → `abort()` (SIGABRT).
+    // Listeners on `hold-start`/`hold-end` (e.g. spawning the audio recorder)
+    // can throw synchronously, so every uiohook callback gets a top-level
+    // try/catch — the native side must never see a JS exception.
     this.downHandler = (event) => {
-      if (event.keycode === this.spec.keycode && this.debug) {
-        console.log(
-          `[dictation] keydown keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
-        );
+      try {
+        if (event.keycode === this.spec.keycode && this.debug) {
+          console.log(
+            `[dictation] keydown keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
+          );
+        }
+        if (this.holding) return;
+        if (!matchesHotkey(event, this.spec)) return;
+        this.holding = true;
+        this.emit("hold-start");
+      } catch (err) {
+        console.error("[dictation] downHandler threw (suppressed to avoid napi abort):", err);
       }
-      if (this.holding) return;
-      if (!matchesHotkey(event, this.spec)) return;
-      this.holding = true;
-      this.emit("hold-start");
     };
     // Keyup fires with the modifier possibly already released by the user,
     // so for the release event we only check the target key.
     this.upHandler = (event) => {
-      if (event.keycode === this.spec.keycode && this.debug) {
-        console.log(
-          `[dictation] keyup   keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
-        );
+      try {
+        if (event.keycode === this.spec.keycode && this.debug) {
+          console.log(
+            `[dictation] keyup   keycode=${event.keycode} meta=${event.metaKey} ctrl=${event.ctrlKey} alt=${event.altKey} shift=${event.shiftKey} holding=${this.holding}`
+          );
+        }
+        if (!this.holding) return;
+        if (event.keycode !== this.spec.keycode) return;
+        this.holding = false;
+        this.emit("hold-end");
+      } catch (err) {
+        console.error("[dictation] upHandler threw (suppressed to avoid napi abort):", err);
       }
-      if (!this.holding) return;
-      if (event.keycode !== this.spec.keycode) return;
-      this.holding = false;
-      this.emit("hold-end");
     };
   }
 

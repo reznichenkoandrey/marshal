@@ -1,6 +1,6 @@
 {
   "name": "local-chatgpt-agent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -30,12 +30,19 @@
     "productName": "Marshal",
     "files": [
       "dist/**/*",
+      "assets/**/*",
       "operator/static/**/*",
       "open-chatgpt-browser-default-profile.sh",
       "node_modules/**/*"
     ],
     "asarUnpack": [
-      "node_modules/ffmpeg-static/**/*"
+      "node_modules/ffmpeg-static/**/*",
+      "dist/desktop/dictation/audio-recorder",
+      "dist/desktop/capture/screen-recorder",
+      "dist/desktop/capture/scroll-capture",
+      "dist/desktop/capture/scroll-stitch",
+      "dist/desktop/translator/apple-vision-ocr",
+      "dist/desktop/translator/send-keystroke"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -58,6 +65,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "extendInfo": {
+        "LSUIElement": true,
         "NSMicrophoneUsageDescription": "Marshal needs microphone access to transcribe your voice dictation.",
         "NSAppleEventsUsageDescription": "Marshal uses Apple Events to auto-paste dictated text.",
         "NSScreenCaptureUsageDescription": "Marshal captures a selected screen region for OCR translation."

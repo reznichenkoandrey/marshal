@@ -35,26 +35,34 @@ export class ClipboardMonitor extends EventEmitter {
   private hookRelease: UiohookReleaseFn | null = null;
   private pendingReadTimer: NodeJS.Timeout | null = null;
 
+  // CRITICAL: any throw inside this handler propagates back through
+  // uiohook-napi's `tsfn_to_js_proxy`, where `napi_call_function` returns
+  // `napi_pending_exception` → `NAPI_FATAL_IF_FAILED` → `abort()` (SIGABRT).
+  // Wrap the whole body so the native side never sees a JS exception.
   private readonly onKeyDown = (event: UiohookKeyboardEvent): void => {
-    if (!this.isPlainCmdC(event)) return;
+    try {
+      if (!this.isPlainCmdC(event)) return;
 
-    const now = Date.now();
-    const elapsed = now - this.lastCopyTs;
+      const now = Date.now();
+      const elapsed = now - this.lastCopyTs;
 
-    if (this.debug) {
-      console.log(`[ClipboardMonitor] ⌘C keydown elapsed=${elapsed}ms lastCopyTs=${this.lastCopyTs}`);
+      if (this.debug) {
+        console.log(`[ClipboardMonitor] ⌘C keydown elapsed=${elapsed}ms lastCopyTs=${this.lastCopyTs}`);
+      }
+
+      if (this.lastCopyTs > 0 && elapsed <= DOUBLE_COPY_WINDOW_MS) {
+        // Second ⌘C within window. Reset state immediately so a third press
+        // starts a fresh detection cycle, then defer the pasteboard read so
+        // Cocoa's copy command has time to commit the new contents.
+        this.lastCopyTs = 0;
+        this.schedulePasteboardRead();
+        return;
+      }
+
+      this.lastCopyTs = now;
+    } catch (err) {
+      console.error("[ClipboardMonitor] onKeyDown threw (suppressed to avoid napi abort):", err);
     }
-
-    if (this.lastCopyTs > 0 && elapsed <= DOUBLE_COPY_WINDOW_MS) {
-      // Second ⌘C within window. Reset state immediately so a third press
-      // starts a fresh detection cycle, then defer the pasteboard read so
-      // Cocoa's copy command has time to commit the new contents.
-      this.lastCopyTs = 0;
-      this.schedulePasteboardRead();
-      return;
-    }
-
-    this.lastCopyTs = now;
   };
 
   start(): void {
