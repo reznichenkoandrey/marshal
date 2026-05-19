@@ -83,6 +83,18 @@ if (process.platform === "darwin") {
       out: path.join(root, "dist", "desktop", "capture", "screen-recorder"),
       label: "screen-recorder",
       fallbackNote: "video recording (Cmd+Option+6) will be unavailable"
+    },
+    {
+      src: path.join(root, "desktop", "capture", "swift", "scroll-capture.swift"),
+      out: path.join(root, "dist", "desktop", "capture", "scroll-capture"),
+      label: "scroll-capture",
+      fallbackNote: "scrolling capture (experimental) will be unavailable"
+    },
+    {
+      src: path.join(root, "desktop", "capture", "swift", "scroll-stitch.swift"),
+      out: path.join(root, "dist", "desktop", "capture", "scroll-stitch"),
+      label: "scroll-stitch",
+      fallbackNote: "scrolling capture stitching will be unavailable"
     }
   ];
 
