@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marshal Toolbar</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./floating-toolbar.css" />
+</head>
+<body>
+  <div class="toolbar">
+    <span class="grip" title="Drag to move" aria-hidden="true">⋮⋮</span>
+
+    <button id="btn-area" type="button" class="toolbar-btn" title="Area screenshot (⌘⌥3)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3h4M21 3h-4M3 21h4M21 21h-4M3 8v8M21 8v8" />
+      </svg>
+    </button>
+
+    <button id="btn-fullscreen" type="button" class="toolbar-btn" title="Full screen (⌘⌥4)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+      </svg>
+    </button>
+
+    <button id="btn-record" type="button" class="toolbar-btn record" title="Start / stop recording (⌘⌥6)">
+      <svg id="record-icon-idle" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="12" cy="12" r="6" />
+      </svg>
+      <svg id="record-icon-stop" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" class="hidden">
+        <rect x="6" y="6" width="12" height="12" rx="1" />
+      </svg>
+    </button>
+
+    <span class="divider" aria-hidden="true"></span>
+
+    <button id="btn-gif" type="button" class="toolbar-btn" title="Convert latest recording to GIF">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="6" width="18" height="12" rx="2" />
+        <path d="M7 10v4M11 10v4M15 10h2M17 10v4" />
+      </svg>
+    </button>
+
+    <button id="btn-history" type="button" class="toolbar-btn" title="Show capture history">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <polyline points="12 7 12 12 15 14" />
+      </svg>
+    </button>
+
+    <span class="divider" aria-hidden="true"></span>
+
+    <button id="btn-close" type="button" class="toolbar-btn ghost" title="Hide toolbar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+
+  <script src="./floating-toolbar.js"></script>
+</body>
+</html>

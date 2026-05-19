@@ -1,0 +1,208 @@
+:root {
+  color-scheme: dark light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg-app);
+  color: var(--text-default);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  -webkit-app-region: drag;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  /* Leave room for the macOS traffic lights — same trick the editor uses. */
+  padding-left: 80px;
+}
+
+.history-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.history-title-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-default);
+}
+.history-folder {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-actions {
+  display: flex;
+  gap: var(--space-2);
+  -webkit-app-region: no-drag;
+}
+
+.ghost-btn {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-default);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.ghost-btn:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-default);
+}
+
+main {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.tile:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.tile-thumb {
+  background: var(--bg-muted);
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.tile-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tile-thumb .placeholder {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-wider);
+}
+
+.tile-meta {
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+.tile-name {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-default);
+}
+.tile-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tile-badge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-wider);
+  background: rgba(0, 0, 0, 0.55);
+  color: #f5f5f7;
+}
+
+.tile-actions {
+  position: absolute;
+  inset: auto var(--space-2) var(--space-2) auto;
+  display: none;
+  gap: 4px;
+}
+.tile:hover .tile-actions {
+  display: flex;
+}
+.tile-action-btn {
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-xs);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.tile-action-btn:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.history-empty {
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 60px;
+}
+.history-empty kbd {
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-default);
+}
+.history-empty-hint {
+  font-size: var(--fs-sm);
+  margin-top: 8px;
+}
+
+.hidden {
+  display: none !important;
+}

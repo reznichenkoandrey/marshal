@@ -70,6 +70,9 @@ const dom = {
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
+  settingsCaptureFolder: document.getElementById("settings-capture-folder"),
+  settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
+  settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   appearanceSegmented: document.getElementById("appearance-segmented"),
@@ -796,6 +799,15 @@ function bindEvents() {
   dom.settingsBtn?.addEventListener("click", openSettings);
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
+  dom.settingsCaptureFolderPick?.addEventListener("click", async () => {
+    if (!api?.selectDirectory || !dom.settingsCaptureFolder) return;
+    try {
+      const picked = await api.selectDirectory();
+      if (picked) dom.settingsCaptureFolder.value = picked;
+    } catch (err) {
+      console.error("selectDirectory failed", err);
+    }
+  });
   dom.settingsDictationPromptReset?.addEventListener("click", async (e) => {
     e.preventDefault();
     if (!dom.settingsDictationPrompt || !api?.getDictationDefaults) return;
@@ -903,6 +915,12 @@ async function openSettings() {
     if (dom.settingsDictationPrompt) {
       dom.settingsDictationPrompt.value = current.dictationPrompt ?? "";
     }
+    if (dom.settingsCaptureFolder) {
+      dom.settingsCaptureFolder.value = current.captureDefaultFolder ?? "";
+    }
+    if (dom.settingsLaunchAtLogin) {
+      dom.settingsLaunchAtLogin.checked = current.launchAtLogin ?? false;
+    }
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
     clearSettingsStatus();
@@ -948,7 +966,9 @@ async function saveSettingsFromForm() {
     dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
-    dictationPrompt: dom.settingsDictationPrompt?.value ?? ""
+    dictationPrompt: dom.settingsDictationPrompt?.value ?? "",
+    captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
+    launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);

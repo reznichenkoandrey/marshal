@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marshal — Captures</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./capture-history.css" />
+</head>
+<body>
+  <header class="history-toolbar">
+    <div class="history-title">
+      <span class="history-title-label">Captures</span>
+      <span id="folder-path" class="history-folder"></span>
+    </div>
+    <div class="history-actions">
+      <button id="refresh-btn" type="button" class="ghost-btn" title="Re-read folder">Refresh</button>
+      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the capture folder in Finder">Open folder</button>
+      <button id="close-btn" type="button" class="ghost-btn" title="Close history">Close</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="grid" class="history-grid"></div>
+    <div id="empty" class="history-empty hidden">
+      <p>No Marshal captures yet.</p>
+      <p class="history-empty-hint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
+    </div>
+  </main>
+
+  <script src="./capture-history.js"></script>
+</body>
+</html>

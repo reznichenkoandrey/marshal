@@ -8,6 +8,8 @@ import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMai
 import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
 import { CaptureWindow } from "./capture/capture-window.ts";
+import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
+import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { runCountdown } from "./capture/countdown-window.ts";
 import { pickArea } from "./capture/area-picker.ts";
 import { RecordingIndicator } from "./capture/recording-indicator.ts";
@@ -44,6 +46,8 @@ let translatorWindow: TranslatorWindow | null = null;
 let screenshotService: ScreenshotService | null = null;
 let captureService: CaptureService | null = null;
 let captureWindow: CaptureWindow | null = null;
+let captureHistoryWindow: CaptureHistoryWindow | null = null;
+let floatingToolbar: FloatingToolbar | null = null;
 let videoRecorder: VideoRecorder | null = null;
 let recordingIndicator: RecordingIndicator | null = null;
 let isRecording = false;
@@ -335,6 +339,71 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
+  // ── Capture history ──
+  handleIpc("marshal:capture-history:refresh", () => {
+    captureHistoryWindow?.refresh();
+    return { ok: true };
+  });
+  handleIpc("marshal:capture-history:open-in-editor", async (_event, input: { path: string }) => {
+    if (!captureHistoryWindow || !captureWindow) return { ok: false, error: "Capture not initialized" };
+    const image = await captureHistoryWindow.readImage(input.path);
+    if (!image) return { ok: false, error: "Cannot read image (not in capture folder, or unreadable)" };
+    // Pass kind: "area" so the editor sets the right title. width/height get
+    // re-read from the decoded base64 inside the editor itself.
+    captureWindow.openEditor({
+      capture: { base64: image.base64, width: image.width, height: image.height, kind: "area" }
+    });
+    return { ok: true };
+  });
+  handleIpc("marshal:capture-history:open-external", async (_event, input: { path: string }) => {
+    if (!captureHistoryWindow) return { ok: false, error: "Capture not initialized" };
+    return await captureHistoryWindow.revealOrOpen(input.path, "open");
+  });
+  handleIpc("marshal:capture-history:reveal", async (_event, input: { path: string }) => {
+    if (!captureHistoryWindow) return { ok: false, error: "Capture not initialized" };
+    return await captureHistoryWindow.revealOrOpen(input.path, "reveal");
+  });
+  handleIpc("marshal:capture-history:reveal-folder", () => {
+    const folder = loadSettings().captureDefaultFolder || path.join(app.getPath("home"), "Desktop");
+    shell.openPath(folder).catch(() => undefined);
+    return { ok: true };
+  });
+  handleIpc("marshal:capture-history:close", () => {
+    captureHistoryWindow?.close();
+    return { ok: true };
+  });
+
+  // ── Floating toolbar ──
+  handleIpc("marshal:toolbar:capture-area", () => {
+    void runCapture("area");
+    return { ok: true };
+  });
+  handleIpc("marshal:toolbar:capture-fullscreen", () => {
+    void runCapture("fullscreen");
+    return { ok: true };
+  });
+  handleIpc("marshal:toolbar:toggle-recording", async () => {
+    if (isRecording) {
+      await stopVideoRecording();
+    } else {
+      await toggleVideoRecording("fullscreen");
+    }
+    return { ok: true };
+  });
+  handleIpc("marshal:toolbar:open-gif", () => {
+    void openGifConverter();
+    return { ok: true };
+  });
+  handleIpc("marshal:toolbar:open-history", () => {
+    captureHistoryWindow?.open();
+    return { ok: true };
+  });
+  handleIpc("marshal:toolbar:recording-state", () => ({ recording: isRecording }));
+  handleIpc("marshal:toolbar:close", () => {
+    floatingToolbar?.close();
+    return { ok: true };
+  });
+
   handleIpc("marshal:recording-toggle", (_event, input: { paused: boolean }) => {
     if (!videoRecorder || !isRecording) return { ok: false };
     if (input.paused) {
@@ -569,6 +638,11 @@ function initDictation(): void {
 function initCapture(): void {
   captureService = new CaptureService(preloadPath);
   captureWindow = new CaptureWindow(preloadPath);
+  captureHistoryWindow = new CaptureHistoryWindow(
+    preloadPath,
+    () => loadSettings().captureDefaultFolder
+  );
+  floatingToolbar = new FloatingToolbar(preloadPath);
   recordingIndicator = new RecordingIndicator(preloadPath);
   gifDialog = new GifDialog(preloadPath);
 
@@ -777,6 +851,15 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
       label: "Convert video to GIF…",
       enabled: GifEncoder.isAvailable(),
       click: () => void openGifConverter()
+    },
+    { type: "separator" },
+    {
+      label: "Show capture history…",
+      click: () => captureHistoryWindow?.open()
+    },
+    {
+      label: floatingToolbar?.isOpen() ? "Hide floating toolbar" : "Show floating toolbar",
+      click: () => floatingToolbar?.toggle()
     }
   );
 
@@ -1016,6 +1099,14 @@ async function refreshTrayState(): Promise<void> {
   // Show a single-character "recording" indicator next to the tray icon so
   // the user can see at a glance that the mic or screen is live.
   tray.setTitle(isDictating || isRecording ? "●" : "");
+
+  // Mirror recording state into every Electron BrowserWindow that subscribed
+  // (currently the floating toolbar). Cheap fan-out; no-op if no listeners.
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("marshal:toolbar:recording-state-changed", { recording: isRecording });
+    }
+  }
 
   // Context menu is set via right-click handler in createTray()
 }

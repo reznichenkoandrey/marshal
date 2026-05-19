@@ -205,6 +205,46 @@
             </div>
           </fieldset>
 
+          <fieldset class="field-group">
+            <legend>Capture</legend>
+
+            <div class="field">
+              <label for="settings-capture-folder">Save captures to</label>
+              <div class="folder-picker">
+                <input id="settings-capture-folder" name="captureDefaultFolder" type="text"
+                  placeholder="Defaults to ~/Desktop" autocomplete="off" />
+                <button type="button" id="settings-capture-folder-pick" class="btn btn-ghost">Choose…</button>
+              </div>
+              <p class="field-hint">
+                Where screenshots, recordings, GIFs, and full-page Chrome captures land.
+                Leave blank to use ~/Desktop.
+              </p>
+            </div>
+
+            <div class="field">
+              <label>Hotkeys</label>
+              <ul class="hotkey-list">
+                <li><kbd>⌘⇧2</kbd> — area screenshot → translator OCR</li>
+                <li><kbd>⌘⌥3</kbd> — area screenshot → editor</li>
+                <li><kbd>⌘⌥4</kbd> — full screen → editor</li>
+                <li><kbd>⌘⌥6</kbd> — start / stop video recording</li>
+                <li><kbd>⌘⌥L</kbd> — layout swap (Punto-Switcher)</li>
+                <li><kbd>⌘⌥T</kbd> — translator window</li>
+              </ul>
+              <p class="field-hint">
+                Hotkeys are fixed in this build. Custom mappings will land with #72 follow-up.
+              </p>
+            </div>
+
+            <div class="field">
+              <input id="settings-launch-at-login" name="launchAtLogin" type="checkbox" />
+              <label for="settings-launch-at-login">Start Marshal at login</label>
+              <p class="field-hint">
+                Registers Marshal as a macOS Login Item. Toggling here matches the same option in the tray menu.
+              </p>
+            </div>
+          </fieldset>
+
           <div id="settings-status" class="status-banner hidden"></div>
         </form>
 

@@ -154,10 +154,71 @@ const captureApi = {
 
 contextBridge.exposeInMainWorld("marshalCapture", captureApi);
 
+// ── Capture History API ──
+// Used exclusively by the history viewer window (capture-history.html).
+const historyApi = {
+  onLoaded: (
+    cb: (
+      event: IpcRendererEvent,
+      payload: {
+        folder: string;
+        entries: Array<{
+          path: string;
+          name: string;
+          kind: "image" | "video" | "gif" | "other";
+          bytes: number;
+          modifiedAt: number;
+        }>;
+      }
+    ) => void
+  ) =>
+    registerListener<[
+      {
+        folder: string;
+        entries: Array<{
+          path: string;
+          name: string;
+          kind: "image" | "video" | "gif" | "other";
+          bytes: number;
+          modifiedAt: number;
+        }>;
+      }
+    ]>("marshal:capture-history-loaded", cb),
+  refresh: () => ipcRenderer.invoke("marshal:capture-history:refresh"),
+  openInEditor: (filePath: string) =>
+    ipcRenderer.invoke("marshal:capture-history:open-in-editor", { path: filePath }),
+  openExternal: (filePath: string) =>
+    ipcRenderer.invoke("marshal:capture-history:open-external", { path: filePath }),
+  reveal: (filePath: string) =>
+    ipcRenderer.invoke("marshal:capture-history:reveal", { path: filePath }),
+  revealFolder: () => ipcRenderer.invoke("marshal:capture-history:reveal-folder"),
+  close: () => ipcRenderer.invoke("marshal:capture-history:close")
+};
+
+contextBridge.exposeInMainWorld("marshalHistory", historyApi);
+
+// ── Floating toolbar API ──
+const toolbarApi = {
+  captureArea: () => ipcRenderer.invoke("marshal:toolbar:capture-area"),
+  captureFullscreen: () => ipcRenderer.invoke("marshal:toolbar:capture-fullscreen"),
+  toggleRecording: () => ipcRenderer.invoke("marshal:toolbar:toggle-recording"),
+  openGifConverter: () => ipcRenderer.invoke("marshal:toolbar:open-gif"),
+  openHistory: () => ipcRenderer.invoke("marshal:toolbar:open-history"),
+  pollRecordingState: () =>
+    ipcRenderer.invoke("marshal:toolbar:recording-state") as Promise<{ recording: boolean }>,
+  onRecordingState: (cb: (event: IpcRendererEvent, payload: { recording: boolean }) => void) =>
+    registerListener<[{ recording: boolean }]>("marshal:toolbar:recording-state-changed", cb),
+  close: () => ipcRenderer.invoke("marshal:toolbar:close")
+};
+
+contextBridge.exposeInMainWorld("marshalToolbar", toolbarApi);
+
 declare global {
   interface Window {
     marshalDesktop: typeof desktopApi;
     marshalTranslator: typeof translatorApi;
     marshalCapture: typeof captureApi;
+    marshalHistory: typeof historyApi;
+    marshalToolbar: typeof toolbarApi;
   }
 }
