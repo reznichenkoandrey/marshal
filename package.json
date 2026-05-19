@@ -1,6 +1,6 @@
 {
   "name": "local-chatgpt-agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -38,6 +38,8 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*",
       "dist/desktop/dictation/audio-recorder",
+      "dist/desktop/dictation/whisper-cli",
+      "dist/desktop/dictation/ggml-small.bin",
       "dist/desktop/capture/screen-recorder",
       "dist/desktop/capture/scroll-capture",
       "dist/desktop/capture/scroll-stitch",

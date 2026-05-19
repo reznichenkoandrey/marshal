@@ -57,6 +57,41 @@ for (const filePath of sanitizedScripts) {
 await fs.rm(desktopRendererDistDir, { recursive: true, force: true });
 await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 
+// Stage whisper.cpp into dist/ so electron-builder ships it inside the
+// packaged DMG. Without this, voice dictation silently fails in production:
+// `whisper-backend.ts` resolves the binary relative to `process.cwd()` which
+// in a packaged build points outside the .app, so `fs.access` always fails.
+//
+// Both artifacts are produced by `npm run setup:dictation` (whisper-cli built
+// from source, model fetched from upstream). They're optional — if the user
+// hasn't run setup yet, we skip silently and the dev runtime falls back to
+// the `.whisper/` symlink in the project root.
+{
+  const whisperBinSrc = path.join(root, ".whisper", "whisper.cpp", "build", "bin", "whisper-cli");
+  const whisperBinDst = path.join(root, "dist", "desktop", "dictation", "whisper-cli");
+  const whisperModelSrc = path.join(root, ".whisper", "models", "ggml-small.bin");
+  const whisperModelDst = path.join(root, "dist", "desktop", "dictation", "ggml-small.bin");
+
+  await fs.mkdir(path.dirname(whisperBinDst), { recursive: true });
+
+  try {
+    await fs.access(whisperBinSrc);
+    await fs.copyFile(whisperBinSrc, whisperBinDst);
+    await fs.chmod(whisperBinDst, 0o755);
+    console.log("[postbuild] whisper-cli copied →", whisperBinDst);
+  } catch {
+    console.warn("[postbuild] whisper-cli missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
+  }
+
+  try {
+    await fs.access(whisperModelSrc);
+    await fs.copyFile(whisperModelSrc, whisperModelDst);
+    console.log("[postbuild] ggml-small.bin copied →", whisperModelDst);
+  } catch {
+    console.warn("[postbuild] ggml-small.bin missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
+  }
+}
+
 // Compile Swift helpers (macOS only).
 if (process.platform === "darwin") {
   const swiftTargets = [

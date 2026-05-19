@@ -4,8 +4,9 @@
 // Groq/OpenAI/etc. without touching orchestration.
 
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type TranscribeResult = {
   text: string;
@@ -188,10 +189,36 @@ export function parseDetectedLanguage(stderr: string): string | undefined {
   return match ? match[1].toLowerCase() : undefined;
 }
 
+// Resolve paths relative to the COMPILED JS file rather than `process.cwd()`.
+// In dev, this lands at `dist/desktop/dictation/`, and the postbuild script has
+// already copied whisper-cli + model into that directory. In a packaged build,
+// the same path inside the .app resolves to `app.asar.unpacked/dist/desktop/
+// dictation/` thanks to the `asarUnpack` rule in package.json — so production
+// finds the binary in the same relative spot as dev.
+//
+// Fallback chain (used when the bundled copy is missing):
+//   1. Bundled: `<dist>/desktop/dictation/{whisper-cli, ggml-small.bin}`
+//   2. Project-local: `<project_root>/.whisper/{bin/whisper-cli, models/ggml-small.bin}`
+//      — used in dev before `npm run setup:dictation` ran the rebuild.
+const distDictationDir = path.dirname(fileURLToPath(import.meta.url));
+
+function firstExisting(candidates: string[]): string {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
 function resolveDefaultBin(): string {
-  return path.join(process.cwd(), ".whisper", "bin", "whisper-cli");
+  return firstExisting([
+    path.join(distDictationDir, "whisper-cli"),
+    path.join(process.cwd(), ".whisper", "bin", "whisper-cli")
+  ]);
 }
 
 function resolveDefaultModel(): string {
-  return path.join(process.cwd(), ".whisper", "models", "ggml-small.bin");
+  return firstExisting([
+    path.join(distDictationDir, "ggml-small.bin"),
+    path.join(process.cwd(), ".whisper", "models", "ggml-small.bin")
+  ]);
 }
