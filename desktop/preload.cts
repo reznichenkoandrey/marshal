@@ -108,7 +108,14 @@ const desktopApi = {
     dictationAutoPaste?: boolean;
     dictationPrompt?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
-  getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>
+  getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
+  checkForUpdatesSilent: () => ipcRenderer.invoke("marshal:check-for-updates-silent") as Promise<
+    | { available: false; error: string }
+    | { available: false; currentVersion: string; latestVersion: string; releaseUrl: string; downloadUrl: string | null; releaseNotes: string }
+    | { available: true; currentVersion: string; latestVersion: string; releaseUrl: string; downloadUrl: string | null; releaseNotes: string }
+    | { error: string }
+  >,
+  openExternal: (url: string) => ipcRenderer.invoke("marshal:open-external", url) as Promise<{ ok: true }>
 };
 
 contextBridge.exposeInMainWorld("marshalDesktop", desktopApi);

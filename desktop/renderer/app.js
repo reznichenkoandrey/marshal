@@ -74,6 +74,8 @@ const dom = {
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
   settingsCheckUpdates: document.getElementById("settings-check-updates"),
+  settingsCheckUpdatesNow: document.getElementById("settings-check-updates-now"),
+  settingsUpdateResult: document.getElementById("settings-update-result"),
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   appearanceSegmented: document.getElementById("appearance-segmented"),
@@ -819,6 +821,7 @@ function bindEvents() {
       console.error("getDictationDefaults failed", err);
     }
   });
+  dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   document.querySelectorAll('[data-close="settings"]').forEach((el) =>
     el.addEventListener("click", closeSettings)
   );
@@ -1056,6 +1059,66 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// ── Settings: check for updates ──
+
+async function checkForUpdatesFromSettings() {
+  const btn = dom.settingsCheckUpdatesNow;
+  const out = dom.settingsUpdateResult;
+  if (!btn || !out || !api?.checkForUpdatesSilent) return;
+
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "Checking…";
+  out.classList.remove("hidden", "is-available", "is-error");
+  out.innerHTML = `<div class="update-result-row"><span class="title">Contacting GitHub Releases…</span></div>`;
+
+  try {
+    const result = await api.checkForUpdatesSilent();
+    renderUpdateResult(result);
+  } catch (err) {
+    out.classList.add("is-error");
+    out.innerHTML = `<div class="update-result-row"><span class="title">Check failed: ${escapeHtml(err?.message ?? String(err))}</span></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function renderUpdateResult(result) {
+  const out = dom.settingsUpdateResult;
+  if (!out) return;
+  out.classList.remove("is-available", "is-error");
+
+  if (result && "error" in result && result.error) {
+    out.classList.add("is-error");
+    out.innerHTML = `<div class="update-result-row"><span class="title">Could not reach GitHub: ${escapeHtml(result.error)}</span></div>`;
+    return;
+  }
+  if (!result || !("available" in result)) {
+    out.classList.add("is-error");
+    out.innerHTML = `<div class="update-result-row"><span class="title">Unexpected response</span></div>`;
+    return;
+  }
+  if (!result.available) {
+    out.innerHTML = `<div class="update-result-row"><span class="title">You're up to date (v${escapeHtml(result.currentVersion ?? "")}).</span></div>`;
+    return;
+  }
+
+  out.classList.add("is-available");
+  const url = result.downloadUrl || result.releaseUrl;
+  const notes = (result.releaseNotes ?? "").trim();
+  out.innerHTML = `
+    <div class="update-result-row">
+      <span class="title">Marshal v${escapeHtml(result.latestVersion)} is available <span style="color:var(--text-muted);font-weight:400;">(you have v${escapeHtml(result.currentVersion)})</span></span>
+      <button type="button" class="btn btn-primary" data-update-download>Download</button>
+    </div>
+    ${notes ? `<div class="update-result-notes">${escapeHtml(notes)}</div>` : ""}
+  `;
+  out.querySelector("[data-update-download]")?.addEventListener("click", () => {
+    void api.openExternal?.(url);
+  });
 }
 
 // ── Init ──

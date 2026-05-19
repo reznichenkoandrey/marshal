@@ -226,6 +226,14 @@ function registerIpcHandlers(): void {
 
   handleIpc("marshal:get-settings", () => loadSettings());
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
+  handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
+  handleIpc("marshal:open-external", (_event, url: string) => {
+    if (typeof url !== "string" || !/^https?:\/\//u.test(url)) {
+      throw new Error("Refused to open non-http URL");
+    }
+    void shell.openExternal(url);
+    return { ok: true };
+  });
   handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
@@ -779,6 +787,18 @@ async function runManualUpdateCheck(): Promise<void> {
   }
   const result = await updateChecker.check();
   await showUpdateDialog(result);
+}
+
+/**
+ * Renderer-facing variant: returns the raw outcome instead of opening a
+ * blocking dialog. The Settings UI uses this to render the result inline
+ * (with its own Download / Skip buttons) so the user stays in the popover.
+ */
+async function runSilentUpdateCheck(): Promise<UpdateCheckOutcome | { error: string }> {
+  if (!updateChecker) {
+    return { error: "Update checker is not running in this build." };
+  }
+  return updateChecker.check();
 }
 
 async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {

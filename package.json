@@ -1,6 +1,6 @@
 {
   "name": "local-chatgpt-agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -47,6 +47,7 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "assets/icon.icns",
+      "identity": "099164E16AE88B2052B842BE1036FB10411B7239",
       "target": [
         {
           "target": "dmg",

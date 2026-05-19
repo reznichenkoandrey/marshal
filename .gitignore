@@ -17,3 +17,6 @@ operator-data/
 assets/icon.iconset/
 .whisper/
 .playwright-mcp/
+
+# Self-signed codesign cert (private key — must not be committed)
+.codesign/

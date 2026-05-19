@@ -857,6 +857,45 @@ a:hover {
   color: var(--text-muted);
   line-height: var(--lh-normal);
 }
+
+.update-result {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-default);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.update-result.is-available {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-muted));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default));
+}
+.update-result.is-error {
+  background: color-mix(in srgb, #dc2626 8%, var(--bg-muted));
+  border-color: color-mix(in srgb, #dc2626 30%, var(--border-default));
+}
+.update-result-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.update-result-row .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: var(--fw-medium);
+  color: var(--text-default);
+}
+.update-result-notes {
+  margin-top: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
 .field-hint code {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);

@@ -255,7 +255,22 @@
                 Polls the GitHub Releases API once on launch and every 6 hours.
                 Notification surfaces new versions; you install the .dmg manually
                 (auto-install is gated on code-signing — see <code>#78</code>).
-                Manual check is always available from the tray menu.
+              </p>
+            </div>
+
+            <div class="field">
+              <button type="button" id="settings-check-updates-now" class="btn btn-secondary">
+                Check for updates now
+              </button>
+              <div id="settings-update-result" class="update-result hidden"></div>
+              <p class="field-hint">
+                Marshal is signed with a stable self-signed certificate, so
+                from v0.1.3 onwards your Microphone / Accessibility / Screen
+                Recording permissions persist across updates. The first
+                v0.1.3 install will still re-prompt (one-time transition
+                from the old ad-hoc signature); after that, updates are
+                silent. First launch may show "unidentified developer" —
+                right-click the app → Open.
               </p>
             </div>
           </fieldset>
