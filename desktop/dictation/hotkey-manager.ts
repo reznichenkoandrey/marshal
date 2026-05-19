@@ -7,7 +7,8 @@
 // by the clipboard monitor, so no additional prompt.
 
 import { EventEmitter } from "node:events";
-import { uIOhook, UiohookKey, type UiohookKeyboardEvent } from "uiohook-napi";
+import { UiohookKey, type UiohookKeyboardEvent, uIOhook } from "uiohook-napi";
+import { acquireUiohook, type UiohookReleaseFn } from "../uiohook-lifecycle.ts";
 
 export type HotkeySpec = {
   keycode: number;
@@ -130,6 +131,7 @@ export class PushToTalkHotkey extends EventEmitter {
   private readonly debug: boolean;
   private started = false;
   private holding = false;
+  private hookRelease: UiohookReleaseFn | null = null;
   private downHandler: (event: UiohookKeyboardEvent) => void;
   private upHandler: (event: UiohookKeyboardEvent) => void;
 
@@ -177,7 +179,7 @@ export class PushToTalkHotkey extends EventEmitter {
     if (this.started) return;
     uIOhook.on("keydown", this.downHandler);
     uIOhook.on("keyup", this.upHandler);
-    uIOhook.start();
+    this.hookRelease = acquireUiohook();
     this.started = true;
   }
 
@@ -185,9 +187,8 @@ export class PushToTalkHotkey extends EventEmitter {
     if (!this.started) return;
     uIOhook.off("keydown", this.downHandler);
     uIOhook.off("keyup", this.upHandler);
-    // Don't call uIOhook.stop() here — other consumers (e.g. clipboard
-    // monitor) may still need the hook running. uiohook handles zero-listener
-    // state fine.
+    this.hookRelease?.();
+    this.hookRelease = null;
     this.started = false;
     this.holding = false;
   }

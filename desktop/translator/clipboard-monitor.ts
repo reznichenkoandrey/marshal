@@ -20,7 +20,8 @@
 
 import { clipboard, globalShortcut } from "electron";
 import { EventEmitter } from "node:events";
-import { uIOhook, UiohookKey, type UiohookKeyboardEvent } from "uiohook-napi";
+import { UiohookKey, type UiohookKeyboardEvent, uIOhook } from "uiohook-napi";
+import { acquireUiohook, type UiohookReleaseFn } from "../uiohook-lifecycle.ts";
 
 const DOUBLE_COPY_WINDOW_MS = 600;
 const POST_COPY_READ_DELAY_MS = 80;
@@ -31,7 +32,7 @@ export class ClipboardMonitor extends EventEmitter {
   private readonly debug = process.env.MARSHAL_TRANSLATOR_DEBUG === "1";
   private lastCopyTs = 0;
   private lastEmitTime = 0;
-  private hookStarted = false;
+  private hookRelease: UiohookReleaseFn | null = null;
   private pendingReadTimer: NodeJS.Timeout | null = null;
 
   private readonly onKeyDown = (event: UiohookKeyboardEvent): void => {
@@ -58,11 +59,8 @@ export class ClipboardMonitor extends EventEmitter {
 
   start(): void {
     uIOhook.on("keydown", this.onKeyDown);
-    if (!this.hookStarted) {
-      // Safe to call even if another module (PushToTalkHotkey) already started
-      // the hook — uiohook is a process-wide singleton.
-      uIOhook.start();
-      this.hookStarted = true;
+    if (!this.hookRelease) {
+      this.hookRelease = acquireUiohook();
     }
 
     globalShortcut.register(DEDICATED_HOTKEY, () => {
@@ -82,9 +80,8 @@ export class ClipboardMonitor extends EventEmitter {
       this.pendingReadTimer = null;
     }
     globalShortcut.unregister(DEDICATED_HOTKEY);
-    // Do NOT call uIOhook.stop() — the dictation push-to-talk hotkey may still
-    // depend on it. uiohook tolerates zero listeners.
-    this.hookStarted = false;
+    this.hookRelease?.();
+    this.hookRelease = null;
   }
 
   /** Returns true only when ⌘+C is pressed with no other modifier. */

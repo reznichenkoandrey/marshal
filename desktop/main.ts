@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { config as loadDotenv } from "dotenv";
 import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
+import { menubar, type Menubar } from "menubar";
 
 import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
@@ -27,6 +28,7 @@ import { LayoutSwitcher } from "./translator/layout-switcher.ts";
 import { TranslatorService } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
+import { shutdownUiohookForQuit } from "./uiohook-lifecycle.ts";
 import { getSharedLocalBridgeServer } from "../agent/bridge/local-bridge-server.ts";
 
 // Load .env from project root before anything else. `override: false` matches
@@ -65,8 +67,16 @@ let translatorHistory: TranslatorHistoryStore | null = null;
 let dictationService: DictationService | null = null;
 let isDictating = false;
 
+// `mainWindow` and `tray` are cached refs to the menubar-managed window and
+// tray. The menubar instance owns lifecycle; these globals exist so existing
+// code paths (IPC handlers, capture overlays, recording state fan-out) can
+// keep referring to the popover by familiar names. After menubar emits
+// `ready`, `tray` is populated; after `after-create-window` (which fires on
+// startup thanks to `preloadWindow: true`, and again if the user ⌘W-closes
+// the popover) `mainWindow` is populated.
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let mb: Menubar | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -95,10 +105,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     app.on("second-instance", () => {
-      if (mainWindow) {
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-      }
+      void mb?.showWindow();
     });
 
     await app.whenReady();
@@ -113,8 +120,7 @@ async function bootstrap(): Promise<void> {
     applyLaunchAtLogin(initialSettings);
 
     registerIpcHandlers();
-    createMainWindow();
-    createTray();
+    createMenubarAndWindow();
     scheduleTrayRefresh();
 
     // `MARSHAL_HEADLESS=1` disables every subsystem that needs real hardware,
@@ -132,10 +138,7 @@ async function bootstrap(): Promise<void> {
     }
 
     app.on("activate", () => {
-      if (!mainWindow) {
-        createMainWindow();
-      }
-      showMainWindow();
+      void mb?.showWindow();
     });
 
     // Mark quitting early so other listeners (e.g. blur → hide) stop firing.
@@ -509,7 +512,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
   // Hide Marshal's own windows so they don't leak into the frame.
   translatorWindow?.hide();
   const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) mainWindow?.hide();
+  if (mainWasVisible) mb?.hideWindow();
   await new Promise<void>((r) => setTimeout(r, 120));
 
   try {
@@ -531,7 +534,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
     }
     console.error("[marshal] capture failed:", err);
   } finally {
-    if (mainWasVisible) mainWindow?.show();
+    if (mainWasVisible) void mb?.showWindow();
   }
 }
 
@@ -561,7 +564,7 @@ async function runScrollingCapture(): Promise<void> {
 
   const mainWasVisible = mainWindow?.isVisible() ?? false;
   translatorWindow?.hide();
-  if (mainWasVisible) mainWindow?.hide();
+  if (mainWasVisible) mb?.hideWindow();
 
   try {
     const pick = await pickArea({ preloadPath });
@@ -616,7 +619,7 @@ async function runScrollingCapture(): Promise<void> {
     }
     console.error("[marshal] scrolling capture failed:", err);
   } finally {
-    if (mainWasVisible) mainWindow?.show();
+    if (mainWasVisible) void mb?.showWindow();
   }
 }
 
@@ -692,6 +695,11 @@ async function performTeardown(): Promise<void> {
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
+  // Force-stop the uiohook worker before V8 begins teardown. Belt-and-braces:
+  // both consumers above already release via refcount, but if any handler
+  // throws partway through, the native worker would otherwise outlive the
+  // isolate and abort() the process via napi_fatal_error on shutdown.
+  shutdownUiohookForQuit();
   await backendClient.disposeAsync();
   await getSharedLocalBridgeServer().close().catch(() => undefined);
 }
@@ -916,7 +924,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
   // Hide Marshal's own windows so they don't appear in the recording.
   translatorWindow?.hide();
   const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) mainWindow?.hide();
+  if (mainWasVisible) mb?.hideWindow();
 
   let area: { x: number; y: number; width: number; height: number } | null = null;
 
@@ -924,7 +932,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
     if (kind === "area") {
       const pick = await pickArea({ preloadPath });
       if (!pick) {
-        if (mainWasVisible) mainWindow?.show();
+        if (mainWasVisible) void mb?.showWindow();
         return;
       }
       area = {
@@ -973,7 +981,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
         silent: true
       }).show();
     }
-    if (mainWasVisible) mainWindow?.show();
+    if (mainWasVisible) void mb?.showWindow();
   }
 }
 
@@ -1087,7 +1095,7 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   return Menu.buildFromTemplate([
-    { label: "Open Marshal", click: () => showMainWindow() },
+    { label: "Open Marshal", click: () => void mb?.showWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
     { label: "Capture", submenu: buildCaptureSubmenu() },
@@ -1242,65 +1250,63 @@ function initTranslator(): void {
   });
 }
 
-function createMainWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 480,
-    height: 720,
-    minWidth: 380,
-    minHeight: 520,
-    show: false,
-    frame: false,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 8 },
-    backgroundColor: "#ffffff",
-    icon: appIconPath,
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false
+function createMenubarAndWindow(): void {
+  // `menubar` owns the popover: positions it under the tray icon, toggles on
+  // left-click, fans out to multiple workspaces, and recreates the window on
+  // demand if it was closed. We rely on `alwaysOnTop: true` to bypass the
+  // library's built-in blur→hide so we can apply our DevTools guard via the
+  // `focus-lost` event instead.
+  mb = menubar({
+    index: `file://${rendererHtmlPath}`,
+    icon: createTrayIcon(),
+    tooltip: "Marshal",
+    showDockIcon: false,
+    showOnAllWorkspaces: false,
+    windowPosition: "trayCenter",
+    preloadWindow: true,
+    browserWindow: {
+      width: 380,
+      height: 560,
+      minWidth: 360,
+      minHeight: 480,
+      backgroundColor: "#ffffff",
+      icon: appIconPath,
+      autoHideMenuBar: true,
+      alwaysOnTop: true,
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false
+      }
     }
   });
 
-  mainWindow.on("close", (event) => {
-    if (isQuitting) {
-      return;
-    }
-    event.preventDefault();
-    mainWindow?.hide();
+  mb.on("ready", () => {
+    if (!mb) return;
+    tray = mb.tray;
+    // menubar binds left-click for toggle; the context menu goes on right-click.
+    mb.tray.on("right-click", () => {
+      mb?.tray.popUpContextMenu(buildTrayMenu());
+    });
+    void refreshTrayState();
   });
 
-  mainWindow.on("blur", () => {
-    if (process.platform !== "darwin" || isQuitting) return;
-    // Keep the window open while DevTools is driving the focus, otherwise the
-    // devtools panel becomes unusable (parent hides the moment you click into it).
+  // Fires on initial preload and again whenever the user closes the popover
+  // (⌘W) and re-opens it. Re-bind window-scoped listeners and refresh the
+  // cached ref each time.
+  mb.on("after-create-window", () => {
+    if (!mb?.window) return;
+    mainWindow = mb.window;
+  });
+
+  // `alwaysOnTop: true` causes menubar to emit `focus-lost` instead of
+  // calling hideWindow() directly on blur. Apply the DevTools guard, then
+  // delegate so the library's `_isVisible` state stays consistent.
+  mb.on("focus-lost", () => {
+    if (isQuitting) return;
     if (mainWindow?.webContents.isDevToolsOpened()) return;
-    mainWindow?.hide();
+    mb?.hideWindow();
   });
-
-  void mainWindow.loadFile(rendererHtmlPath);
-}
-
-function createTray(): void {
-  tray = new Tray(createTrayIcon());
-  tray.setToolTip("Marshal");
-
-  // Left click = toggle app window
-  tray.on("click", () => {
-    if (mainWindow?.isVisible()) {
-      mainWindow.hide();
-      return;
-    }
-    showMainWindow();
-  });
-
-  // Right click = context menu (not left click)
-  tray.on("right-click", () => {
-    if (!tray) return;
-    tray!.popUpContextMenu(buildTrayMenu());
-  });
-
-  void refreshTrayState();
 }
 
 async function refreshTrayState(): Promise<void> {
@@ -1330,7 +1336,7 @@ async function refreshTrayState(): Promise<void> {
     }
   }
 
-  // Context menu is set via right-click handler in createTray()
+  // Context menu is set via right-click handler in createMenubarAndWindow()
 }
 
 function scheduleTrayRefresh(): void {
@@ -1340,21 +1346,6 @@ function scheduleTrayRefresh(): void {
   trayRefreshTimer = setInterval(() => {
     void refreshTrayState();
   }, 5000);
-}
-
-function showMainWindow(): void {
-  if (!mainWindow) return;
-
-  if (tray && process.platform === "darwin") {
-    const trayBounds = tray.getBounds();
-    const windowBounds = mainWindow.getBounds();
-    const x = Math.round(trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2);
-    const y = Math.round(trayBounds.y + trayBounds.height + 8);
-    mainWindow.setPosition(x, y, false);
-  }
-
-  mainWindow.show();
-  mainWindow.focus();
 }
 
 function createTrayIcon(): Electron.NativeImage {
