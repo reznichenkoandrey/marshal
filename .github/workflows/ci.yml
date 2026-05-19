@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: typecheck + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is the real target — Linux runs the same JS tests as a cheap
+        # cross-platform smoke (uiohook-napi etc. are loaded lazily so the
+        # vitest suite stays portable).
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: install dependencies
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: test
+        run: npm test
+
+      - name: coverage (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: npm run test:coverage -- --reporter=default --reporter=json-summary
+        continue-on-error: true
+
+      - name: coverage summary
+        if: matrix.os == 'macos-latest' && always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const s = require('./coverage/coverage-summary.json').total;
+              const pct = (m) => m.pct.toFixed(1) + '%';
+              const md = '| Metric | Coverage |\n|---|---|\n' +
+                '| Lines | ' + pct(s.lines) + ' |\n' +
+                '| Statements | ' + pct(s.statements) + ' |\n' +
+                '| Functions | ' + pct(s.functions) + ' |\n' +
+                '| Branches | ' + pct(s.branches) + ' |\n';
+              require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## Coverage\n\n' + md);
+            "
+          else
+            echo 'coverage summary not produced'
+          fi

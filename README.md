@@ -1,5 +1,7 @@
 # Marshal
 
+[![ci](https://github.com/reznichenkoandrey/marshal/actions/workflows/ci.yml/badge.svg)](https://github.com/reznichenkoandrey/marshal/actions/workflows/ci.yml)
+
 Personal macOS menu-bar companion: **voice dictation** (push-to-talk → Whisper → clipboard), a **floating translator** (text + OCR via Groq / Claude), a **task-running agent** with multiple reasoning bridges, and a **Chrome extension** that drives ChatGPT / Claude / Gemini.
 
 All three surface into one Electron tray app; dictation and translator work fully offline on Apple Silicon, the agent reuses whatever model subscription you already have.

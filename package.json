@@ -20,6 +20,8 @@
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npm run build && node tests/e2e/smoke.mjs",
     "check": "npm run typecheck && npm run test",
     "setup:dictation": "bash scripts/install-whisper-cpp.sh"
   },
@@ -39,8 +41,18 @@
       "category": "public.app-category.developer-tools",
       "icon": "assets/icon.icns",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "artifactName": "Marshal-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
@@ -55,8 +67,16 @@
       "title": "Marshal ${version}",
       "icon": "assets/icon.icns",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "directories": {
@@ -74,8 +94,10 @@
   "devDependencies": {
     "@types/chrome": "^0.1.24",
     "@types/node": "^24.3.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
+    "electron-playwright-helpers": "^2.1.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.5"
   }
