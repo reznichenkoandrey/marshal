@@ -99,8 +99,24 @@ describe("saveSettings", () => {
       dictationLanguage: "uk",
       dictationAutoPaste: true,
       dictationPrompt: "React, Magento, PR",
-      captureDefaultFolder: ""
+      captureDefaultFolder: "",
+      launchAtLogin: false
     });
+  });
+
+  it("defaults launchAtLogin to false", () => {
+    const s = saveSettings({});
+    expect(s.launchAtLogin).toBe(false);
+  });
+
+  it("round-trips launchAtLogin true", () => {
+    saveSettings({ launchAtLogin: true });
+    expect(loadSettings().launchAtLogin).toBe(true);
+  });
+
+  it("falls back to default launchAtLogin for non-boolean values", () => {
+    const saved = saveSettings({ launchAtLogin: "yes" as unknown as boolean });
+    expect(saved.launchAtLogin).toBe(false);
   });
 
   it("defaults dictationPrompt to the bundled dev-glossary", () => {

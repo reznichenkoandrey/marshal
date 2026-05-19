@@ -50,6 +50,12 @@ export type MarshalSettings = {
    * ~/Desktop.
    */
   captureDefaultFolder: string;
+  /**
+   * Launch Marshal automatically when the user logs into macOS. Applied via
+   * `app.setLoginItemSettings({ openAtLogin })` — survives reboots and is
+   * managed by macOS, not by a launchd plist we have to maintain ourselves.
+   */
+  launchAtLogin: boolean;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -67,7 +73,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationLanguage: "auto",
   dictationAutoPaste: false,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
-  captureDefaultFolder: ""
+  captureDefaultFolder: "",
+  launchAtLogin: false
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
@@ -206,6 +213,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.dictationPrompt,
     captureDefaultFolder: typeof input.captureDefaultFolder === "string"
       ? input.captureDefaultFolder
-      : DEFAULT_SETTINGS.captureDefaultFolder
+      : DEFAULT_SETTINGS.captureDefaultFolder,
+    launchAtLogin: typeof input.launchAtLogin === "boolean"
+      ? input.launchAtLogin
+      : DEFAULT_SETTINGS.launchAtLogin
   };
 }

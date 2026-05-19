@@ -15,6 +15,7 @@
     "acceptance:phase8": "npm run build && node dist/agent/acceptance/phase8-operator.js",
     "acceptance": "npm run acceptance:phase6 && npm run acceptance:phase7 && npm run acceptance:phase8",
     "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "test": "vitest run",
@@ -36,12 +37,27 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": "dir",
+      "icon": "assets/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "artifactName": "Marshal-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Marshal needs microphone access to transcribe your voice dictation.",
         "NSAppleEventsUsageDescription": "Marshal uses Apple Events to auto-paste dictated text.",
         "NSScreenCaptureUsageDescription": "Marshal captures a selected screen region for OCR translation."
       }
+    },
+    "dmg": {
+      "title": "Marshal ${version}",
+      "icon": "assets/icon.icns",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     },
     "directories": {
       "output": "release"

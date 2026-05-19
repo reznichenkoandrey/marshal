@@ -98,7 +98,9 @@ async function bootstrap(): Promise<void> {
 
     // Settings override .env values. Must be applied BEFORE the backend utility
     // process forks so the child inherits the correct env.
-    applySettingsToEnv(loadSettings());
+    const initialSettings = loadSettings();
+    applySettingsToEnv(initialSettings);
+    applyLaunchAtLogin(initialSettings);
 
     registerIpcHandlers();
     createMainWindow();
@@ -204,6 +206,7 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
+    applyLaunchAtLogin(saved);
     // Hot-swap the translator so the new choice takes effect without waiting
     // for a full app restart. Apply bridge FIRST so "auto" resolves against
     // the up-to-date provider before setBackend re-reads the choice.
@@ -781,11 +784,22 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
 }
 
 function buildTrayMenu(): Electron.Menu {
+  const settings = loadSettings();
   return Menu.buildFromTemplate([
     { label: "Open Marshal", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
     { label: "Capture", submenu: buildCaptureSubmenu() },
+    { type: "separator" },
+    {
+      label: "Start at Login",
+      type: "checkbox",
+      checked: settings.launchAtLogin,
+      click: (item) => {
+        const next = saveSettings({ launchAtLogin: item.checked });
+        applyLaunchAtLogin(next);
+      }
+    },
     { type: "separator" },
     {
       label: "Quit",
@@ -795,6 +809,26 @@ function buildTrayMenu(): Electron.Menu {
       }
     }
   ]);
+}
+
+/**
+ * Mirror the persisted `launchAtLogin` preference into macOS Login Items.
+ * Uses Electron's wrapper around `LSSharedFileListItem`, which is what System
+ * Settings → General → Login Items reads — no launchd plist to maintain.
+ *
+ * On non-darwin platforms this is a no-op; Electron documents the call as
+ * supported only on macOS/Windows and we deliberately scope packaging to
+ * macOS today.
+ */
+function applyLaunchAtLogin(settings: MarshalSettings): void {
+  if (process.platform !== "darwin" && process.platform !== "win32") return;
+  app.setLoginItemSettings({
+    openAtLogin: settings.launchAtLogin,
+    // openAsHidden hides the dock-less accessory app on launch — we already
+    // suppress the dock via setActivationPolicy("accessory"), but this also
+    // suppresses any brief renderer flash.
+    openAsHidden: true
+  });
 }
 
 function initTranslator(): void {
