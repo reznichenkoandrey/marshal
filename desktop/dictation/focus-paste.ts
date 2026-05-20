@@ -40,14 +40,46 @@ export interface FocusProbeResult {
   isTextInput: boolean;
   role: string;
   subrole: string;
+  // AXError raw code from the FocusedUIElement read. 0 = success. Common
+  // failure: -25204 (kAXErrorCannotComplete) — target app doesn't publish
+  // an accessibility tree (Tauri / Flutter / some Electron with a11y off).
+  axError: number;
+  // Whether the helper itself has Accessibility trust. Surfaced so we can
+  // log meaningfully when AX is broken at our end vs at the target end.
+  axTrusted: boolean;
+  // NSWorkspace.frontmostApplication's localizedName, e.g. "Claude" or
+  // "Finder". Used as a fallback signal when AX silently fails.
+  frontmostApp: string;
 }
 
-const FALLBACK: FocusProbeResult = { isTextInput: false, role: "", subrole: "" };
+const FALLBACK: FocusProbeResult = {
+  isTextInput: false,
+  role: "",
+  subrole: "",
+  axError: -1,
+  axTrusted: false,
+  frontmostApp: ""
+};
+
+// Apps where pasting after a transcription is almost always wrong: Finder
+// performs no-op or filename rename, Mission Control isn't a text surface
+// at all, etc. When AX can't tell us anything (Tauri-style apps), we fall
+// back to a paste UNLESS the frontmost app is on this list.
+const NON_TEXT_FRONTMOST_APPS: ReadonlySet<string> = new Set([
+  "Finder",
+  "Mission Control",
+  "Notification Center",
+  "Notification Centre",
+  "Dock",
+  "loginwindow",
+  "SystemUIServer",
+  "Window Server"
+]);
 
 /**
  * Parse the JSON line emitted by focus-probe. Tolerates whitespace, partial
- * output, and malformed JSON — anything unexpected collapses to "no text
- * input" so the safe default (clipboard-only) wins.
+ * output, and malformed JSON — anything unexpected collapses to FALLBACK so
+ * the caller can decide policy without exception-handling.
  */
 export function parseFocusProbe(stdout: string): FocusProbeResult {
   const trimmed = stdout.trim();
@@ -59,11 +91,45 @@ export function parseFocusProbe(stdout: string): FocusProbeResult {
     return {
       isTextInput: record.isTextInput === true,
       role: typeof record.role === "string" ? record.role : "",
-      subrole: typeof record.subrole === "string" ? record.subrole : ""
+      subrole: typeof record.subrole === "string" ? record.subrole : "",
+      axError: typeof record.axError === "number" ? record.axError : -1,
+      axTrusted: record.axTrusted === true,
+      frontmostApp: typeof record.frontmostApp === "string" ? record.frontmostApp : ""
     };
   } catch {
     return FALLBACK;
   }
+}
+
+/**
+ * Decide whether to auto-paste the transcribed text. Three-tier rule:
+ *  1. If AX explicitly says "yes, text input" — paste.
+ *  2. If AX gave a clean answer with a non-text role — clipboard only.
+ *  3. If AX failed (target app doesn't publish a tree, common for Tauri /
+ *     native apps) — fall back to a frontmost-app blacklist. Paste anywhere
+ *     except apps that we know don't accept it.
+ *
+ * The fail-OPEN behavior on tier 3 trades a small risk of pasting into the
+ * wrong place (e.g. Spotlight when it lacks AX) for the much larger UX win
+ * of dictation working at all in modern non-Chromium apps.
+ */
+export function decideAutoPaste(focus: FocusProbeResult): boolean {
+  if (focus.isTextInput) return true;
+  // AX answered successfully ("role" populated) but the role isn't a text
+  // input. Trust it — the user is on a button / row / picker / etc.
+  if (focus.axError === 0 && focus.role !== "") return false;
+  // AX silent or errored. Use frontmost app heuristic.
+  if (NON_TEXT_FRONTMOST_APPS.has(focus.frontmostApp)) return false;
+  return true;
+}
+
+/**
+ * Whether a focus result implies the AX subsystem couldn't read the focused
+ * element. Exposed for debug logging so the dictation service can describe
+ * *why* it chose its branch.
+ */
+export function isAxBlind(focus: FocusProbeResult): boolean {
+  return focus.axError !== 0 || focus.role === "";
 }
 
 export interface ProbeOptions {

@@ -14,12 +14,16 @@
 // isTextInput:false, which preserves clipboard-only behavior.
 
 import ApplicationServices
+import Cocoa
 import Foundation
 
 struct ProbeResult {
     let isTextInput: Bool
     let role: String
     let subrole: String
+    let axError: Int  // AXError raw value from FocusedUIElement read, 0 = success
+    let axTrusted: Bool  // AXIsProcessTrusted() — does TCC see *this binary* as accessibility-trusted?
+    let frontmostApp: String  // NSWorkspace's idea of frontmost — sanity check vs AX
 }
 
 func copyString(_ element: AXUIElement, _ attribute: String) -> String {
@@ -36,13 +40,19 @@ func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
 }
 
 func probe() -> ProbeResult {
+    let trusted = AXIsProcessTrusted()
+    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+
     let system = AXUIElementCreateSystemWide()
     var focusedRef: CFTypeRef?
     let err = AXUIElementCopyAttributeValue(
         system, kAXFocusedUIElementAttribute as CFString, &focusedRef
     )
     guard err == .success, let focusedRef = focusedRef else {
-        return ProbeResult(isTextInput: false, role: "", subrole: "")
+        return ProbeResult(
+            isTextInput: false, role: "", subrole: "",
+            axError: Int(err.rawValue), axTrusted: trusted, frontmostApp: frontmost
+        )
     }
 
     let element = focusedRef as! AXUIElement
@@ -58,7 +68,10 @@ func probe() -> ProbeResult {
         "AXSearchField"
     ]
     if textRoles.contains(role) {
-        return ProbeResult(isTextInput: true, role: role, subrole: subrole)
+        return ProbeResult(
+            isTextInput: true, role: role, subrole: subrole,
+            axError: 0, axTrusted: trusted, frontmostApp: frontmost
+        )
     }
 
     // Fallback for web / Electron renderers: contenteditable elements often
@@ -67,10 +80,16 @@ func probe() -> ProbeResult {
     // "can I type into this?" without exhaustively enumerating Chromium's
     // role mapping.
     if isSettable(element, kAXValueAttribute as String) {
-        return ProbeResult(isTextInput: true, role: role, subrole: subrole)
+        return ProbeResult(
+            isTextInput: true, role: role, subrole: subrole,
+            axError: 0, axTrusted: trusted, frontmostApp: frontmost
+        )
     }
 
-    return ProbeResult(isTextInput: false, role: role, subrole: subrole)
+    return ProbeResult(
+        isTextInput: false, role: role, subrole: subrole,
+        axError: 0, axTrusted: trusted, frontmostApp: frontmost
+    )
 }
 
 func escape(_ value: String) -> String {
@@ -100,6 +119,9 @@ func escape(_ value: String) -> String {
 let result = probe()
 let json = "{\"isTextInput\":\(result.isTextInput ? "true" : "false")," +
     "\"role\":\"\(escape(result.role))\"," +
-    "\"subrole\":\"\(escape(result.subrole))\"}"
+    "\"subrole\":\"\(escape(result.subrole))\"," +
+    "\"axError\":\(result.axError)," +
+    "\"axTrusted\":\(result.axTrusted ? "true" : "false")," +
+    "\"frontmostApp\":\"\(escape(result.frontmostApp))\"}"
 print(json)
 exit(0)
