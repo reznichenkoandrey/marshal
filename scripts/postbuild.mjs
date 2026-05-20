@@ -133,6 +133,17 @@ if (process.platform === "darwin") {
     }
   ];
 
+  // Resolve stable codesign identity once for the whole batch. Without a
+  // stable signature each rebuild gives every helper a fresh CDHash, so macOS
+  // TCC treats them as new binaries and re-prompts for Microphone / Screen
+  // Recording on every dev run. See scripts/setup-codesign-cert.sh.
+  const stableIdentity = resolveStableCodesignIdentity();
+  if (stableIdentity) {
+    console.log(`[postbuild] Using stable codesign identity for Swift helpers: ${stableIdentity}`);
+  } else {
+    console.warn("[postbuild] No stable codesign identity found — Swift helpers will be ad-hoc signed. Run `npm run setup:codesign-cert` to fix.");
+  }
+
   for (const target of swiftTargets) {
     await fs.mkdir(path.dirname(target.out), { recursive: true });
     try {
@@ -140,18 +151,48 @@ if (process.platform === "darwin") {
       console.log(`[postbuild] ${target.label} compiled →`, target.out);
     } catch (err) {
       console.warn(`[postbuild] swiftc ${target.label} failed — ${target.fallbackNote}:`, err.message);
+      continue;
+    }
+    try {
+      const signArgs = stableIdentity
+        ? ["--force", "--sign", stableIdentity, "--timestamp=none", target.out]
+        : ["--force", "--sign", "-", target.out];
+      execFileSync("codesign", signArgs, { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (err) {
+      console.warn(`[postbuild] codesign ${target.label} failed:`, err.message);
     }
   }
 
   // Patch the dev Electron.app Info.plist so TCC allows our Swift helpers to
-  // touch the microphone / screen. Packaged builds get these via
-  // build.mac.extendInfo — this is the dev-only equivalent. #50.
+  // touch the microphone / screen, and re-sign the bundle with the stable
+  // identity so its CDHash stays constant across rebuilds. Packaged builds
+  // get these via build.mac.extendInfo — this is the dev-only equivalent.
+  // See #50, #84.
   const patchScript = path.join(root, "scripts", "patch-electron-info-plist.sh");
   try {
     execFileSync("bash", [patchScript], { stdio: "inherit" });
   } catch (err) {
     console.warn("[postbuild] patch-electron-info-plist failed:", err.message);
   }
+}
+
+function resolveStableCodesignIdentity() {
+  if (process.platform !== "darwin") return null;
+  try {
+    const out = execFileSync("security", ["find-identity", "-v", "-p", "codesigning"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    for (const line of out.split("\n")) {
+      if (!line.includes("Marshal Self-Signed")) continue;
+      if (line.includes("Invalid")) continue;
+      const match = line.match(/\b([0-9A-F]{40})\b/);
+      if (match) return match[1];
+    }
+  } catch {
+    // security tool missing or no identities — fall through to null.
+  }
+  return null;
 }
 
 async function copyDirectory(sourceDir, targetDir) {

@@ -27,13 +27,17 @@
 - Перед коммітом: `npm run check` (typecheck + test)
 
 ### First-run setup
+- **macOS codesign cert (ОБОВ'ЯЗКОВО для dev):**
+  1. `npm run setup:codesign-cert` — створює self-signed `Marshal Self-Signed` cert у keychain. Двічі попросить `sudo` (`security remove-trusted-cert` + `security add-trusted-cert`) — це нормально, скрипт надрукує точні команди.
+  2. Перевірка: `security find-identity -v -p codesigning | grep "Marshal Self-Signed"` — має бути хоча б один рядок без "Invalid Key Usage".
+  3. Чому це потрібно: без stable cert `npm run build` підписує bundle ad-hoc → новий CDHash щоразу → macOS TCC вважає це новим app → знову запитує Microphone/Screen Recording/Accessibility. Зі stable cert + фіксованим bundle ID `com.marshal.desktop.dev` grants зберігаються назавжди (див. #84).
+  4. Якщо TCC після переходу на stable cert все одно показує `com.github.Electron` зі старими grants: `tccutil reset All com.github.Electron && tccutil reset All com.marshal.desktop.dev`, після цього один раз `Allow` — і тиша.
 - Voice dictation:
   1. `npm run setup:dictation` (whisper.cpp + `ggml-small`, ~465 MB, у `.whisper/`)
   2. **macOS permissions для `npm run desktop` (dev mode):**
-     - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription`) та ad-hoc re-signsить bundle — інакше macOS TCC вбиває наш Swift recorder. Скрипт: `scripts/patch-electron-info-plist.sh`, запускається з `postbuild.mjs`.
+     - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription` + `CFBundleIdentifier=com.marshal.desktop.dev`), підписує bundle stable identity `Marshal Self-Signed` (якщо cert встановлений) і підписує всі Swift helpers (`audio-recorder`, `screen-recorder`, `scroll-capture`, `scroll-stitch`, `apple-vision-ocr`, `send-keystroke`) тією ж identity. Скрипти: `scripts/patch-electron-info-plist.sh` + `scripts/postbuild.mjs`.
      - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).
-     - Після `npm install` треба один раз перезапустити `npm run desktop` — нові permission descriptions підхопить TCC.
-     - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo`.
+     - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo` + stable identity `099164E16AE88B2052B842BE1036FB10411B7239`.
   3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
 
