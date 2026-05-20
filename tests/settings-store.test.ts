@@ -151,7 +151,9 @@ describe("saveSettings", () => {
       dictationLanguage: "fr" as never,
       dictationHotkey: "   "
     });
-    expect(saved.dictationBackend).toBe("whisper-cpp");
+    // Default changed to hybrid (#93) — Groq with local fallback when API key
+    // is set, else falls back to whisper-cpp via resolveBackendName.
+    expect(saved.dictationBackend).toBe("hybrid");
     expect(saved.dictationLanguage).toBe("auto");
     expect(saved.dictationHotkey).toBe("RightCmd");
   });

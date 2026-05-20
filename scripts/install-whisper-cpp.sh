@@ -9,7 +9,7 @@
 #   .whisper/models/<name>.bin  — ggml model weights
 #
 # Env overrides:
-#   WHISPER_MODEL   — model name (default: ggml-small)
+#   WHISPER_MODEL   — model name (default: ggml-large-v3-turbo)
 #   WHISPER_TAG     — whisper.cpp git tag (default: latest tagged release)
 
 set -euo pipefail
@@ -41,7 +41,7 @@ WHISPER_DIR="$ROOT_DIR/.whisper"
 REPO_DIR="$WHISPER_DIR/whisper.cpp"
 BIN_DIR="$WHISPER_DIR/bin"
 MODEL_DIR="$WHISPER_DIR/models"
-MODEL="${WHISPER_MODEL:-ggml-small}"
+MODEL="${WHISPER_MODEL:-ggml-large-v3-turbo}"
 MODEL_FILE="$MODEL_DIR/${MODEL}.bin"
 
 mkdir -p "$WHISPER_DIR" "$BIN_DIR" "$MODEL_DIR"

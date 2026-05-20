@@ -167,11 +167,14 @@
             <div class="field">
               <label for="settings-dictation-backend">Transcription backend</label>
               <select id="settings-dictation-backend" name="dictationBackend">
-                <option value="whisper-cpp">whisper.cpp (local, offline, free) — default</option>
-                <option value="groq">Groq whisper-large-v3 (fast, requires MARSHAL_API_KEY)</option>
+                <option value="hybrid">Hybrid: Groq large-v3 with local fallback — default (recommended)</option>
+                <option value="groq">Groq whisper-large-v3 only (fast, fails offline; needs MARSHAL_API_KEY)</option>
+                <option value="whisper-cpp">whisper.cpp local-only (offline, free; needs setup:dictation)</option>
               </select>
               <p class="field-hint">
-                Run <code>./scripts/install-whisper-cpp.sh</code> once before using the local backend.
+                Hybrid prefers Groq's cloud whisper-large-v3 (free tier: ~4 hrs audio/day) and falls
+                back to local <code>ggml-large-v3-turbo</code> automatically on errors. Run
+                <code>npm run setup:dictation</code> once to provision the local model.
               </p>
             </div>
 

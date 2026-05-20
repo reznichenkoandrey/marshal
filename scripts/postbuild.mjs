@@ -69,8 +69,11 @@ await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 {
   const whisperBinSrc = path.join(root, ".whisper", "whisper.cpp", "build", "bin", "whisper-cli");
   const whisperBinDst = path.join(root, "dist", "desktop", "dictation", "whisper-cli");
-  const whisperModelSrc = path.join(root, ".whisper", "models", "ggml-small.bin");
-  const whisperModelDst = path.join(root, "dist", "desktop", "dictation", "ggml-small.bin");
+  // Search the user's `.whisper/models/` for any of the supported models, in
+  // priority order. First match wins. Lets users upgrade ggml-small → turbo
+  // → large just by re-running setup:dictation with WHISPER_MODEL=... and
+  // rebuilding, with no postbuild edits. See #93.
+  const WHISPER_MODELS = ["ggml-large-v3-turbo.bin", "ggml-large-v3.bin", "ggml-small.bin"];
 
   await fs.mkdir(path.dirname(whisperBinDst), { recursive: true });
 
@@ -83,12 +86,22 @@ await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
     console.warn("[postbuild] whisper-cli missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
   }
 
-  try {
-    await fs.access(whisperModelSrc);
-    await fs.copyFile(whisperModelSrc, whisperModelDst);
-    console.log("[postbuild] ggml-small.bin copied →", whisperModelDst);
-  } catch {
-    console.warn("[postbuild] ggml-small.bin missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
+  let copiedModel = false;
+  for (const modelName of WHISPER_MODELS) {
+    const src = path.join(root, ".whisper", "models", modelName);
+    const dst = path.join(root, "dist", "desktop", "dictation", modelName);
+    try {
+      await fs.access(src);
+      await fs.copyFile(src, dst);
+      console.log(`[postbuild] ${modelName} copied →`, dst);
+      copiedModel = true;
+      break;
+    } catch {
+      // Try next candidate.
+    }
+  }
+  if (!copiedModel) {
+    console.warn("[postbuild] no whisper model found in .whisper/models/ (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
   }
 }
 

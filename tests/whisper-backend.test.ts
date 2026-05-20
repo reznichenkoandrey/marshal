@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_DICTATION_PROMPT,
   GroqWhisperBackend,
+  HybridWhisperBackend,
   WhisperCppBackend,
   createWhisperBackend,
   parseDetectedLanguage,
@@ -29,18 +30,51 @@ describe("parseDetectedLanguage", () => {
 });
 
 describe("resolveBackendName", () => {
-  it("returns whisper-cpp by default", () => {
+  let originalKey: string | undefined;
+
+  beforeEach(() => {
+    originalKey = process.env.MARSHAL_API_KEY;
+    delete process.env.MARSHAL_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.MARSHAL_API_KEY;
+    else process.env.MARSHAL_API_KEY = originalKey;
+  });
+
+  it("returns whisper-cpp when no API key (offline-safe default)", () => {
     expect(resolveBackendName(undefined)).toBe("whisper-cpp");
     expect(resolveBackendName("")).toBe("whisper-cpp");
   });
 
-  it("selects groq when requested", () => {
+  it("auto-picks hybrid when MARSHAL_API_KEY is set and value is unspecified", () => {
+    process.env.MARSHAL_API_KEY = "test-key";
+    expect(resolveBackendName(undefined)).toBe("hybrid");
+    expect(resolveBackendName("")).toBe("hybrid");
+  });
+
+  it("selects groq when explicitly requested", () => {
     expect(resolveBackendName("groq")).toBe("groq");
     expect(resolveBackendName("GROQ")).toBe("groq");
   });
 
-  it("falls back to whisper-cpp for unknown values", () => {
+  it("selects whisper-cpp when explicitly requested", () => {
+    expect(resolveBackendName("whisper-cpp")).toBe("whisper-cpp");
+    expect(resolveBackendName("WHISPER-CPP")).toBe("whisper-cpp");
+  });
+
+  it("selects hybrid when explicitly requested", () => {
+    expect(resolveBackendName("hybrid")).toBe("hybrid");
+    expect(resolveBackendName("HYBRID")).toBe("hybrid");
+  });
+
+  it("falls back to whisper-cpp for unknown values (no API key)", () => {
     expect(resolveBackendName("nonsense")).toBe("whisper-cpp");
+  });
+
+  it("falls back to hybrid for unknown values when API key is set", () => {
+    process.env.MARSHAL_API_KEY = "test-key";
+    expect(resolveBackendName("nonsense")).toBe("hybrid");
   });
 });
 
@@ -83,6 +117,131 @@ describe("createWhisperBackend", () => {
 
   it("instantiates the GroqWhisperBackend for groq", () => {
     expect(createWhisperBackend("groq")).toBeInstanceOf(GroqWhisperBackend);
+  });
+
+  it("instantiates the HybridWhisperBackend for hybrid", () => {
+    expect(createWhisperBackend("hybrid")).toBeInstanceOf(HybridWhisperBackend);
+  });
+});
+
+describe("HybridWhisperBackend", () => {
+  let originalKey: string | undefined;
+
+  beforeEach(() => {
+    originalKey = process.env.MARSHAL_API_KEY;
+    process.env.MARSHAL_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.MARSHAL_API_KEY;
+    else process.env.MARSHAL_API_KEY = originalKey;
+  });
+
+  it("returns primary result when Groq succeeds", async () => {
+    const hybrid = new HybridWhisperBackend();
+    // Replace internal primary/fallback with stubs via Object.assign so we
+    // don't actually hit network or spawn whisper-cli in unit tests.
+    Object.assign(hybrid as unknown as Record<string, unknown>, {
+      primary: { transcribe: async () => ({ text: "from groq", language: "uk" }) },
+      fallback: { transcribe: async () => ({ text: "should not be called", language: "uk" }) }
+    });
+    const result = await hybrid.transcribe("/tmp/fake.wav");
+    expect(result.text).toBe("from groq");
+  });
+
+  it("falls back to whisper.cpp when Groq throws", async () => {
+    const hybrid = new HybridWhisperBackend();
+    let fallbackCalled = false;
+    Object.assign(hybrid as unknown as Record<string, unknown>, {
+      primary: {
+        transcribe: async () => {
+          throw new Error("Groq whisper API 429: rate limit");
+        }
+      },
+      fallback: {
+        transcribe: async () => {
+          fallbackCalled = true;
+          return { text: "from local", language: "uk" };
+        }
+      }
+    });
+    const result = await hybrid.transcribe("/tmp/fake.wav");
+    expect(fallbackCalled).toBe(true);
+    expect(result.text).toBe("from local");
+  });
+
+  it("propagates errors from the fallback if it also fails", async () => {
+    const hybrid = new HybridWhisperBackend();
+    Object.assign(hybrid as unknown as Record<string, unknown>, {
+      primary: {
+        transcribe: async () => {
+          throw new Error("groq down");
+        }
+      },
+      fallback: {
+        transcribe: async () => {
+          throw new Error("local model missing");
+        }
+      }
+    });
+    await expect(hybrid.transcribe("/tmp/fake.wav")).rejects.toThrow(/local model missing/);
+  });
+
+  it("forwards transcribe options to primary on success", async () => {
+    const hybrid = new HybridWhisperBackend();
+    let receivedOptions: unknown;
+    Object.assign(hybrid as unknown as Record<string, unknown>, {
+      primary: {
+        transcribe: async (_wav: string, opts: unknown) => {
+          receivedOptions = opts;
+          return { text: "ok", language: "uk" };
+        }
+      },
+      fallback: { transcribe: async () => ({ text: "", language: "" }) }
+    });
+    await hybrid.transcribe("/tmp/fake.wav", { language: "uk", prompt: "test prompt" });
+    expect(receivedOptions).toEqual({ language: "uk", prompt: "test prompt" });
+  });
+
+  it("forwards transcribe options to fallback on Groq failure", async () => {
+    const hybrid = new HybridWhisperBackend();
+    let fallbackOptions: unknown;
+    Object.assign(hybrid as unknown as Record<string, unknown>, {
+      primary: {
+        transcribe: async () => {
+          throw new Error("nope");
+        }
+      },
+      fallback: {
+        transcribe: async (_wav: string, opts: unknown) => {
+          fallbackOptions = opts;
+          return { text: "local ok", language: "uk" };
+        }
+      }
+    });
+    await hybrid.transcribe("/tmp/fake.wav", { language: "uk", prompt: "hello" });
+    expect(fallbackOptions).toEqual({ language: "uk", prompt: "hello" });
+  });
+});
+
+describe("DEFAULT_DICTATION_PROMPT (updated for #93)", () => {
+  it("includes a verbatim instruction so the model preserves surzhyk", () => {
+    expect(DEFAULT_DICTATION_PROMPT.toLowerCase()).toMatch(/дослівно|verbatim/u);
+  });
+
+  it("includes Anthropic / Claude Code vocabulary", () => {
+    expect(DEFAULT_DICTATION_PROMPT).toMatch(/Claude Code/u);
+    expect(DEFAULT_DICTATION_PROMPT).toMatch(/MCP/u);
+  });
+
+  it("includes the high-payoff Americanisms the user uses daily", () => {
+    expect(DEFAULT_DICTATION_PROMPT).toMatch(/deploy/u);
+    expect(DEFAULT_DICTATION_PROMPT).toMatch(/refactor/u);
+    expect(DEFAULT_DICTATION_PROMPT).toMatch(/blocker/u);
+  });
+
+  it("stays under the practical whisper prompt cap (~1000 chars)", () => {
+    expect(DEFAULT_DICTATION_PROMPT.length).toBeLessThan(1000);
   });
 });
 

@@ -908,7 +908,7 @@ async function openSettings() {
       dom.settingsDictationHotkey.value = current.dictationHotkey ?? "Cmd+Shift+D";
     }
     if (dom.settingsDictationBackend) {
-      dom.settingsDictationBackend.value = current.dictationBackend ?? "whisper-cpp";
+      dom.settingsDictationBackend.value = current.dictationBackend ?? "hybrid";
     }
     if (dom.settingsDictationLanguage) {
       dom.settingsDictationLanguage.value = current.dictationLanguage ?? "auto";
@@ -970,7 +970,7 @@ async function saveSettingsFromForm() {
     translatorBackend: dom.settingsTranslatorBackend?.value ?? "auto",
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
-    dictationBackend: dom.settingsDictationBackend?.value ?? "whisper-cpp",
+    dictationBackend: dom.settingsDictationBackend?.value ?? "hybrid",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",

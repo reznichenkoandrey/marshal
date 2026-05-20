@@ -33,29 +33,46 @@ export interface WhisperBackend {
   transcribe(wavPath: string, options?: TranscribeOptions): Promise<TranscribeResult>;
 }
 
-export type BackendName = "whisper-cpp" | "groq";
+export type BackendName = "whisper-cpp" | "groq" | "hybrid";
 
+/**
+ * Resolve the active dictation backend.
+ *
+ * Default ("" / unset) — auto-pick: `hybrid` if `MARSHAL_API_KEY` is set
+ * (Groq with local fallback), `whisper-cpp` otherwise (pure local). Users
+ * can pin to a single provider with `groq` or `whisper-cpp`. See #93.
+ */
 export function resolveBackendName(raw: string | undefined): BackendName {
   const value = (raw ?? "").toLowerCase().trim();
   if (value === "groq") return "groq";
+  if (value === "whisper-cpp") return "whisper-cpp";
+  if (value === "hybrid") return "hybrid";
+  // Unset / unknown — auto-pick by capability.
+  if (process.env.MARSHAL_API_KEY) return "hybrid";
   return "whisper-cpp";
 }
 
 /**
- * Default dictation glossary. Seeds whisper with the vocabulary this user
- * actually produces — Ukrainian base with inline English technical terms —
- * so that short commands like "закомить PR" or "запусти Vite" don't get
- * transliterated into nonsense.
+ * Default dictation glossary. Seeds Whisper with the vocabulary this user
+ * actually produces — Ukrainian base with surzhyk + inline Americanisms +
+ * Anthropic / Claude Code tooling — so the model preserves code-switching
+ * instead of "correcting" loanwords into nonsense or dropping rare terms.
  *
- * Override via MARSHAL_DICTATION_PROMPT or the settings textarea when a user
- * talks about domains we don't cover here (medicine, law, gaming, etc.).
+ * Whisper caps the initial prompt at the last ~224 tokens (~800 chars),
+ * silently truncating from the start. Order matters: keep the verbatim
+ * directive first, then the highest-payoff vocabulary.
+ *
+ * Override via MARSHAL_DICTATION_PROMPT or the settings textarea when a
+ * user talks about domains we don't cover here (medicine, law, gaming).
  */
 export const DEFAULT_DICTATION_PROMPT =
-  "Я розробник, працюю над React, Vue, TypeScript, Python, PHP, Magento проєктами. " +
-  "Використовую Claude Code, Cursor, GitHub, Linear, Figma, Notion, Playwright, Vite, Tailwind, Docker. " +
-  "Говорю українською з англіцизмами: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, " +
-  "написати unit test, debug, refactor, merge conflict, pull request, commit, push, release, feature flag, hotfix, rollback. " +
-  "Також: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD, staging, production, sandbox.";
+  "Записати дослівно українською, зберігаючи суржик та англіцизми як вимовлено, не виправляти. " +
+  "Розробник: React, Vue, TypeScript, Python, PHP, Magento, Hyva, Tailwind, Vite, Docker, Playwright. " +
+  "Інструменти: Claude Code, Sonnet, Opus, Haiku, Cursor, GitHub, Linear, Figma, Notion, MCP, agents, skills, hooks, plugins, slash commands. " +
+  "Marshal: dictation, focus-probe, codesign, Electron, tray, hotkey, side panel. " +
+  "Англіцизми: deploy, refactor, scope, scope creep, blocker, ETA, regression, mock, stub, e2e, prod, dev, staging, sandbox, prod-ready, rollback, hotfix, feature flag. " +
+  "Workflow: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, написати unit test, дебажити, refactor, merge conflict, pull request, commit, push, release. " +
+  "Архітектура: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD.";
 
 export function resolveDictationPrompt(raw: string | undefined): string {
   if (typeof raw !== "string") return DEFAULT_DICTATION_PROMPT;
@@ -67,6 +84,7 @@ export function resolveDictationPrompt(raw: string | undefined): string {
 
 export function createWhisperBackend(name: BackendName): WhisperBackend {
   if (name === "groq") return new GroqWhisperBackend();
+  if (name === "hybrid") return new HybridWhisperBackend();
   return new WhisperCppBackend();
 }
 
@@ -179,6 +197,49 @@ export class GroqWhisperBackend implements WhisperBackend {
   }
 }
 
+// ── Hybrid: Groq with local fallback ──
+
+/**
+ * Tries Groq first (cloud, whisper-large-v3, ~5–10× quality of ggml-small,
+ * ~200 ms latency on Groq's free tier — 4 hrs audio/day, plenty for personal
+ * use). Falls back to local whisper.cpp on any failure: network down,
+ * 429 rate limit, 5xx, timeout. The fallback uses whichever local model the
+ * user has installed (large-v3-turbo by default in fresh setups, but
+ * back-compat with ggml-small for existing users who haven't re-run setup).
+ *
+ * Logs the fallback decision with `[whisper] Groq failed → local fallback`
+ * when MARSHAL_DICTATION_DEBUG is set, so latency surprises are diagnosable.
+ */
+export class HybridWhisperBackend implements WhisperBackend {
+  private readonly primary: GroqWhisperBackend;
+  private readonly fallback: WhisperCppBackend;
+  // Cache fallback availability so we don't pay the `fs.access` cost on every
+  // call. Resets to undefined every time the primary succeeds — if Groq
+  // recovers, we don't actually need the local copy to exist.
+  private fallbackChecked = false;
+
+  constructor() {
+    this.primary = new GroqWhisperBackend();
+    this.fallback = new WhisperCppBackend();
+  }
+
+  async transcribe(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult> {
+    try {
+      const result = await this.primary.transcribe(wavPath, options);
+      // Primary worked — we don't need the local copy. Defer its check until
+      // a real fallback is attempted.
+      return result;
+    } catch (err) {
+      if (process.env.MARSHAL_DICTATION_DEBUG === "1") {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`[whisper] Groq failed → local fallback: ${msg}`);
+      }
+      this.fallbackChecked = true;
+      return this.fallback.transcribe(wavPath, options);
+    }
+  }
+}
+
 // ── helpers ──
 
 /**
@@ -225,8 +286,15 @@ function resolveDefaultBin(): string {
 function resolveDefaultModel(): string {
   // whisper-cli loads the model via its own fopen() call — that's also an
   // OS-level path, so it needs the unpacked path too.
-  return firstExisting([
-    path.join(distDictationDirOnDisk, "ggml-small.bin"),
-    path.join(process.cwd(), ".whisper", "models", "ggml-small.bin")
-  ]);
+  //
+  // Search order matches install priority: large-v3-turbo (new default,
+  // #93), large-v3 (manual upgrade path), small (back-compat for users who
+  // installed before #93 and haven't re-run setup:dictation). Each location
+  // is checked in both the packaged dist dir and the dev `.whisper/` tree.
+  const candidates: string[] = [];
+  for (const name of ["ggml-large-v3-turbo.bin", "ggml-large-v3.bin", "ggml-small.bin"]) {
+    candidates.push(path.join(distDictationDirOnDisk, name));
+    candidates.push(path.join(process.cwd(), ".whisper", "models", name));
+  }
+  return firstExisting(candidates);
 }
