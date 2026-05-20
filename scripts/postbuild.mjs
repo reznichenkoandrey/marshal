@@ -102,6 +102,12 @@ if (process.platform === "darwin") {
       fallbackNote: "voice dictation will be disabled"
     },
     {
+      src: path.join(root, "desktop", "dictation", "focus-probe.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "focus-probe"),
+      label: "focus-probe",
+      fallbackNote: "dictation will fall back to clipboard-only (no auto-paste)"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",
