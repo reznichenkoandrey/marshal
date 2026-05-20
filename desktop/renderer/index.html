@@ -179,6 +179,19 @@
             </div>
 
             <div class="field">
+              <label for="settings-dictation-microphone">Microphone</label>
+              <select id="settings-dictation-microphone" name="dictationMicrophone">
+                <option value="">System default (track macOS Sound &gt; Input)</option>
+              </select>
+              <p class="field-hint">
+                Picks the input device for the next recording. While dictation is active Marshal
+                temporarily sets this as the system default input and restores it on release.
+                <a href="#" id="settings-dictation-microphone-refresh">Refresh list</a> after plugging
+                in a new mic.
+              </p>
+            </div>
+
+            <div class="field">
               <label for="settings-dictation-language">Spoken language</label>
               <select id="settings-dictation-language" name="dictationLanguage">
                 <option value="auto">Auto-detect (default)</option>

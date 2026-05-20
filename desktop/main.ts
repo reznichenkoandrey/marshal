@@ -22,6 +22,7 @@ import { VideoRecorder } from "./capture/video-recorder.ts";
 import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
+import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
@@ -239,6 +240,15 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
   handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
+  handleIpc("marshal:dictation-list-mics", async () => {
+    try {
+      const devices = await listMicrophones();
+      return { ok: true, devices };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, devices: [], error: message };
+    }
+  });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
