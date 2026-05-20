@@ -99,6 +99,7 @@ describe("saveSettings", () => {
       dictationLanguage: "uk",
       dictationAutoPaste: true,
       dictationPrompt: "React, Magento, PR",
+      dictationMicrophone: "",
       captureDefaultFolder: "",
       launchAtLogin: false,
       checkForUpdatesAutomatic: true,

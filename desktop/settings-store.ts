@@ -46,6 +46,14 @@ export type MarshalSettings = {
    */
   dictationPrompt: string;
   /**
+   * Core Audio unique device ID of the microphone dictation records from.
+   * Empty string ("") means "track the system default" — same behavior the
+   * app shipped with before #95. When non-empty, audio-recorder temporarily
+   * sets this device as the system default input for the duration of the
+   * capture and restores the previous default on shutdown.
+   */
+  dictationMicrophone: string;
+  /**
    * Directory where "quick save" stores captured PNGs. Empty string → use
    * ~/Desktop.
    */
@@ -88,6 +96,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationLanguage: "auto",
   dictationAutoPaste: false,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
+  dictationMicrophone: "",
   captureDefaultFolder: "",
   launchAtLogin: false,
   checkForUpdatesAutomatic: true,
@@ -170,6 +179,11 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
   process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
+  if (settings.dictationMicrophone) {
+    process.env.MARSHAL_DICTATION_MIC = settings.dictationMicrophone;
+  } else {
+    delete process.env.MARSHAL_DICTATION_MIC;
+  }
   // Forwarded to the backend utility process so the local bridge server can
   // persist captures (e.g. /capture/fullpage from the Chrome extension) into
   // the same folder the rest of the capture pipeline uses.
@@ -236,6 +250,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationPrompt: typeof input.dictationPrompt === "string"
       ? input.dictationPrompt
       : DEFAULT_SETTINGS.dictationPrompt,
+    dictationMicrophone: typeof input.dictationMicrophone === "string"
+      ? input.dictationMicrophone.trim()
+      : DEFAULT_SETTINGS.dictationMicrophone,
     captureDefaultFolder: typeof input.captureDefaultFolder === "string"
       ? input.captureDefaultFolder
       : DEFAULT_SETTINGS.captureDefaultFolder,

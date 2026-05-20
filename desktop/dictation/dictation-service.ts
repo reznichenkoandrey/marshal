@@ -125,9 +125,14 @@ export class DictationService extends EventEmitter {
 
     const wavPath = path.join(os.tmpdir(), `marshal-dict-${randomUUID()}.wav`);
     this.currentWavPath = wavPath;
-    debug("  spawn recorder:", this.recorderBin, "→", wavPath);
+    // Microphone selection (#95): if MARSHAL_DICTATION_MIC is set, pass it
+    // to audio-recorder as `--device <uniqueID>`. Empty / unset → recorder
+    // uses the system default input, same behavior as before.
+    const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
+    const recorderArgs = micUid ? [wavPath, "--device", micUid] : [wavPath];
+    debug("  spawn recorder:", this.recorderBin, "→", wavPath, micUid ? `(mic=${micUid})` : "");
 
-    const child = spawn(this.recorderBin, [wavPath], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(this.recorderBin, recorderArgs, { stdio: ["ignore", "pipe", "pipe"] });
     this.recorderProcess = child;
     this.isStopping = false;
 

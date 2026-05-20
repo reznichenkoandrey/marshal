@@ -10,6 +10,44 @@ const STORAGE_KEYS = {
 const MAX_RECENT_DIRS = 5;
 const APPEARANCE_VALUES = ["light", "dark", "system"];
 
+async function populateMicrophoneDropdown(preferredValue) {
+  // Re-build the input-device dropdown from a fresh listMicrophones() call.
+  // The default "System default" option is the first <option> in the markup
+  // and is preserved across rebuilds — its value is the empty string, which
+  // is also what settings save as "track macOS default". See #95.
+  const select = dom.settingsDictationMicrophone;
+  if (!select || !api?.listMicrophones) return;
+  let result;
+  try {
+    result = await api.listMicrophones();
+  } catch (err) {
+    console.warn("listMicrophones failed", err);
+    return;
+  }
+  const devices = Array.isArray(result?.devices) ? result.devices : [];
+  // Keep the first option (system default) and rebuild the rest.
+  const firstOption = select.firstElementChild;
+  select.innerHTML = "";
+  if (firstOption) select.appendChild(firstOption);
+  for (const device of devices) {
+    if (!device || typeof device.id !== "string" || !device.id) continue;
+    const option = document.createElement("option");
+    option.value = device.id;
+    const transport = device.transportType && device.transportType !== "Unknown"
+      ? ` · ${device.transportType}`
+      : "";
+    const defaultBadge = device.isDefault ? " (system default)" : "";
+    option.textContent = `${device.name}${transport}${defaultBadge}`;
+    select.appendChild(option);
+  }
+  // Re-apply the preferred selection. If the saved mic was unplugged (not in
+  // the new device list), browsers silently fall back to the first option,
+  // which is the "system default" sentinel — exactly the safe behavior.
+  if (typeof preferredValue === "string") {
+    select.value = preferredValue;
+  }
+}
+
 function loadAppearance() {
   const stored = localStorage.getItem(STORAGE_KEYS.appearance);
   if (APPEARANCE_VALUES.includes(stored)) return stored;
@@ -70,6 +108,8 @@ const dom = {
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
+  settingsDictationMicrophone: document.getElementById("settings-dictation-microphone"),
+  settingsDictationMicrophoneRefresh: document.getElementById("settings-dictation-microphone-refresh"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
@@ -821,6 +861,14 @@ function bindEvents() {
       console.error("getDictationDefaults failed", err);
     }
   });
+  dom.settingsDictationMicrophoneRefresh?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    // Preserve the user's current pick across a refresh — the device list may
+    // include / exclude their chosen mic depending on whether it's plugged in,
+    // but the value still needs to round-trip if we re-render the dropdown.
+    const previous = dom.settingsDictationMicrophone?.value ?? "";
+    await populateMicrophoneDropdown(previous);
+  });
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   document.querySelectorAll('[data-close="settings"]').forEach((el) =>
     el.addEventListener("click", closeSettings)
@@ -919,6 +967,13 @@ async function openSettings() {
     if (dom.settingsDictationPrompt) {
       dom.settingsDictationPrompt.value = current.dictationPrompt ?? "";
     }
+    // Microphone dropdown is populated lazily — we fire-and-forget so the
+    // settings modal opens instantly even if HAL is slow. The default
+    // option ("") is already in the markup so the value sticks immediately.
+    if (dom.settingsDictationMicrophone) {
+      dom.settingsDictationMicrophone.value = current.dictationMicrophone ?? "";
+      void populateMicrophoneDropdown(current.dictationMicrophone ?? "");
+    }
     if (dom.settingsCaptureFolder) {
       dom.settingsCaptureFolder.value = current.captureDefaultFolder ?? "";
     }
@@ -972,6 +1027,7 @@ async function saveSettingsFromForm() {
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
     dictationBackend: dom.settingsDictationBackend?.value ?? "hybrid",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
+    dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",

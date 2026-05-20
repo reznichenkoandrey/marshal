@@ -107,8 +107,14 @@ const desktopApi = {
     dictationLanguage?: string;
     dictationAutoPaste?: boolean;
     dictationPrompt?: string;
+    dictationMicrophone?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
+  listMicrophones: () => ipcRenderer.invoke("marshal:dictation-list-mics") as Promise<{
+    ok: boolean;
+    devices: Array<{ id: string; name: string; isDefault: boolean; manufacturer: string; transportType: string }>;
+    error?: string;
+  }>,
   checkForUpdatesSilent: () => ipcRenderer.invoke("marshal:check-for-updates-silent") as Promise<
     | { available: false; error: string }
     | {

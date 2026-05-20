@@ -121,6 +121,12 @@ if (process.platform === "darwin") {
       fallbackNote: "dictation will fall back to clipboard-only (no auto-paste)"
     },
     {
+      src: path.join(root, "desktop", "dictation", "mic-list.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "mic-list"),
+      label: "mic-list",
+      fallbackNote: "microphone selection dropdown will show 'system default' only"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",
