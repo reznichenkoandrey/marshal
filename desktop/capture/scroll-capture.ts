@@ -19,10 +19,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
-const scrollCaptureBin = path.join(desktopDistDir, "scroll-capture");
-const scrollStitchBin = path.join(desktopDistDir, "scroll-stitch");
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
+const desktopDistDirOnDisk = asarUnpacked(desktopDistDir);
+const scrollCaptureBin = path.join(desktopDistDirOnDisk, "scroll-capture");
+const scrollStitchBin = path.join(desktopDistDirOnDisk, "scroll-stitch");
 
 export interface ScrollCaptureOptions {
   /** Capture rectangle in CSS pixels. */

@@ -132,6 +132,7 @@ async function bootstrap(): Promise<void> {
     // their TCC prompts time out. Skipping these branches keeps the IPC
     // surface fully testable.
     if (process.env.MARSHAL_HEADLESS !== "1") {
+      logPermissionStatus();
       initTranslator();
       initCapture();
       initDictation();
@@ -898,12 +899,43 @@ async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {
   }
 }
 
+/**
+ * Dump the macOS privacy gates dictation + capture depend on, so post-update
+ * regressions like #82 (silent uiohook because Input Monitoring was reset by
+ * the bundle swap) become diagnosable from the user's log. Runs unconditionally
+ * on every boot — cost is one system call per gate, output is four lines.
+ */
+function logPermissionStatus(): void {
+  if (process.platform !== "darwin") return;
+  try {
+    const mic = systemPreferences.getMediaAccessStatus("microphone");
+    const screen = systemPreferences.getMediaAccessStatus("screen");
+    // `false` means "don't show a prompt, just report the current state".
+    const a11y = systemPreferences.isTrustedAccessibilityClient(false);
+    console.log(`[marshal][perm] microphone=${mic}`);
+    console.log(`[marshal][perm] screen=${screen}`);
+    console.log(`[marshal][perm] accessibility=${a11y ? "granted" : "denied"}`);
+    // Input Monitoring has no first-party Electron API. Surface uiohook's
+    // observable behaviour instead — `[hotkey] start()` logs the next layer
+    // down, so a missing "hotkey start" line in the log means uiohook didn't
+    // attach (almost always = Input Monitoring not granted).
+    console.log(`[marshal][perm] input-monitoring=(no API — watch for "[hotkey] start" below)`);
+  } catch (err) {
+    console.warn("[marshal][perm] failed to query permissions:", err);
+  }
+}
+
 function initDictation(): void {
+  console.log("[marshal] initDictation()");
   const enabled = (process.env.MARSHAL_DICTATION_ENABLED ?? "1") !== "0";
-  if (!enabled) return;
+  if (!enabled) {
+    console.log("[marshal] dictation: MARSHAL_DICTATION_ENABLED=0 — skipping");
+    return;
+  }
 
   try {
     dictationService = new DictationService();
+    console.log("[marshal] dictation: service constructed");
   } catch (err) {
     console.warn("[marshal] dictation disabled:", err instanceof Error ? err.message : err);
     return;
@@ -928,7 +960,10 @@ function initDictation(): void {
     new Notification({ title: "Marshal — Dictation error", body: err.message, silent: true }).show();
   });
 
-  void dictationService.start();
+  console.log("[marshal] dictation: calling start()");
+  void dictationService.start()
+    .then(() => console.log("[marshal] dictation: start() resolved"))
+    .catch((err) => console.error("[marshal] dictation: start() rejected:", err));
 }
 
 function initCapture(): void {

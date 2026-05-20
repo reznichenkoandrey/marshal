@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { clipboard } from "electron";
 
 import { PushToTalkHotkey } from "./hotkey-manager.ts";
+import { asarUnpacked } from "../utils/asar-paths.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -33,7 +34,8 @@ const DEFAULT_HOTKEY = "RightCmd";
 const MAX_RECORDING_MS = 60_000;
 const currentFilePath = fileURLToPath(import.meta.url);
 const distDictationDir = path.dirname(currentFilePath);
-const DEFAULT_RECORDER_BIN = path.join(distDictationDir, "audio-recorder");
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
+const DEFAULT_RECORDER_BIN = path.join(asarUnpacked(distDictationDir), "audio-recorder");
 
 function debug(...args: unknown[]): void {
   if (process.env.MARSHAL_DICTATION_DEBUG === "1") {

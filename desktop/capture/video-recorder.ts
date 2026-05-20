@@ -11,11 +11,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 // video-recorder.ts compiles to dist/desktop/capture/; the Swift binary sits
 // next to it at dist/desktop/capture/screen-recorder (set by postbuild.mjs).
-const BINARY_PATH = path.join(desktopDistDir, "screen-recorder");
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
+const BINARY_PATH = path.join(asarUnpacked(desktopDistDir), "screen-recorder");
 
 export interface VideoArea {
   /** Origin x in display-local CSS pixels (pre-Retina). */

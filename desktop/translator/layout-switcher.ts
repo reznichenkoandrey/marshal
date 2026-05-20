@@ -27,6 +27,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 export const DEFAULT_LAYOUT_SWITCH_HOTKEY = "CommandOrControl+Alt+L";
 const COPY_COMMIT_DELAY_MS = 120;
 const BEFORE_PASTE_DELAY_MS = 40;
@@ -35,8 +37,9 @@ const SEND_KEY_TIMEOUT_MS = 3_000;
 
 // Path to the compiled Swift helper (see desktop/translator/send-keystroke.swift
 // + scripts/postbuild.mjs). Lives in the same dist folder as this module.
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
 const currentFilePath = fileURLToPath(import.meta.url);
-const translatorDistDir = path.dirname(currentFilePath);
+const translatorDistDir = asarUnpacked(path.dirname(currentFilePath));
 const DEFAULT_SEND_KEY_BIN = path.join(translatorDistDir, "send-keystroke");
 const SEND_KEY_BIN = process.env.MARSHAL_SEND_KEY_BIN ?? DEFAULT_SEND_KEY_BIN;
 
