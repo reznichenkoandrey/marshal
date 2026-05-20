@@ -974,6 +974,24 @@ function initDictation(): void {
   void dictationService.start()
     .then(() => console.log("[marshal] dictation: start() resolved"))
     .catch((err) => console.error("[marshal] dictation: start() rejected:", err));
+
+  // Register an Electron-native global shortcut as a toggle (start/stop) for
+  // dictation. globalShortcut goes through the macOS Carbon hotkey API which
+  // only needs Accessibility — not Input Monitoring — so it survives the TCC
+  // reset that hits every self-signed bundle replace (#84). The uiohook
+  // push-to-talk path stays available for users who can hold Input Monitoring
+  // grants stable; the toggle is the dependable fallback.
+  const toggleAccelerator = "CommandOrControl+Alt+Space";
+  const registered = globalShortcut.register(toggleAccelerator, () => {
+    if (!dictationService) return;
+    console.log(`[marshal] dictation: ${toggleAccelerator} pressed, toggling`);
+    dictationService.toggleRecording();
+  });
+  if (registered) {
+    console.log(`[marshal] dictation: toggle accelerator ${toggleAccelerator} registered`);
+  } else {
+    console.warn(`[marshal] dictation: toggle accelerator ${toggleAccelerator} could not register (already in use?)`);
+  }
 }
 
 function initCapture(): void {
@@ -1214,10 +1232,22 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
 
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
+  const dictationAvailable = dictationService !== null;
+  const recording = dictationService?.isCurrentlyRecording() ?? false;
+
   return Menu.buildFromTemplate([
     { label: "Open Marshal", click: () => void mb?.showWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
+    // Dictation toggle — visible primary action so the user always has a path
+    // to start/stop recording even when the hotkey listener is dead (Input
+    // Monitoring revoked after a self-signed bundle replace, #84).
+    {
+      label: recording ? "Stop Dictation" : "Start Dictation",
+      accelerator: "CommandOrControl+Alt+Space",
+      enabled: dictationAvailable,
+      click: () => dictationService?.toggleRecording()
+    },
     { label: "Capture", submenu: buildCaptureSubmenu() },
     { type: "separator" },
     {
