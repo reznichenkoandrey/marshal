@@ -111,10 +111,65 @@ const desktopApi = {
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
   checkForUpdatesSilent: () => ipcRenderer.invoke("marshal:check-for-updates-silent") as Promise<
     | { available: false; error: string }
-    | { available: false; currentVersion: string; latestVersion: string; releaseUrl: string; downloadUrl: string | null; releaseNotes: string }
-    | { available: true; currentVersion: string; latestVersion: string; releaseUrl: string; downloadUrl: string | null; releaseNotes: string }
+    | {
+        available: false;
+        currentVersion: string;
+        latestVersion: string;
+        releaseUrl: string;
+        downloadUrl: string | null;
+        releaseNotes: string;
+        installable: { zipUrl: string; sha512: string; size: number; version: string } | null;
+      }
+    | {
+        available: true;
+        currentVersion: string;
+        latestVersion: string;
+        releaseUrl: string;
+        downloadUrl: string | null;
+        releaseNotes: string;
+        installable: { zipUrl: string; sha512: string; size: number; version: string } | null;
+      }
     | { error: string }
   >,
+  startUpdateInstall: () =>
+    ipcRenderer.invoke("marshal:start-update-install") as Promise<{ ok: true; version: string }>,
+  onUpdateInstallProgress: (
+    cb: (
+      event: IpcRendererEvent,
+      payload: {
+        phase:
+          | "starting"
+          | "downloading"
+          | "verifying"
+          | "extracting"
+          | "staging"
+          | "relaunching"
+          | "done"
+          | "error";
+        ratio: number;
+        message?: string;
+        bytesDownloaded?: number;
+        bytesTotal?: number;
+      }
+    ) => void
+  ) =>
+    registerListener<[
+      {
+        phase:
+          | "starting"
+          | "downloading"
+          | "verifying"
+          | "extracting"
+          | "staging"
+          | "relaunching"
+          | "done"
+          | "error";
+        ratio: number;
+        message?: string;
+        bytesDownloaded?: number;
+        bytesTotal?: number;
+      }
+    ]>("marshal:update-install-progress", cb),
   openExternal: (url: string) => ipcRenderer.invoke("marshal:open-external", url) as Promise<{ ok: true }>
 };
 
