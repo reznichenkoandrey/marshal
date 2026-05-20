@@ -21,7 +21,12 @@ import { clipboard } from "electron";
 
 import { PushToTalkHotkey } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
-import { probeFocusedElement, sendPasteKeystroke } from "./focus-paste.ts";
+import {
+  decideAutoPaste,
+  isAxBlind,
+  probeFocusedElement,
+  sendPasteKeystroke
+} from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -197,11 +202,25 @@ export class DictationService extends EventEmitter {
 
   private async maybeAutoPaste(): Promise<void> {
     const focus = await probeFocusedElement();
-    if (!focus.isTextInput) {
-      debug("no editable focus — clipboard only (role=", focus.role || "?", ")");
+    const shouldPaste = decideAutoPaste(focus);
+    if (!shouldPaste) {
+      debug(
+        "clipboard only — role=", focus.role || "?",
+        "axError=", focus.axError,
+        "frontmost=", focus.frontmostApp || "?"
+      );
       return;
     }
-    debug("focused element accepts text — auto-pasting (role=", focus.role, ")");
+    if (isAxBlind(focus)) {
+      debug(
+        "AX silent on target — fail-open paste (frontmost=", focus.frontmostApp || "?",
+        "axError=", focus.axError,
+        "axTrusted=", focus.axTrusted,
+        ")"
+      );
+    } else {
+      debug("focused element accepts text — auto-pasting (role=", focus.role, ")");
+    }
     try {
       await sendPasteKeystroke();
     } catch (err) {
