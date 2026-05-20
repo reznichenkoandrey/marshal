@@ -15,7 +15,7 @@ export type BridgeMode =
   | "playwright"
   | "extension";
 
-export type DictationBackend = "whisper-cpp" | "groq";
+export type DictationBackend = "whisper-cpp" | "groq" | "hybrid";
 // "auto" → let whisper detect the language per clip.
 // Explicit codes pin the decoder to a single language, which is noticeably
 // more accurate on short utterances where auto-detection can flip between
@@ -81,7 +81,10 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   appearance: "system",
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
-  dictationBackend: "whisper-cpp",
+  // Default: hybrid backend (Groq large-v3 with local whisper.cpp fallback).
+  // Falls back to whisper-cpp locally if MARSHAL_API_KEY is absent — see
+  // resolveBackendName in whisper-backend.ts. See #93.
+  dictationBackend: "hybrid",
   dictationLanguage: "auto",
   dictationAutoPaste: false,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
@@ -91,7 +94,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   lastDismissedVersion: ""
 };
 
-const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq"];
+const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
 const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
 const VALID_APPEARANCES: readonly Appearance[] = ["light", "dark", "system"];
 const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendChoice[] = [
