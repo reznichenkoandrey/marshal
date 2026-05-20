@@ -1399,9 +1399,15 @@ async function refreshTrayState(): Promise<void> {
   if (isDictating) status.push("● Recording dictation…");
   if (isRecording) status.push("● Recording screen…");
   tray.setToolTip(status.length > 0 ? `${base}\n${status.join("\n")}` : base);
-  // Show a single-character "recording" indicator next to the tray icon so
-  // the user can see at a glance that the mic or screen is live.
-  tray.setTitle(isDictating || isRecording ? "●" : "");
+
+  // Swap the menubar icon itself between an idle (template/grey) glyph and a
+  // recording (red) glyph so the active state is obvious at a glance. A small
+  // text indicator next to the icon was tried earlier and turned out to be
+  // nearly invisible on most setups (#83).
+  if (!trayIconIdle) trayIconIdle = createTrayIcon();
+  if (!trayIconRecording) trayIconRecording = createRecordingTrayIcon();
+  tray.setImage(isDictating || isRecording ? trayIconRecording : trayIconIdle);
+  tray.setTitle("");
 
   // Mirror recording state into every Electron BrowserWindow that subscribed
   // (currently the floating toolbar). Cheap fan-out; no-op if no listeners.
@@ -1452,6 +1458,41 @@ function createTrayIcon(): Electron.NativeImage {
   img.setTemplateImage(true);
   return img;
 }
+
+/**
+ * Recording variant of the tray icon — full-color red, NOT a template image,
+ * so it renders in red on both dark and light menubars instead of getting
+ * auto-tinted to the foreground color. Used while dictation or screen capture
+ * is active so the user can tell at a glance that the mic or screen is live.
+ *
+ * Falls back to the default template icon when the asset is missing, which
+ * keeps the menubar from going blank on a stripped-down build.
+ */
+function createRecordingTrayIcon(): Electron.NativeImage {
+  const recording2x = path.join(projectRootDir, "assets", "tray-icon-recording@2x.png");
+  const recording1x = path.join(projectRootDir, "assets", "tray-icon-recording.png");
+
+  let img: Electron.NativeImage;
+  if (fs.existsSync(recording2x)) {
+    img = nativeImage.createFromPath(recording2x);
+    img = img.resize({ width: 18, height: 18 });
+  } else if (fs.existsSync(recording1x)) {
+    img = nativeImage.createFromPath(recording1x);
+  } else {
+    // Missing asset — degrade to the default template glyph rather than
+    // emptying the menubar.
+    return createTrayIcon();
+  }
+
+  if (img.isEmpty()) return createTrayIcon();
+  // Intentionally NOT a template image — we want it to stay red.
+  img.setTemplateImage(false);
+  return img;
+}
+
+// Cache so we don't re-read PNGs every refreshTrayState() tick.
+let trayIconIdle: Electron.NativeImage | null = null;
+let trayIconRecording: Electron.NativeImage | null = null;
 
 /**
  * Inline 18×18 "M" glyph used when assets/ is missing or unreadable. SVG
