@@ -17,6 +17,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { asarUnpacked } from "../../utils/asar-paths.ts";
 import { OpenAiApiTranslatorBackend } from "./openai-api-backend.ts";
 import { detectLangHeuristic, mimeExtension } from "./shared.ts";
 import type {
@@ -29,7 +30,8 @@ import type {
 const currentFilePath = fileURLToPath(import.meta.url);
 const backendsDir = path.dirname(currentFilePath);
 // backends/ → translator/ (one level up) → apple-vision-ocr binary.
-const DEFAULT_BIN = path.join(backendsDir, "..", "apple-vision-ocr");
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
+const DEFAULT_BIN = path.join(asarUnpacked(path.join(backendsDir, "..")), "apple-vision-ocr");
 const OCR_BIN = process.env.MARSHAL_APPLE_VISION_BIN ?? DEFAULT_BIN;
 const OCR_TIMEOUT_MS = 10_000;
 const OCR_MAX_STDOUT_BYTES = 2 * 1024 * 1024;

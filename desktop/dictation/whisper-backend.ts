@@ -8,6 +8,8 @@ import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 export type TranscribeResult = {
   text: string;
   language?: string;
@@ -200,7 +202,11 @@ export function parseDetectedLanguage(stderr: string): string | undefined {
 //   1. Bundled: `<dist>/desktop/dictation/{whisper-cli, ggml-small.bin}`
 //   2. Project-local: `<project_root>/.whisper/{bin/whisper-cli, models/ggml-small.bin}`
 //      — used in dev before `npm run setup:dictation` ran the rebuild.
-const distDictationDir = path.dirname(fileURLToPath(import.meta.url));
+// asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
+// The whisper model file is also referenced through this path because
+// whisper-cli loads it with fopen() — that's an OS syscall, not an Electron
+// fs call, so the asar→asar.unpacked redirect does not apply.
+const distDictationDirOnDisk = asarUnpacked(path.dirname(fileURLToPath(import.meta.url)));
 
 function firstExisting(candidates: string[]): string {
   for (const candidate of candidates) {
@@ -211,14 +217,16 @@ function firstExisting(candidates: string[]): string {
 
 function resolveDefaultBin(): string {
   return firstExisting([
-    path.join(distDictationDir, "whisper-cli"),
+    path.join(distDictationDirOnDisk, "whisper-cli"),
     path.join(process.cwd(), ".whisper", "bin", "whisper-cli")
   ]);
 }
 
 function resolveDefaultModel(): string {
+  // whisper-cli loads the model via its own fopen() call — that's also an
+  // OS-level path, so it needs the unpacked path too.
   return firstExisting([
-    path.join(distDictationDir, "ggml-small.bin"),
+    path.join(distDictationDirOnDisk, "ggml-small.bin"),
     path.join(process.cwd(), ".whisper", "models", "ggml-small.bin")
   ]);
 }

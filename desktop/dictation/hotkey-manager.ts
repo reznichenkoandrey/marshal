@@ -191,9 +191,43 @@ export class PushToTalkHotkey extends EventEmitter {
 
   start(): void {
     if (this.started) return;
+    console.log(`[hotkey] start() keycode=${this.spec.keycode} meta=${this.spec.meta} ctrl=${this.spec.ctrl} alt=${this.spec.alt} shift=${this.spec.shift}`);
+
+    // Catch-all probes. If uiohook's event loop is alive at all, we'll see
+    // *any* keydown / mousemove line in the log. Silence under these means
+    // the native CGEventTap was created but is not receiving events — almost
+    // always a macOS Sequoia uiohook-napi compatibility issue rather than a
+    // TCC permission gate (which would have failed acquireUiohook()).
+    let firstKey = true;
+    let firstMouse = true;
+    const probeKey = (e: UiohookKeyboardEvent) => {
+      if (firstKey) {
+        console.log(`[hotkey][probe] FIRST keydown received keycode=${e.keycode}`);
+        firstKey = false;
+      }
+    };
+    const probeMouse = () => {
+      if (firstMouse) {
+        console.log(`[hotkey][probe] FIRST mousemove received`);
+        firstMouse = false;
+      }
+    };
+    uIOhook.on("keydown", probeKey);
+    uIOhook.on("mousemove", probeMouse);
+
     uIOhook.on("keydown", this.downHandler);
     uIOhook.on("keyup", this.upHandler);
-    this.hookRelease = acquireUiohook();
+    try {
+      this.hookRelease = acquireUiohook();
+      console.log("[hotkey] acquireUiohook() ok");
+    } catch (err) {
+      console.error("[hotkey] acquireUiohook() failed:", err);
+      uIOhook.off("keydown", this.downHandler);
+      uIOhook.off("keyup", this.upHandler);
+      uIOhook.off("keydown", probeKey);
+      uIOhook.off("mousemove", probeMouse);
+      throw err;
+    }
     this.started = true;
   }
 
