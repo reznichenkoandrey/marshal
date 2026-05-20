@@ -21,6 +21,7 @@ import { clipboard } from "electron";
 
 import { PushToTalkHotkey } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
+import { probeFocusedElement, sendPasteKeystroke } from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -194,6 +195,21 @@ export class DictationService extends EventEmitter {
     }
   }
 
+  private async maybeAutoPaste(): Promise<void> {
+    const focus = await probeFocusedElement();
+    if (!focus.isTextInput) {
+      debug("no editable focus — clipboard only (role=", focus.role || "?", ")");
+      return;
+    }
+    debug("focused element accepts text — auto-pasting (role=", focus.role, ")");
+    try {
+      await sendPasteKeystroke();
+    } catch (err) {
+      // Don't surface as a fatal error — clipboard fallback is still usable.
+      debug("auto-paste failed, leaving clipboard for manual paste:", err);
+    }
+  }
+
   private async finishRecording(child: ChildProcess, wavPath: string): Promise<void> {
     this.isTranscribing = true;
     try {
@@ -227,6 +243,11 @@ export class DictationService extends EventEmitter {
       debug("transcribed:", result.text.length, "chars, lang=", result.language);
       if (result.text.length > 0) {
         clipboard.writeText(result.text);
+        // Focus-aware paste (#90): if the user's cursor sits inside a text
+        // input, slip the transcript in via Cmd+V; otherwise leave it on the
+        // clipboard so they can place it deliberately. Both probe and paste
+        // are best-effort — failures swallow back to clipboard-only.
+        await this.maybeAutoPaste();
         this.emit("transcribed", result);
       } else {
         this.emit(
