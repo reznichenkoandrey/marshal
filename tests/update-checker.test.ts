@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { UpdateChecker, isNewer, stripLeadingV } from "../desktop/updater/update-checker.ts";
+import {
+  UpdateChecker,
+  isNewer,
+  parseLatestMacYml,
+  stripLeadingV
+} from "../desktop/updater/update-checker.ts";
 
 describe("stripLeadingV", () => {
   it("removes a leading v", () => {
@@ -216,5 +221,152 @@ describe("UpdateChecker.check", () => {
     expect(r.available).toBe(true);
     if (!r.available) return;
     expect(r.downloadUrl).toBeNull();
+  });
+
+  it("populates `installable` when latest-mac.yml is present", async () => {
+    const releaseBody = {
+      tag_name: "v0.2.0",
+      html_url: "https://example/release",
+      name: "0.2.0",
+      body: "notes",
+      draft: false,
+      prerelease: false,
+      assets: [
+        {
+          name: "Marshal-0.2.0-arm64.zip",
+          browser_download_url: "https://example/Marshal-0.2.0-arm64.zip"
+        },
+        {
+          name: "Marshal-0.2.0-arm64.dmg",
+          browser_download_url: "https://example/Marshal-0.2.0-arm64.dmg"
+        },
+        {
+          name: "latest-mac.yml",
+          browser_download_url: "https://example/latest-mac.yml"
+        }
+      ]
+    };
+    const yml = `version: 0.2.0
+files:
+  - url: Marshal-0.2.0-arm64.zip
+    sha512: ZIPSHA==
+    size: 12345
+  - url: Marshal-0.2.0-arm64.dmg
+    sha512: DMGSHA==
+    size: 67890
+path: Marshal-0.2.0-arm64.zip
+sha512: ZIPSHA==
+releaseDate: '2026-01-01T00:00:00.000Z'
+`;
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      const u = typeof url === "string" ? url : url.toString();
+      if (u.endsWith("latest-mac.yml")) {
+        return new Response(yml, { status: 200 });
+      }
+      return new Response(JSON.stringify(releaseBody), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const checker = new UpdateChecker({ currentVersion: "0.1.0", fetchImpl });
+    const r = await checker.check();
+    expect(r.available).toBe(true);
+    if (!r.available) return;
+    expect(r.installable).toEqual({
+      zipUrl: "https://example/Marshal-0.2.0-arm64.zip",
+      sha512: "ZIPSHA==",
+      size: 12345,
+      version: "0.2.0"
+    });
+  });
+
+  it("leaves installable=null when the release has no latest-mac.yml", async () => {
+    const fetchImpl = buildFetch({
+      body: {
+        tag_name: "v0.2.0",
+        html_url: "https://example/release",
+        name: "0.2.0",
+        body: "",
+        draft: false,
+        prerelease: false,
+        assets: [
+          {
+            name: "Marshal-0.2.0-arm64.zip",
+            browser_download_url: "https://example/zip"
+          }
+        ]
+      }
+    });
+    const checker = new UpdateChecker({ currentVersion: "0.1.0", fetchImpl });
+    const r = await checker.check();
+    expect(r.available).toBe(true);
+    if (!r.available) return;
+    expect(r.installable).toBeNull();
+  });
+
+  it("falls back gracefully when the yml fetch fails", async () => {
+    const releaseBody = {
+      tag_name: "v0.2.0",
+      html_url: "https://example/release",
+      name: "0.2.0",
+      body: "",
+      draft: false,
+      prerelease: false,
+      assets: [
+        {
+          name: "Marshal-0.2.0-arm64.zip",
+          browser_download_url: "https://example/zip"
+        },
+        {
+          name: "latest-mac.yml",
+          browser_download_url: "https://example/latest-mac.yml"
+        }
+      ]
+    };
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      const u = typeof url === "string" ? url : url.toString();
+      if (u.endsWith("latest-mac.yml")) {
+        return new Response("", { status: 500 });
+      }
+      return new Response(JSON.stringify(releaseBody), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const checker = new UpdateChecker({ currentVersion: "0.1.0", fetchImpl });
+    const r = await checker.check();
+    expect(r.available).toBe(true);
+    if (!r.available) return;
+    expect(r.installable).toBeNull();
+  });
+});
+
+describe("parseLatestMacYml", () => {
+  it("extracts the zip entry from a real-shaped yml", () => {
+    const yml = `version: 0.1.4
+files:
+  - url: Marshal-0.1.4-arm64.zip
+    sha512: AAA==
+    size: 580374993
+  - url: Marshal-0.1.4-arm64.dmg
+    sha512: BBB==
+    size: 586373121
+path: Marshal-0.1.4-arm64.zip
+sha512: AAA==
+releaseDate: '2026-05-19T19:51:58.145Z'
+`;
+    expect(parseLatestMacYml(yml)).toEqual({ sha512: "AAA==", size: 580374993 });
+  });
+
+  it("returns null when no zip entry exists", () => {
+    const yml = `version: 0.1.4
+files:
+  - url: Marshal-0.1.4-arm64.dmg
+    sha512: BBB==
+    size: 1
+path: Marshal-0.1.4-arm64.dmg
+`;
+    expect(parseLatestMacYml(yml)).toBeNull();
+  });
+
+  it("returns null on malformed input", () => {
+    expect(parseLatestMacYml("not yaml at all")).toBeNull();
+    expect(parseLatestMacYml("")).toBeNull();
   });
 });

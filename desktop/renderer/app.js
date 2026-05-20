@@ -1107,18 +1107,141 @@ function renderUpdateResult(result) {
   }
 
   out.classList.add("is-available");
-  const url = result.downloadUrl || result.releaseUrl;
+  const fallbackUrl = result.downloadUrl || result.releaseUrl;
   const notes = (result.releaseNotes ?? "").trim();
+  const canInstall = Boolean(result.installable);
+
+  const installButton = canInstall
+    ? `<button type="button" class="btn btn-primary" data-update-install>Download &amp; install</button>`
+    : "";
+  const releasePageLinkClass = canInstall ? "btn-secondary-link" : "btn btn-primary";
+  const releasePageLinkLabel = canInstall ? "Open release page" : "Download";
+
   out.innerHTML = `
     <div class="update-result-row">
       <span class="title">Marshal v${escapeHtml(result.latestVersion)} is available <span style="color:var(--text-muted);font-weight:400;">(you have v${escapeHtml(result.currentVersion)})</span></span>
-      <button type="button" class="btn btn-primary" data-update-download>Download</button>
+      <div class="update-result-actions">
+        ${installButton}
+        <button type="button" class="${releasePageLinkClass}" data-update-release-page>${releasePageLinkLabel}</button>
+      </div>
     </div>
     ${notes ? `<div class="update-result-notes">${escapeHtml(notes)}</div>` : ""}
   `;
-  out.querySelector("[data-update-download]")?.addEventListener("click", () => {
-    void api.openExternal?.(url);
+  out.querySelector("[data-update-release-page]")?.addEventListener("click", () => {
+    void api.openExternal?.(fallbackUrl);
   });
+  out.querySelector("[data-update-install]")?.addEventListener("click", () => {
+    void startInPlaceInstall(result);
+  });
+}
+
+// Map of internal install phases → user-facing labels.
+const UPDATE_PHASE_LABELS = {
+  starting: "Preparing…",
+  downloading: "Downloading…",
+  verifying: "Verifying signature…",
+  extracting: "Unpacking…",
+  staging: "Staging install…",
+  relaunching: "Relaunching Marshal…",
+  done: "Done.",
+  error: "Failed."
+};
+
+let updateInstallDisposer = null;
+
+async function startInPlaceInstall(result) {
+  const out = dom.settingsUpdateResult;
+  if (!out || !api?.startUpdateInstall) return;
+
+  // Drop the action buttons immediately so the user can't double-click.
+  out.classList.remove("is-error");
+  out.classList.add("is-available");
+  out.innerHTML = `
+    <div class="update-result-row">
+      <span class="title">Installing Marshal v${escapeHtml(result.latestVersion)}…</span>
+    </div>
+    <div class="update-progress">
+      <div class="update-progress-bar is-indeterminate"><div class="update-progress-bar-fill"></div></div>
+      <div class="update-progress-label">
+        <span data-update-phase>Preparing…</span>
+        <span data-update-detail></span>
+      </div>
+    </div>
+  `;
+
+  const bar = out.querySelector(".update-progress-bar");
+  const fill = out.querySelector(".update-progress-bar-fill");
+  const phaseEl = out.querySelector("[data-update-phase]");
+  const detailEl = out.querySelector("[data-update-detail]");
+
+  if (typeof updateInstallDisposer === "function") {
+    updateInstallDisposer();
+    updateInstallDisposer = null;
+  }
+  updateInstallDisposer = api.onUpdateInstallProgress?.((_event, payload) => {
+    if (!payload) return;
+    phaseEl.textContent = UPDATE_PHASE_LABELS[payload.phase] ?? payload.phase;
+    if (Number.isFinite(payload.ratio) && payload.ratio >= 0 && payload.ratio <= 1) {
+      bar.classList.remove("is-indeterminate");
+      fill.style.width = `${Math.round(payload.ratio * 100)}%`;
+    } else {
+      bar.classList.add("is-indeterminate");
+    }
+    if (payload.phase === "downloading" && payload.bytesTotal) {
+      detailEl.textContent = `${formatBytes(payload.bytesDownloaded ?? 0)} / ${formatBytes(payload.bytesTotal)}`;
+    } else if (payload.message) {
+      detailEl.textContent = payload.message;
+    } else {
+      detailEl.textContent = "";
+    }
+  });
+
+  try {
+    await api.startUpdateInstall();
+    // The main process spawns the post-quit script and triggers app.quit().
+    // We won't actually get here in practice — the window goes away first —
+    // but if the quit is somehow delayed, show a friendly "relaunching" state.
+    phaseEl.textContent = UPDATE_PHASE_LABELS.relaunching;
+    bar.classList.remove("is-indeterminate");
+    fill.style.width = "100%";
+    detailEl.textContent = "";
+  } catch (err) {
+    out.classList.remove("is-available");
+    out.classList.add("is-error");
+    const message = err?.message ?? String(err);
+    out.innerHTML = `
+      <div class="update-result-row">
+        <span class="title">Install failed: ${escapeHtml(message)}</span>
+        <div class="update-result-actions">
+          <button type="button" class="btn btn-secondary" data-update-retry>Try again</button>
+          <button type="button" class="btn-secondary-link" data-update-release-page>Open release page</button>
+        </div>
+      </div>
+    `;
+    out.querySelector("[data-update-retry]")?.addEventListener("click", () => {
+      void startInPlaceInstall(result);
+    });
+    out.querySelector("[data-update-release-page]")?.addEventListener("click", () => {
+      void api.openExternal?.(result.downloadUrl || result.releaseUrl);
+    });
+  } finally {
+    if (typeof updateInstallDisposer === "function") {
+      updateInstallDisposer();
+      updateInstallDisposer = null;
+    }
+  }
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 // ── Init ──

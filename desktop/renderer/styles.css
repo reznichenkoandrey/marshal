@@ -895,6 +895,62 @@ a:hover {
   max-height: 120px;
   overflow-y: auto;
 }
+.update-result-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.update-result-actions .btn-secondary-link {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.update-result-actions .btn-secondary-link:hover {
+  color: var(--text-default);
+}
+.update-progress {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.update-progress-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-muted);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+}
+.update-progress-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.update-progress-bar.is-indeterminate .update-progress-bar-fill {
+  width: 35%;
+  animation: marshal-progress-indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes marshal-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
+.update-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.update-result.is-error .update-progress-bar-fill {
+  background: #dc2626;
+}
 
 .field-hint code {
   font-family: var(--font-mono);

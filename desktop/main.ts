@@ -13,6 +13,8 @@ import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { ScrollCapture } from "./capture/scroll-capture.ts";
 import { UpdateChecker, type UpdateCheckOutcome } from "./updater/update-checker.ts";
+import { UpdateInstaller, type InstallProgress } from "./updater/update-installer.ts";
+import { planSwap } from "./updater/swap-planner.ts";
 import { runCountdown } from "./capture/countdown-window.ts";
 import { pickArea } from "./capture/area-picker.ts";
 import { RecordingIndicator } from "./capture/recording-indicator.ts";
@@ -227,6 +229,7 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:get-settings", () => loadSettings());
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
+  handleIpc("marshal:start-update-install", (event) => runUpdateInstall(event.sender));
   handleIpc("marshal:open-external", (_event, url: string) => {
     if (typeof url !== "string" || !/^https?:\/\//u.test(url)) {
       throw new Error("Refused to open non-http URL");
@@ -799,6 +802,58 @@ async function runSilentUpdateCheck(): Promise<UpdateCheckOutcome | { error: str
     return { error: "Update checker is not running in this build." };
   }
   return updateChecker.check();
+}
+
+/**
+ * Drive the full in-app install: re-check (to pull fresh asset metadata),
+ * plan the swap, download + verify + extract, then spawn the post-quit script
+ * and quit. Progress events are forwarded to the calling renderer via the
+ * `marshal:update-install-progress` channel.
+ *
+ * Throws on any failure so the renderer can surface the error inline.
+ */
+async function runUpdateInstall(sender: Electron.WebContents): Promise<{ ok: true; version: string }> {
+  if (!updateChecker) {
+    throw new Error("Update checker is not running in this build.");
+  }
+  const result = await updateChecker.check();
+  if ("error" in result) {
+    throw new Error(result.error);
+  }
+  if (!result.available) {
+    throw new Error(`Already on the latest version (v${result.currentVersion}).`);
+  }
+  if (!result.installable) {
+    throw new Error(
+      "This release has no installable ZIP metadata (latest-mac.yml missing). " +
+        "Open the release page and install manually."
+    );
+  }
+
+  const decision = planSwap({ execPath: process.execPath });
+  if (!decision.ok) {
+    throw new Error(decision.refusal.detail);
+  }
+
+  const installer = new UpdateInstaller();
+  const forward = (p: InstallProgress) => {
+    if (sender.isDestroyed()) return;
+    sender.send("marshal:update-install-progress", p);
+  };
+  const dispose = installer.onProgress(forward);
+  try {
+    const prepared = await installer.prepare(result.installable, decision.plan);
+    installer.commit(prepared);
+    // Give the renderer a tick to render the "Relaunching…" state before we
+    // tear down the window.
+    setTimeout(() => {
+      isQuitting = true;
+      app.quit();
+    }, 250);
+    return { ok: true, version: result.installable.version };
+  } finally {
+    dispose();
+  }
 }
 
 async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {
