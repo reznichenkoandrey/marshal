@@ -981,7 +981,7 @@ function initDictation(): void {
   // reset that hits every self-signed bundle replace (#84). The uiohook
   // push-to-talk path stays available for users who can hold Input Monitoring
   // grants stable; the toggle is the dependable fallback.
-  const toggleAccelerator = "CommandOrControl+Alt+Space";
+  const toggleAccelerator = "CommandOrControl+Alt+M";
   const registered = globalShortcut.register(toggleAccelerator, () => {
     if (!dictationService) return;
     console.log(`[marshal] dictation: ${toggleAccelerator} pressed, toggling`);
@@ -1244,7 +1244,7 @@ function buildTrayMenu(): Electron.Menu {
     // Monitoring revoked after a self-signed bundle replace, #84).
     {
       label: recording ? "Stop Dictation" : "Start Dictation",
-      accelerator: "CommandOrControl+Alt+Space",
+      accelerator: "CommandOrControl+Alt+M",
       enabled: dictationAvailable,
       click: () => dictationService?.toggleRecording()
     },
