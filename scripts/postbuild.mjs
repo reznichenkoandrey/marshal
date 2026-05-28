@@ -121,6 +121,12 @@ if (process.platform === "darwin") {
       fallbackNote: "dictation will fall back to clipboard-only (no auto-paste)"
     },
     {
+      src: path.join(root, "desktop", "dictation", "ptt-monitor.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "ptt-monitor"),
+      label: "ptt-monitor",
+      fallbackNote: "modifier-only push-to-talk falls back to uiohook (needs Input Monitoring)"
+    },
+    {
       src: path.join(root, "desktop", "dictation", "mic-list.swift"),
       out: path.join(root, "dist", "desktop", "dictation", "mic-list"),
       label: "mic-list",

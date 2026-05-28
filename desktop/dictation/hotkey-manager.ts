@@ -9,6 +9,10 @@
 import { EventEmitter } from "node:events";
 import { UiohookKey, type UiohookKeyboardEvent, uIOhook } from "uiohook-napi";
 import { acquireUiohook, type UiohookReleaseFn } from "../uiohook-lifecycle.ts";
+import {
+  isSwiftPttCandidate,
+  SwiftPushToTalkHotkey
+} from "./swift-ptt-monitor.ts";
 
 export type HotkeySpec = {
   keycode: number;
@@ -138,7 +142,39 @@ export type HotkeyManagerEvents = {
 // be actionable on the first real session.
 const SILENCE_PROBE_MS = 5_000;
 
-export class PushToTalkHotkey extends EventEmitter {
+/**
+ * Common minimum surface for any push-to-talk backend. Both uiohook-based
+ * PushToTalkHotkey and the Swift-helper SwiftPushToTalkHotkey conform — so
+ * the dictation service can hold the union type without caring which path
+ * is active under it.
+ */
+export interface PushToTalkBackend extends EventEmitter {
+  start(): void;
+  stop(): void;
+  forceEnd(): void;
+}
+
+/**
+ * Pick the right backend for the user's hotkey choice. Modifier-only
+ * triggers (RightCmd, LeftShift, etc.) route to the Swift `ptt-monitor`
+ * helper because uiohook's CGEventTap is unreliable for modifiers on
+ * self-signed Sequoia bundles (Input Monitoring TCC silently drops key
+ * events even when granted; see swift-ptt-monitor.ts for the long story).
+ * Anything else — multi-key chords, letter targets, function keys — keeps
+ * using uiohook, which doesn't have the modifier-specific issue.
+ *
+ * Override via MARSHAL_DICTATION_FORCE_UIOHOOK=1 if you need to compare
+ * paths or the Swift helper is unavailable.
+ */
+export function createPushToTalkHotkey(hotkey: string): PushToTalkBackend {
+  const force = process.env.MARSHAL_DICTATION_FORCE_UIOHOOK === "1";
+  if (!force && isSwiftPttCandidate(hotkey)) {
+    return new SwiftPushToTalkHotkey(hotkey);
+  }
+  return new PushToTalkHotkey(hotkey);
+}
+
+export class PushToTalkHotkey extends EventEmitter implements PushToTalkBackend {
   private readonly spec: HotkeySpec;
   private readonly debug: boolean;
   private started = false;

@@ -39,6 +39,7 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*",
       "dist/desktop/dictation/audio-recorder",
+      "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/ggml-small.bin",
       "dist/desktop/capture/screen-recorder",

@@ -119,6 +119,22 @@ async function bootstrap(): Promise<void> {
       app.setActivationPolicy("accessory");
     }
 
+    // Second-pass .env load — production-only fallback. The top-of-file
+    // `loadDotenv()` resolves to `<projectRoot>/.env`, which lives inside
+    // app.asar in packaged builds and is therefore unreadable. The user's
+    // writable spot is app.getPath("userData") — drop a `.env` there and
+    // values like MARSHAL_API_KEY get picked up by the next launch.
+    // Available only after app.whenReady() because getPath("userData") is.
+    const userDataEnvPath = path.join(app.getPath("userData"), ".env");
+    if (fs.existsSync(userDataEnvPath)) {
+      const before = process.env.MARSHAL_API_KEY ? "present" : "absent";
+      loadDotenv({ path: userDataEnvPath, override: false });
+      const after = process.env.MARSHAL_API_KEY ? "present" : "absent";
+      console.log(`[marshal] loaded .env from ${userDataEnvPath} (MARSHAL_API_KEY ${before}→${after})`);
+    } else {
+      console.log(`[marshal] no .env at ${userDataEnvPath} — running with project-root .env only`);
+    }
+
     // Settings override .env values. Must be applied BEFORE the backend utility
     // process forks so the child inherits the correct env.
     const initialSettings = loadSettings();
