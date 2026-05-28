@@ -22,6 +22,8 @@ import { VideoRecorder } from "./capture/video-recorder.ts";
 import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
+import { DictationIndicator } from "./dictation/dictation-indicator.ts";
+import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
@@ -68,6 +70,7 @@ let clipboardMonitor: ClipboardMonitor | null = null;
 let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
 let dictationService: DictationService | null = null;
+let dictationIndicator: DictationIndicator | null = null;
 let isDictating = false;
 
 // `mainWindow` and `tray` are cached refs to the menubar-managed window and
@@ -240,6 +243,15 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
   handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
+  // Stop button on the floating dictation indicator (#98). The indicator
+  // renderer is the only legitimate caller; the action is idempotent so a
+  // double-click while transcription is already in flight is a no-op.
+  handleIpc("marshal:dictation-stop", () => {
+    if (dictationService?.isCurrentlyRecording()) {
+      dictationService.stopRecording();
+    }
+    return { ok: true };
+  });
   handleIpc("marshal:dictation-list-mics", async () => {
     try {
       const devices = await listMicrophones();
@@ -710,6 +722,7 @@ async function performTeardown(): Promise<void> {
   clipboardMonitor?.stop();
   layoutSwitcher?.stop();
   dictationService?.stop();
+  dictationIndicator?.hide();
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
@@ -930,6 +943,14 @@ function logPermissionStatus(): void {
     // down, so a missing "hotkey start" line in the log means uiohook didn't
     // attach (almost always = Input Monitoring not granted).
     console.log(`[marshal][perm] input-monitoring=(no API — watch for "[hotkey] start" below)`);
+
+    // Do NOT call `systemPreferences.askForMediaAccess('microphone')` here.
+    // On macOS Sequoia 15 with a self-signed bundle, the call returns
+    // `denied` synchronously WITHOUT showing the UI prompt — and worse,
+    // writes that denial into TCC.db, blocking the audio-recorder Swift
+    // helper from ever raising its own prompt. Leave `not-determined` as
+    // is so that AVCaptureDevice.requestAccess() inside audio-recorder.swift
+    // gets to raise the actual UI prompt on first record. #82.
   } catch (err) {
     console.warn("[marshal][perm] failed to query permissions:", err);
   }
@@ -951,12 +972,19 @@ function initDictation(): void {
     return;
   }
 
+  // Floating pill that surfaces recording state to the user even when their
+  // focus is on a fullscreen / non-menubar app (the tray icon alone is not
+  // discoverable enough — see #98).
+  dictationIndicator = new DictationIndicator(preloadPath);
+
   dictationService.on("recording-start", () => {
     isDictating = true;
+    dictationIndicator?.show();
     void refreshTrayState();
   });
   dictationService.on("recording-stop", () => {
     isDictating = false;
+    dictationIndicator?.hide();
     void refreshTrayState();
   });
   dictationService.on("transcribed", ({ text }) => {
@@ -969,11 +997,60 @@ function initDictation(): void {
     if (!Notification.isSupported()) return;
     new Notification({ title: "Marshal — Dictation error", body: err.message, silent: true }).show();
   });
+  // One-shot warning: shown only on the first silent session per app launch.
+  // Persistent nagging on every restart would train users to dismiss it; one
+  // clear surface per launch with a one-click path to System Settings is the
+  // right balance. Issue #100.
+  let silentNoticeShown = false;
+  dictationService.on("input-monitoring-silent", () => {
+    if (silentNoticeShown) return;
+    silentNoticeShown = true;
+    console.warn("[marshal] dictation: hotkey listener appears deaf; warning user");
+    if (!Notification.isSupported()) return;
+    const notif = new Notification({
+      title: "Marshal — push-to-talk is not receiving keys",
+      body:
+        "Grant Input Monitoring (Privacy & Security) — or disable macOS Dictation " +
+        "if it owns the same key. Click to open System Settings.",
+      silent: true
+    });
+    notif.on("click", () => {
+      void shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+      );
+    });
+    notif.show();
+  });
 
   console.log("[marshal] dictation: calling start()");
   void dictationService.start()
     .then(() => console.log("[marshal] dictation: start() resolved"))
     .catch((err) => console.error("[marshal] dictation: start() rejected:", err));
+
+  // One-time boot check: if macOS system Dictation is enabled, its activation
+  // shortcut (default: double-press Right Command) lives at a lower layer
+  // than uiohook and can silently steal RightCmd from Marshal's push-to-talk.
+  // We can't read the shortcut binding reliably (it's buried inside the
+  // symbolic-hotkeys plist), so we trigger on the "enabled" flag alone and
+  // leave the actual conflict diagnosis to the user. Issue #97.
+  void detectMacOSDictationEnabled().then((status) => {
+    if (!status.ok || !status.enabled) return;
+    if (!Notification.isSupported()) return;
+    console.warn("[marshal] dictation: macOS Dictation is enabled — may conflict with Marshal hotkey");
+    const notif = new Notification({
+      title: "Marshal — macOS Dictation is on",
+      body:
+        "If push-to-talk doesn't react, macOS may own your hotkey. " +
+        "Click to open Dictation settings and change its shortcut to Off.",
+      silent: true
+    });
+    notif.on("click", () => {
+      void shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.keyboard?Dictation"
+      );
+    });
+    notif.show();
+  });
 
   // Register an Electron-native global shortcut as a toggle (start/stop) for
   // dictation. globalShortcut goes through the macOS Carbon hotkey API which

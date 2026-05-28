@@ -222,6 +222,16 @@ const captureApi = {
 
 contextBridge.exposeInMainWorld("marshalCapture", captureApi);
 
+// ── Dictation API ──
+// Used exclusively by the floating dictation indicator
+// (renderer/dictation-indicator.html). The indicator is a tiny renderer with
+// only one user-actionable control — Stop — so the surface stays minimal.
+const dictationApi = {
+  stop: () => ipcRenderer.invoke("marshal:dictation-stop")
+};
+
+contextBridge.exposeInMainWorld("marshalDictation", dictationApi);
+
 // ── Capture History API ──
 // Used exclusively by the history viewer window (capture-history.html).
 const historyApi = {

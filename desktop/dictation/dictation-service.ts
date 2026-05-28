@@ -54,6 +54,11 @@ export type DictationEvents = {
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
   error: [Error];
+  // Forwarded from PushToTalkHotkey when uiohook attaches but no keydown
+  // events arrive within its silence probe window. Main process turns this
+  // into a one-time user notification with a deep link to Privacy & Security
+  // → Input Monitoring. Issue #100.
+  "input-monitoring-silent": [];
 };
 
 function resolveLanguage(raw: string | undefined): string | undefined {
@@ -62,6 +67,44 @@ function resolveLanguage(raw: string | undefined): string | undefined {
   // Whisper language codes are 2-letter ISO 639-1. Keep the first two chars
   // so both "uk" and "uk-UA" work.
   return value.slice(0, 2);
+}
+
+// Minimum chunk size for the repeat collapser. Below this we leave the text
+// alone — natural language has plenty of short repetition (you you you,
+// дуже дуже, ha ha) and we don't want to eat it. Whisper's pathological
+// loops are always multi-word, so 24 chars is a safe floor.
+const MIN_REPEAT_CHARS = 24;
+
+/**
+ * Collapse exact duplicate substrings of >= MIN_REPEAT_CHARS that repeat
+ * back-to-back anywhere in the text. whisper.cpp (and to a lesser extent
+ * the Groq hosted whisper-large-v3) occasionally loops on the last n-gram
+ * when the audio tail is silent / breath-padded or when a long initial
+ * prompt over-primes the decoder. Symptom: the transcription contains
+ * "…foo bar baz foo bar baz" or ends in "…X X X". This collapses those
+ * runs to a single copy.
+ *
+ * Why not just `--no-context` in whisper-cli? It helps but doesn't fully
+ * eliminate the loop, especially on long takes; post-processing is the
+ * cheap belt-and-braces layer. Exported for unit tests. Issue #99.
+ */
+export function collapseRepeats(text: string): string {
+  if (text.length < MIN_REPEAT_CHARS * 2) return text;
+  // The regex captures any chunk of MIN_REPEAT_CHARS+ characters followed by
+  // one or more whitespace-separated copies of itself, anywhere in the text.
+  // The `s` flag lets `.` cross newlines; `u` keeps it unicode-safe (Ukrainian
+  // glyphs, em-dashes, ellipses). The lazy `*?` keeps the captured chunk as
+  // small as possible so we don't accidentally swallow legitimate prefixes.
+  const pattern = new RegExp(`(.{${MIN_REPEAT_CHARS},}?)(?:\\s*\\1)+`, "gsu");
+  let collapsed = text.replace(pattern, "$1");
+  // A single pass usually suffices, but nested repeats can survive — run a
+  // second pass and bail when the text stops shrinking.
+  let prev = "";
+  while (collapsed !== prev) {
+    prev = collapsed;
+    collapsed = collapsed.replace(pattern, "$1");
+  }
+  return collapsed;
 }
 
 export class DictationService extends EventEmitter {
@@ -87,6 +130,7 @@ export class DictationService extends EventEmitter {
 
     this.hotkey.on("hold-start", () => this.handleHoldStart());
     this.hotkey.on("hold-end", () => this.handleHoldEnd());
+    this.hotkey.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
   }
 
   async start(): Promise<void> {
@@ -305,8 +349,14 @@ export class DictationService extends EventEmitter {
         prompt: this.prompt
       });
       debug("transcribed:", result.text.length, "chars, lang=", result.language);
-      if (result.text.length > 0) {
-        clipboard.writeText(result.text);
+      // Collapse whisper repeat loops before either the clipboard or the
+      // synthetic paste sees the text (#99). Keep the original on `result`
+      // so the `transcribed` event reflects what the model actually emitted,
+      // not the post-processed version — listeners that telemeter accuracy
+      // need the raw output.
+      const cleanText = collapseRepeats(result.text);
+      if (cleanText.length > 0) {
+        clipboard.writeText(cleanText);
         // Focus-aware paste (#90): if the user's cursor sits inside a text
         // input, slip the transcript in via Cmd+V; otherwise leave it on the
         // clipboard so they can place it deliberately. Both probe and paste
