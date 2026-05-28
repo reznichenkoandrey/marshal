@@ -124,7 +124,19 @@ export function matchesHotkey(event: UiohookKeyboardEvent, spec: HotkeySpec): bo
 export type HotkeyManagerEvents = {
   "hold-start": [];
   "hold-end": [];
+  // Emitted when uiohook attaches successfully but no keydown event lands
+  // within SILENCE_PROBE_MS. Almost always indicates Input Monitoring is not
+  // granted to this build (TCC reset after self-signed bundle replace — #84)
+  // OR macOS Dictation has claimed the same key at the CGEventTap layer
+  // (#97). Main process surfaces this as a user-facing notification (#100).
+  "input-monitoring-silent": [];
 };
+
+// How long to wait for ANY keyboard event after uiohook is acquired before
+// declaring the OS silent on us. 5s is long enough to avoid false positives
+// on a user who has briefly stepped away from the keyboard, short enough to
+// be actionable on the first real session.
+const SILENCE_PROBE_MS = 5_000;
 
 export class PushToTalkHotkey extends EventEmitter {
   private readonly spec: HotkeySpec;
@@ -134,6 +146,7 @@ export class PushToTalkHotkey extends EventEmitter {
   private hookRelease: UiohookReleaseFn | null = null;
   private downHandler: (event: UiohookKeyboardEvent) => void;
   private upHandler: (event: UiohookKeyboardEvent) => void;
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(hotkey: string) {
     super();
@@ -204,6 +217,11 @@ export class PushToTalkHotkey extends EventEmitter {
       if (firstKey) {
         console.log(`[hotkey][probe] FIRST keydown received keycode=${e.keycode}`);
         firstKey = false;
+        // First key landed — the OS is delivering events, no need to warn.
+        if (this.silenceTimer) {
+          clearTimeout(this.silenceTimer);
+          this.silenceTimer = null;
+        }
       }
     };
     const probeMouse = () => {
@@ -220,18 +238,46 @@ export class PushToTalkHotkey extends EventEmitter {
     try {
       this.hookRelease = acquireUiohook();
       console.log("[hotkey] acquireUiohook() ok");
+      this.started = true;
+      // Silence-probe: uiohook attached without throwing, but on macOS that
+      // doesn't guarantee the OS is actually delivering events to us. Common
+      // cause: Input Monitoring grant was wiped by a self-signed bundle
+      // replace (#84); rarer cause: macOS Dictation has the same key at a
+      // lower layer (#97). If we don't see ANY keydown in SILENCE_PROBE_MS,
+      // assume we're deaf and emit so the main process can show a user-
+      // actionable notification (#100).
+      this.silenceTimer = setTimeout(() => {
+        this.silenceTimer = null;
+        if (firstKey) {
+          console.warn(
+            `[hotkey] no keydown events in ${SILENCE_PROBE_MS}ms — ` +
+              "Input Monitoring is probably not granted, or another " +
+              "system feature owns the target key"
+          );
+          this.emit("input-monitoring-silent");
+        }
+      }, SILENCE_PROBE_MS);
     } catch (err) {
-      console.error("[hotkey] acquireUiohook() failed:", err);
+      // uiohook needs macOS Accessibility — when it's denied the native helper
+      // throws UIOHOOK_ERROR_AXAPI_DISABLED. Swallow it here so dictation can
+      // still be triggered via the globalShortcut toggle and the tray menu
+      // (neither of which goes through uiohook). #82.
+      console.warn(
+        "[hotkey] acquireUiohook() failed — hold-to-talk disabled, use Cmd+Alt+M toggle or tray menu instead:",
+        err instanceof Error ? err.message : err
+      );
       uIOhook.off("keydown", this.downHandler);
       uIOhook.off("keyup", this.upHandler);
       uIOhook.off("keydown", probeKey);
       uIOhook.off("mousemove", probeMouse);
-      throw err;
     }
-    this.started = true;
   }
 
   stop(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
     if (!this.started) return;
     uIOhook.off("keydown", this.downHandler);
     uIOhook.off("keyup", this.upHandler);

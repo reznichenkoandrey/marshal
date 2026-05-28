@@ -68,7 +68,20 @@ export class ClipboardMonitor extends EventEmitter {
   start(): void {
     uIOhook.on("keydown", this.onKeyDown);
     if (!this.hookRelease) {
-      this.hookRelease = acquireUiohook();
+      // uiohook needs macOS Accessibility — when it's denied the native
+      // helper throws `UIOHOOK_ERROR_AXAPI_DISABLED`. Catch it so the rest of
+      // bootstrap (dictation toggle, globalShortcut registrations, the main
+      // window) still come up. The user can still use the dedicated hotkey
+      // (which is a globalShortcut) and the menu items. #82.
+      try {
+        this.hookRelease = acquireUiohook();
+      } catch (err) {
+        console.warn(
+          "[ClipboardMonitor] uiohook unavailable (Accessibility denied?) — double-⌘C detector disabled:",
+          err instanceof Error ? err.message : err
+        );
+        uIOhook.off("keydown", this.onKeyDown);
+      }
     }
 
     globalShortcut.register(DEDICATED_HOTKEY, () => {
