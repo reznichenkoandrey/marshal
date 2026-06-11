@@ -91,6 +91,12 @@ func isOurKeyPressed(_ ev: NSEvent) -> Bool {
 }
 
 let handler: (NSEvent) -> Void = { ev in
+    // Diagnostic — log EVERY flagsChanged event so we can tell whether the
+    // monitor is wired up at all. Filtered out in production via the
+    // PTT_MONITOR_QUIET env var.
+    if ProcessInfo.processInfo.environment["PTT_MONITOR_QUIET"] != "1" {
+        FileHandle.standardError.write(Data("flagsChanged keyCode=\(ev.keyCode) flags=\(ev.modifierFlags.rawValue)\n".utf8))
+    }
     // Filter early — flagsChanged fires for every modifier transition; we
     // only care about transitions of OUR target keycode.
     guard ev.keyCode == targetKeyCode else { return }
@@ -104,22 +110,21 @@ let handler: (NSEvent) -> Void = { ev in
     }
 }
 
-// Global monitor fires for events delivered to OTHER apps. Local monitor
-// fires when our own process is frontmost. Push-to-talk needs both —
-// without the local pair, holding Right-Cmd while Marshal's popover has
-// focus would do nothing.
+// Global monitor fires for events delivered to OTHER apps — and that is all
+// we need. ptt-monitor is a SEPARATE process from Marshal, so even when
+// Marshal's own popover holds focus the RightCmd flagsChanged is delivered
+// to Marshal's process, which is "another app" from our point of view, so
+// the global monitor sees it. A local monitor would only fire while THIS
+// helper is frontmost — which never happens under .prohibited — so we don't
+// install one. (It used to be here, but it was dead code and dragging in
+// AppKit's local-event path is what let the helper grab key focus, #101.)
 let globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: handler)
-let localMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { ev in
-    handler(ev)
-    return ev
-}
 
-// SIGTERM clean exit — parent kills us on app quit. Both monitors are
-// idempotent to nil release; the OS reclaims them anyway, but explicit
-// removal keeps Console.app quiet.
+// SIGTERM clean exit — parent kills us on app quit. removeMonitor is
+// idempotent to nil; the OS reclaims it anyway, but explicit removal keeps
+// Console.app quiet.
 func shutdown() -> Never {
     if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
-    NSEvent.removeMonitor(localMonitor)
     exit(0)
 }
 
@@ -133,9 +138,38 @@ let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 intSource.setEventHandler { shutdown() }
 intSource.resume()
 
+// Minimal NSApplicationDelegate. NSApp.run() returns immediately on
+// Sequoia without a real delegate (it short-circuits when there's no
+// applicationDidFinishLaunching handler), and that's what was killing the
+// process every time. We empirically confirmed RunLoop.main.run() doesn't
+// drive AppKit's event tap either — addGlobalMonitorForEvents needs the
+// full NSApplication lifecycle, not just the bare CFRunLoop. So: real
+// delegate + NSApp.run().
+//
+// Activation policy is .prohibited, NOT .accessory. Under .accessory the
+// helper can become the active / key app the moment AppKit routes the
+// RightCmd transition through it, yanking keyboard focus out of whatever
+// text field the user is typing in — the "focus disappears as soon as I
+// hold Command" bug (#101). .prohibited forbids the process from ever
+// activating or taking key focus, while addGlobalMonitorForEvents keeps
+// working (global monitors observe other apps' events independent of
+// activation policy). No Dock icon, no focus theft, monitor still wires up.
+final class Delegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // No-op. We rely on the framework lifecycle running normally so
+        // the event tap that NSEvent.addGlobalMonitorForEvents schedules
+        // its callbacks on is actually hooked up.
+    }
+}
+
+let delegate = Delegate()
+NSApplication.shared.delegate = delegate
+NSApplication.shared.setActivationPolicy(.prohibited)
+
 // Handshake — node side waits for this line before treating the monitor
 // as armed (mirrors audio-recorder's "ready" protocol).
 FileHandle.standardOutput.write(Data("ready\n".utf8))
 
-// Drive AppKit's run loop so addGlobalMonitorForEvents actually fires.
+// Real AppKit run loop. With a delegate set + .prohibited policy this
+// blocks until SIGTERM, hooks the event tap, and stays headless.
 NSApplication.shared.run()

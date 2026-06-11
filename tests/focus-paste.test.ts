@@ -194,7 +194,7 @@ describe("probeFocusedElement", () => {
       'echo \'{"isTextInput":true,"role":"AXTextField","subrole":"","axError":0,"axTrusted":true,"frontmostApp":"Notes"}\''
     );
     try {
-      const result = await probeFocusedElement({ binPath: bin });
+      const result = await probeFocusedElement({ binPath: bin, timeoutMs: 2_000 });
       expect(result.isTextInput).toBe(true);
       expect(result.role).toBe("AXTextField");
       expect(result.frontmostApp).toBe("Notes");

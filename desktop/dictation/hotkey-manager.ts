@@ -13,6 +13,14 @@ import {
   isSwiftPttCandidate,
   SwiftPushToTalkHotkey
 } from "./swift-ptt-monitor.ts";
+import {
+  clampInteger,
+  DEFAULT_HOLD_DELAY_MS,
+  DEFAULT_TOGGLE_TAP_COUNT,
+  DEFAULT_TOGGLE_TAP_THRESHOLD_MS,
+  normalizeToggleTapCount,
+  type DictationGestureOptions
+} from "./gesture-options.ts";
 
 export type HotkeySpec = {
   keycode: number;
@@ -154,6 +162,154 @@ export interface PushToTalkBackend extends EventEmitter {
   forceEnd(): void;
 }
 
+export function resolveDictationGestureOptionsFromEnv(): DictationGestureOptions {
+  return {
+    holdDelayMs: clampInteger(
+      process.env.MARSHAL_DICTATION_HOLD_DELAY_MS,
+      DEFAULT_HOLD_DELAY_MS,
+      0,
+      1_000
+    ),
+    toggleTapCount: normalizeToggleTapCount(
+      process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT,
+      DEFAULT_TOGGLE_TAP_COUNT
+    ),
+    toggleTapThresholdMs: clampInteger(
+      process.env.MARSHAL_DICTATION_TOGGLE_TAP_THRESHOLD_MS,
+      DEFAULT_TOGGLE_TAP_THRESHOLD_MS,
+      150,
+      1_000
+    )
+  };
+}
+
+/**
+ * Backend-agnostic gesture layer for push-to-talk. The lower backend only
+ * reports raw key down/up; this layer decides whether a hold was intentional
+ * enough to start recording, or whether repeated taps should toggle hands-free
+ * recording. Mirrors the polish Diduny has while keeping Marshal's Swift and
+ * uiohook paths interchangeable. Issue #110.
+ */
+export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkBackend {
+  private readonly inner: PushToTalkBackend;
+  private readonly options: DictationGestureOptions;
+  private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingHold = false;
+  private activeHold = false;
+  private toggleActive = false;
+  private lastTapAt = 0;
+  private tapCount = 0;
+
+  constructor(inner: PushToTalkBackend, options: Partial<DictationGestureOptions> = {}) {
+    super();
+    this.inner = inner;
+    this.options = {
+      holdDelayMs: Math.min(Math.max(Math.trunc(options.holdDelayMs ?? DEFAULT_HOLD_DELAY_MS), 0), 1_000),
+      toggleTapCount: normalizeToggleTapCount(options.toggleTapCount, DEFAULT_TOGGLE_TAP_COUNT),
+      toggleTapThresholdMs: Math.min(
+        Math.max(Math.trunc(options.toggleTapThresholdMs ?? DEFAULT_TOGGLE_TAP_THRESHOLD_MS), 150),
+        1_000
+      )
+    };
+
+    this.inner.on("hold-start", () => this.handleRawHoldStart());
+    this.inner.on("hold-end", () => this.handleRawHoldEnd());
+    this.inner.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
+  }
+
+  start(): void {
+    this.inner.start();
+  }
+
+  stop(): void {
+    this.clearHoldTimer();
+    this.pendingHold = false;
+    this.activeHold = false;
+    this.toggleActive = false;
+    this.tapCount = 0;
+    this.lastTapAt = 0;
+    this.inner.stop();
+  }
+
+  forceEnd(): void {
+    this.clearHoldTimer();
+    this.pendingHold = false;
+    if (this.activeHold || this.toggleActive) {
+      this.activeHold = false;
+      this.toggleActive = false;
+      this.emit("hold-end");
+    }
+    this.inner.forceEnd();
+  }
+
+  private handleRawHoldStart(): void {
+    if (this.options.toggleTapCount >= 2) {
+      this.handleToggleTap();
+      return;
+    }
+
+    if (this.pendingHold || this.activeHold) return;
+    this.pendingHold = true;
+
+    if (this.options.holdDelayMs === 0) {
+      this.promotePendingHold();
+      return;
+    }
+
+    this.holdTimer = setTimeout(() => this.promotePendingHold(), this.options.holdDelayMs);
+  }
+
+  private handleRawHoldEnd(): void {
+    if (this.options.toggleTapCount >= 2) return;
+
+    if (this.pendingHold) {
+      this.pendingHold = false;
+      this.clearHoldTimer();
+      return;
+    }
+
+    if (!this.activeHold) return;
+    this.activeHold = false;
+    this.emit("hold-end");
+  }
+
+  private promotePendingHold(): void {
+    if (!this.pendingHold || this.activeHold) return;
+    this.clearHoldTimer();
+    this.pendingHold = false;
+    this.activeHold = true;
+    this.emit("hold-start");
+  }
+
+  private handleToggleTap(): void {
+    const now = Date.now();
+    if (now - this.lastTapAt <= this.options.toggleTapThresholdMs) {
+      this.tapCount += 1;
+    } else {
+      this.tapCount = 1;
+    }
+    this.lastTapAt = now;
+
+    if (this.tapCount < this.options.toggleTapCount) return;
+    this.tapCount = 0;
+    this.lastTapAt = 0;
+
+    if (this.toggleActive) {
+      this.toggleActive = false;
+      this.emit("hold-end");
+    } else {
+      this.toggleActive = true;
+      this.emit("hold-start");
+    }
+  }
+
+  private clearHoldTimer(): void {
+    if (!this.holdTimer) return;
+    clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+  }
+}
+
 /**
  * Pick the right backend for the user's hotkey choice. Modifier-only
  * triggers (RightCmd, LeftShift, etc.) route to the Swift `ptt-monitor`
@@ -169,9 +325,12 @@ export interface PushToTalkBackend extends EventEmitter {
 export function createPushToTalkHotkey(hotkey: string): PushToTalkBackend {
   const force = process.env.MARSHAL_DICTATION_FORCE_UIOHOOK === "1";
   if (!force && isSwiftPttCandidate(hotkey)) {
-    return new SwiftPushToTalkHotkey(hotkey);
+    return new GesturePushToTalkHotkey(
+      new SwiftPushToTalkHotkey(hotkey),
+      resolveDictationGestureOptionsFromEnv()
+    );
   }
-  return new PushToTalkHotkey(hotkey);
+  return new GesturePushToTalkHotkey(new PushToTalkHotkey(hotkey), resolveDictationGestureOptionsFromEnv());
 }
 
 export class PushToTalkHotkey extends EventEmitter implements PushToTalkBackend {

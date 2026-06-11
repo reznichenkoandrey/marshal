@@ -826,6 +826,7 @@ a:hover {
 
 .field select,
 .field input[type="text"],
+.field input[type="number"],
 .field textarea {
   width: 100%;
   padding: 8px 10px;
@@ -841,12 +842,14 @@ a:hover {
 
 .field select:hover,
 .field input[type="text"]:hover,
+.field input[type="number"]:hover,
 .field textarea:hover {
   border-color: var(--border-strong);
 }
 
 .field select:focus,
 .field input[type="text"]:focus,
+.field input[type="number"]:focus,
 .field textarea:focus {
   border-color: var(--accent);
   box-shadow: var(--shadow-focus);
@@ -856,6 +859,79 @@ a:hover {
   font-size: var(--fs-sm);
   color: var(--text-muted);
   line-height: var(--lh-normal);
+}
+
+.health-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.health-summary {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-default);
+}
+
+.health-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.health-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.health-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.health-ok .health-dot {
+  background: #16a34a;
+}
+
+.health-warn .health-dot {
+  background: #d97706;
+}
+
+.health-error .health-dot {
+  background: #dc2626;
+}
+
+.health-copy {
+  min-width: 0;
+}
+
+.health-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-default);
+}
+
+.health-detail {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+  color: var(--text-muted);
+}
+
+.health-action {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-default);
 }
 
 .update-result {

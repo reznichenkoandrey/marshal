@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node index.ts",
     "operator": "npm run build && node dist/operator-main.js",
@@ -29,6 +32,7 @@
   "build": {
     "appId": "com.marshal.desktop",
     "productName": "Marshal",
+    "afterSign": "scripts/notarize.cjs",
     "files": [
       "dist/**/*",
       "assets/**/*",
@@ -39,6 +43,9 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*",
       "dist/desktop/dictation/audio-recorder",
+      "dist/desktop/dictation/focus-probe",
+      "dist/desktop/dictation/insert-text",
+      "dist/desktop/dictation/mic-list",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/ggml-small.bin",
@@ -106,6 +113,7 @@
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@types/chrome": "^0.1.24",
     "@types/node": "^24.3.0",
     "@vitest/coverage-v8": "^4.1.6",

@@ -121,6 +121,12 @@ if (process.platform === "darwin") {
       fallbackNote: "dictation will fall back to clipboard-only (no auto-paste)"
     },
     {
+      src: path.join(root, "desktop", "dictation", "insert-text.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "insert-text"),
+      label: "insert-text",
+      fallbackNote: "dictation will fall back to clipboard + Cmd+V (no direct caret insert)"
+    },
+    {
       src: path.join(root, "desktop", "dictation", "ptt-monitor.swift"),
       out: path.join(root, "dist", "desktop", "dictation", "ptt-monitor"),
       label: "ptt-monitor",

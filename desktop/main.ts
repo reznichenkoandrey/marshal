@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { config as loadDotenv } from "dotenv";
 import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
@@ -25,8 +27,9 @@ import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
-import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
+import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
+import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import { LayoutSwitcher } from "./translator/layout-switcher.ts";
@@ -47,6 +50,7 @@ loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
+const execFileAsync = promisify(execFile);
 
 const backendClient = new DesktopBackendClient();
 
@@ -72,6 +76,7 @@ let translatorHistory: TranslatorHistoryStore | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
 let isDictating = false;
+const DICTATION_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+M";
 
 // `mainWindow` and `tray` are cached refs to the menubar-managed window and
 // tray. The menubar instance owns lifecycle; these globals exist so existing
@@ -248,6 +253,7 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:get-setup-health", () => getSetupHealth());
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
   handleIpc("marshal:start-update-install", (event) => runUpdateInstall(event.sender));
@@ -281,6 +287,7 @@ function registerIpcHandlers(): void {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
     applyLaunchAtLogin(saved);
+    restartDictation();
     // Hot-swap the translator so the new choice takes effect without waiting
     // for a full app restart. Apply bridge FIRST so "auto" resolves against
     // the up-to-date provider before setBackend re-reads the choice.
@@ -991,7 +998,7 @@ function initDictation(): void {
   // Floating pill that surfaces recording state to the user even when their
   // focus is on a fullscreen / non-menubar app (the tray icon alone is not
   // discoverable enough — see #98).
-  dictationIndicator = new DictationIndicator(preloadPath);
+  dictationIndicator ??= new DictationIndicator(preloadPath);
 
   dictationService.on("recording-start", () => {
     isDictating = true;
@@ -1074,17 +1081,33 @@ function initDictation(): void {
   // reset that hits every self-signed bundle replace (#84). The uiohook
   // push-to-talk path stays available for users who can hold Input Monitoring
   // grants stable; the toggle is the dependable fallback.
-  const toggleAccelerator = "CommandOrControl+Alt+M";
-  const registered = globalShortcut.register(toggleAccelerator, () => {
+  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
+  const registered = globalShortcut.register(DICTATION_TOGGLE_ACCELERATOR, () => {
     if (!dictationService) return;
-    console.log(`[marshal] dictation: ${toggleAccelerator} pressed, toggling`);
+    console.log(`[marshal] dictation: ${DICTATION_TOGGLE_ACCELERATOR} pressed, toggling`);
     dictationService.toggleRecording();
   });
   if (registered) {
-    console.log(`[marshal] dictation: toggle accelerator ${toggleAccelerator} registered`);
+    console.log(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} registered`);
   } else {
-    console.warn(`[marshal] dictation: toggle accelerator ${toggleAccelerator} could not register (already in use?)`);
+    console.warn(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} could not register (already in use?)`);
   }
+}
+
+function stopDictationForReconfigure(): void {
+  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
+  dictationService?.removeAllListeners();
+  dictationService?.stop();
+  dictationService = null;
+  isDictating = false;
+  dictationIndicator?.hide();
+  void refreshTrayState();
+}
+
+function restartDictation(): void {
+  if (process.env.MARSHAL_HEADLESS === "1") return;
+  stopDictationForReconfigure();
+  initDictation();
 }
 
 function initCapture(): void {
@@ -1385,6 +1408,38 @@ function applyLaunchAtLogin(settings: MarshalSettings): void {
     // suppresses any brief renderer flash.
     openAsHidden: true
   });
+}
+
+async function getSetupHealth(): Promise<SetupHealthSummary> {
+  const settings = loadSettings();
+  const whisper = resolveWhisperAssetPaths();
+  const isDarwin = process.platform === "darwin";
+  return buildSetupHealth({
+    platform: process.platform,
+    dictationEnabled: settings.dictationEnabled,
+    dictationBackend: settings.dictationBackend,
+    microphoneStatus: isDarwin ? systemPreferences.getMediaAccessStatus("microphone") : undefined,
+    screenStatus: isDarwin ? systemPreferences.getMediaAccessStatus("screen") : undefined,
+    accessibilityTrusted: isDarwin ? systemPreferences.isTrustedAccessibilityClient(false) : undefined,
+    apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
+    whisperBinPath: whisper.bin,
+    whisperModelPath: whisper.model,
+    codesignIdentityPresent: isDarwin ? await hasMarshalCodesignIdentity() : undefined
+  });
+}
+
+async function hasMarshalCodesignIdentity(): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/security", [
+      "find-identity",
+      "-v",
+      "-p",
+      "codesigning"
+    ], { timeout: 2_000 });
+    return stdout.includes("Marshal Self-Signed");
+  } catch {
+    return false;
+  }
 }
 
 function initTranslator(): void {

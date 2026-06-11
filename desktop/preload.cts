@@ -95,6 +95,16 @@ const desktopApi = {
   restartApp: () => ipcRenderer.invoke("marshal:restart-app"),
   openTranslator: () => ipcRenderer.invoke("marshal:translator-open"),
   getSettings: () => ipcRenderer.invoke("marshal:get-settings"),
+  getSetupHealth: () => ipcRenderer.invoke("marshal:get-setup-health") as Promise<{
+    items: Array<{
+      id: string;
+      label: string;
+      status: "ok" | "warn" | "error" | "unknown";
+      detail: string;
+      action?: string;
+    }>;
+    counts: { ok: number; warn: number; error: number; unknown: number };
+  }>,
   updateSettings: (settings: {
     bridgeMode?: string;
     claudeModel?: string;
@@ -106,6 +116,8 @@ const desktopApi = {
     dictationBackend?: string;
     dictationLanguage?: string;
     dictationAutoPaste?: boolean;
+    dictationHoldDelayMs?: number;
+    dictationToggleTapCount?: number;
     dictationPrompt?: string;
     dictationMicrophone?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
