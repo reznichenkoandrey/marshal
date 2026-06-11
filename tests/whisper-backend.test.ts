@@ -8,6 +8,7 @@ import {
   createWhisperBackend,
   parseDetectedLanguage,
   resolveBackendName,
+  resolveDictationLanguage,
   resolveDictationPrompt
 } from "../desktop/dictation/whisper-backend.ts";
 
@@ -95,6 +96,23 @@ describe("resolveDictationPrompt", () => {
 
   it("default prompt is under the ~1000-character practical cap", () => {
     expect(DEFAULT_DICTATION_PROMPT.length).toBeLessThan(1000);
+  });
+});
+
+describe("resolveDictationLanguage", () => {
+  it("defaults to Ukrainian when unset", () => {
+    expect(resolveDictationLanguage(undefined)).toBe("uk");
+  });
+
+  it("lets users opt back into auto-detection", () => {
+    expect(resolveDictationLanguage("")).toBeUndefined();
+    expect(resolveDictationLanguage("auto")).toBeUndefined();
+    expect(resolveDictationLanguage(" AUTO ")).toBeUndefined();
+  });
+
+  it("normalizes locale-like language values", () => {
+    expect(resolveDictationLanguage("uk-UA")).toBe("uk");
+    expect(resolveDictationLanguage("EN")).toBe("en");
   });
 });
 

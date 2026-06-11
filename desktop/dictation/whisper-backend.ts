@@ -82,6 +82,12 @@ export function resolveDictationPrompt(raw: string | undefined): string {
   return trimmed;
 }
 
+export function resolveDictationLanguage(raw: string | undefined): string | undefined {
+  const value = (raw ?? "uk").toLowerCase().trim();
+  if (!value || value === "auto") return undefined;
+  return value.slice(0, 2);
+}
+
 export function createWhisperBackend(name: BackendName): WhisperBackend {
   if (name === "groq") return new GroqWhisperBackend();
   if (name === "hybrid") return new HybridWhisperBackend();

@@ -244,6 +244,13 @@ const dictationApi = {
 
 contextBridge.exposeInMainWorld("marshalDictation", dictationApi);
 
+// ── Meeting API ──
+const meetingApi = {
+  stop: () => ipcRenderer.invoke("marshal:meeting-stop")
+};
+
+contextBridge.exposeInMainWorld("marshalMeeting", meetingApi);
+
 // ── Capture History API ──
 // Used exclusively by the history viewer window (capture-history.html).
 const historyApi = {
@@ -308,6 +315,7 @@ declare global {
     marshalDesktop: typeof desktopApi;
     marshalTranslator: typeof translatorApi;
     marshalCapture: typeof captureApi;
+    marshalMeeting: typeof meetingApi;
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
   }

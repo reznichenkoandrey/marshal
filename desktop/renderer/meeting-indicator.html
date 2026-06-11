@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        font-family: -apple-system, "SF Pro Text", Inter, sans-serif;
+      }
+      .pill {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px 0 14px;
+        background: rgba(17, 24, 39, 0.9);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        color: #fff;
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      }
+      .wave {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+        color: #38bdf8;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.55; transform: scale(0.88); }
+      }
+      #label {
+        flex: 1;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      #time {
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      button.stop {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 14px;
+        background: rgba(229, 72, 77, 0.25);
+        color: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s ease-out, transform 0.1s ease-out;
+      }
+      button.stop:hover { background: rgba(229, 72, 77, 0.45); }
+      button.stop:active { transform: scale(0.94); }
+      .square { background: #fff; width: 10px; height: 10px; border-radius: 1px; }
+    </style>
+  </head>
+  <body>
+    <div class="pill">
+      <svg class="wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 12h3l2.5-7 5 14 3-7H22" />
+      </svg>
+      <span id="label">Meeting…</span>
+      <span id="time">00:00</span>
+      <button class="stop" id="stop" title="Stop meeting recording"><span class="square"></span></button>
+    </div>
+    <script type="module">
+      const api = window.marshalMeeting;
+      const timeEl = document.getElementById("time");
+      const stopBtn = document.getElementById("stop");
+
+      let seconds = 0;
+      const interval = setInterval(() => {
+        seconds += 1;
+        const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+        const ss = String(seconds % 60).padStart(2, "0");
+        timeEl.textContent = `${mm}:${ss}`;
+      }, 1000);
+
+      stopBtn.addEventListener("click", () => {
+        clearInterval(interval);
+        if (api && typeof api.stop === "function") {
+          api.stop();
+        }
+      });
+    </script>
+  </body>
+</html>

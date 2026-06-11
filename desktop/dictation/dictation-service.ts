@@ -31,6 +31,7 @@ import {
 import {
   createWhisperBackend,
   resolveBackendName,
+  resolveDictationLanguage,
   resolveDictationPrompt,
   type WhisperBackend
 } from "./whisper-backend.ts";
@@ -67,25 +68,6 @@ export type DictationEvents = {
   // → Input Monitoring. Issue #100.
   "input-monitoring-silent": [];
 };
-
-function resolveLanguage(raw: string | undefined): string | undefined {
-  // Default to Ukrainian. The previous "auto" default let whisper-large-v3
-  // pick the language by acoustic similarity, which for Ukrainian speakers
-  // with English loanwords + surzhyk consistently misfired to Russian (the
-  // model treats Ukrainian-with-English-tech-terms as "Russian-ish slavic"
-  // and the resulting transcript is rendered in Russian orthography). Forcing
-  // `uk` instructs whisper to output Ukrainian Cyrillic for everything
-  // recognised as slavic, while English tokens stay English — this is the
-  // behaviour our prompt is tuned for (see DEFAULT_DICTATION_PROMPT).
-  //
-  // Users who genuinely dictate in another language set MARSHAL_DICTATION_LANGUAGE
-  // explicitly (en, ru, pl, ...). Passing "auto" still works as an opt-out.
-  const value = (raw ?? "uk").toLowerCase().trim();
-  if (!value || value === "auto") return undefined;
-  // Whisper language codes are 2-letter ISO 639-1. Keep the first two chars
-  // so both "uk" and "uk-UA" work.
-  return value.slice(0, 2);
-}
 
 // Minimum chunk size for the repeat collapser. Below this we leave the text
 // alone — natural language has plenty of short repetition (you you you,
@@ -221,7 +203,7 @@ export class DictationService extends EventEmitter {
    * Settings changes take effect without restarting the dictation service.
    */
   private get language(): string | undefined {
-    return resolveLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
+    return resolveDictationLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
   }
 
   /** Current dictation prompt. Same hot-read contract as `language`. */
