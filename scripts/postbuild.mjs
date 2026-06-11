@@ -157,6 +157,12 @@ if (process.platform === "darwin") {
       fallbackNote: "video recording (Cmd+Option+6) will be unavailable"
     },
     {
+      src: path.join(root, "desktop", "capture", "swift", "system-audio-recorder.swift"),
+      out: path.join(root, "dist", "desktop", "capture", "system-audio-recorder"),
+      label: "system-audio-recorder",
+      fallbackNote: "meeting recording will fall back to microphone-only audio"
+    },
+    {
       src: path.join(root, "desktop", "capture", "swift", "scroll-capture.swift"),
       out: path.join(root, "dist", "desktop", "capture", "scroll-capture"),
       label: "scroll-capture",

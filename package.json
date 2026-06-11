@@ -50,6 +50,7 @@
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/ggml-small.bin",
       "dist/desktop/capture/screen-recorder",
+      "dist/desktop/capture/system-audio-recorder",
       "dist/desktop/capture/scroll-capture",
       "dist/desktop/capture/scroll-stitch",
       "dist/desktop/translator/apple-vision-ocr",

@@ -14,6 +14,8 @@ import {
   type TranscribeResult,
   type WhisperBackend
 } from "../dictation/whisper-backend.ts";
+import { MeetingAudioMixer } from "./audio-mixer.ts";
+import { SystemAudioRecorder } from "./system-audio-recorder.ts";
 import { stitchWavPcm16Mono16k } from "./wav-stitcher.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -34,6 +36,8 @@ export type MeetingRecordingEvents = {
 export type MeetingChunkManifest = {
   index: number;
   path: string;
+  micPath: string;
+  systemPath?: string;
   startedAt: string;
   stoppedAt?: string;
   bytes?: number;
@@ -42,11 +46,12 @@ export type MeetingChunkManifest = {
 export type MeetingManifest = {
   id: string;
   state: "recording" | "stitching" | "transcribing" | "done" | "error";
-  source: "microphone";
+  source: "microphone" | "microphone+system";
   startedAt: string;
   stoppedAt?: string;
   folder: string;
   chunks: MeetingChunkManifest[];
+  warnings?: string[];
   audioPath?: string;
   transcriptPath?: string;
   transcriptText?: string;
@@ -64,6 +69,9 @@ export type MeetingSessionSummary = {
 type ActiveChunk = {
   child: ChildProcess;
   path: string;
+  micPath: string;
+  systemPath: string | null;
+  systemRecorder: SystemAudioRecorder | null;
   index: number;
   startedAt: string;
 };
@@ -80,6 +88,7 @@ export class MeetingRecorder extends EventEmitter {
   private readonly recorderBin: string;
   private readonly backend: WhisperBackend;
   private readonly chunkMs: number;
+  private readonly systemAudioRecorder: SystemAudioRecorder | null;
   private manifest: MeetingManifest | null = null;
   private currentChunk: ActiveChunk | null = null;
   private chunkTimer: NodeJS.Timeout | null = null;
@@ -91,6 +100,8 @@ export class MeetingRecorder extends EventEmitter {
     this.userDataDir = options.userDataDir;
     this.recorderBin = options.recorderBin ?? process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
     this.backend = options.backend ?? createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
+    const systemRecorder = new SystemAudioRecorder();
+    this.systemAudioRecorder = systemRecorder.isAvailable() ? systemRecorder : null;
     const configuredChunkMs = Number.parseInt(process.env.MARSHAL_MEETING_CHUNK_MS ?? "", 10);
     this.chunkMs = options.chunkMs ?? (Number.isFinite(configuredChunkMs) && configuredChunkMs > 0
       ? configuredChunkMs
@@ -118,7 +129,7 @@ export class MeetingRecorder extends EventEmitter {
       this.manifest = {
         id,
         state: "recording",
-        source: "microphone",
+        source: this.systemAudioRecorder ? "microphone+system" : "microphone",
         startedAt: now.toISOString(),
         folder,
         chunks: []
@@ -203,6 +214,7 @@ export class MeetingRecorder extends EventEmitter {
 
   private killCurrentChunk(): void {
     if (this.currentChunk) {
+      this.currentChunk.systemRecorder?.kill();
       this.currentChunk.child.kill("SIGTERM");
       this.currentChunk = null;
     }
@@ -211,13 +223,49 @@ export class MeetingRecorder extends EventEmitter {
   private async startChunk(): Promise<void> {
     if (!this.manifest || this.stopping) return;
     const index = this.manifest.chunks.length;
-    const chunkPath = path.join(this.manifest.folder, `chunk-${String(index + 1).padStart(4, "0")}.wav`);
+    const chunkName = `chunk-${String(index + 1).padStart(4, "0")}`;
+    const chunkPath = path.join(this.manifest.folder, `${chunkName}.wav`);
+    const micPath = path.join(this.manifest.folder, `${chunkName}-mic.wav`);
+    const systemPath = path.join(this.manifest.folder, `${chunkName}-system.m4a`);
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
-    const args = micUid ? [chunkPath, "--device", micUid] : [chunkPath];
+    const args = micUid ? [micPath, "--device", micUid] : [micPath];
     const child = spawn(this.recorderBin, args, { stdio: ["ignore", "pipe", "pipe"] });
     const startedAt = new Date().toISOString();
-    this.currentChunk = { child, path: chunkPath, index, startedAt };
-    this.manifest.chunks.push({ index, path: chunkPath, startedAt });
+    let systemRecorder: SystemAudioRecorder | null = null;
+    let activeSystemPath: string | null = null;
+    if (this.systemAudioRecorder) {
+      try {
+        await this.systemAudioRecorder.start(systemPath);
+        systemRecorder = this.systemAudioRecorder;
+        activeSystemPath = systemPath;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.manifest.warnings ??= [];
+        this.manifest.warnings.push(`System audio unavailable for ${chunkName}: ${message}`);
+      }
+    } else {
+      this.manifest.warnings ??= [];
+      if (!this.manifest.warnings.includes("System audio recorder unavailable; using microphone-only meeting audio.")) {
+        this.manifest.warnings.push("System audio recorder unavailable; using microphone-only meeting audio.");
+      }
+    }
+
+    this.currentChunk = {
+      child,
+      path: chunkPath,
+      micPath,
+      systemPath: activeSystemPath,
+      systemRecorder,
+      index,
+      startedAt
+    };
+    this.manifest.chunks.push({
+      index,
+      path: chunkPath,
+      micPath,
+      systemPath: activeSystemPath ?? undefined,
+      startedAt
+    });
     await this.writeManifest();
     await this.waitForReady(child);
     if (!this.stopping) {
@@ -243,6 +291,19 @@ export class MeetingRecorder extends EventEmitter {
       if (chunk.child.exitCode !== null) return resolve();
       chunk.child.once("exit", () => resolve());
       chunk.child.kill("SIGTERM");
+    });
+    if (chunk.systemRecorder) {
+      await chunk.systemRecorder.stop().catch((err: unknown) => {
+        if (!this.manifest) return;
+        const message = err instanceof Error ? err.message : String(err);
+        this.manifest.warnings ??= [];
+        this.manifest.warnings.push(`System audio stop failed for chunk ${chunk.index + 1}: ${message}`);
+      });
+    }
+    await MeetingAudioMixer.mix({
+      micPath: chunk.micPath,
+      systemPath: chunk.systemPath ?? undefined,
+      outputPath: chunk.path
     });
     const stat = await fs.stat(chunk.path).catch(() => null);
     const entry = this.manifest.chunks.find((item) => item.index === chunk.index);
