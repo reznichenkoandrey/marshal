@@ -98,6 +98,12 @@ export type MarshalSettings = {
    * subsequent newer release so the user sees the next one.
    */
   lastDismissedVersion: string;
+  /**
+   * App version whose post-update permission check has already been surfaced.
+   * Self-signed macOS builds can lose TCC grants after replacement; this
+   * keeps the warning one-shot per app version instead of nagging forever.
+   */
+  lastSeenVersion: string;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -125,7 +131,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   launchAtLogin: false,
   launchAtLoginLastError: "",
   checkForUpdatesAutomatic: true,
-  lastDismissedVersion: ""
+  lastDismissedVersion: "",
+  lastSeenVersion: ""
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -304,7 +311,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.checkForUpdatesAutomatic,
     lastDismissedVersion: typeof input.lastDismissedVersion === "string"
       ? input.lastDismissedVersion
-      : DEFAULT_SETTINGS.lastDismissedVersion
+      : DEFAULT_SETTINGS.lastDismissedVersion,
+    lastSeenVersion: typeof input.lastSeenVersion === "string"
+      ? input.lastSeenVersion
+      : DEFAULT_SETTINGS.lastSeenVersion
   };
 }
 
