@@ -17,7 +17,7 @@
     "acceptance:phase7": "bash agent/acceptance/phase7-launcher.sh",
     "acceptance:phase8": "npm run build && node dist/agent/acceptance/phase8-operator.js",
     "acceptance": "npm run acceptance:phase6 && npm run acceptance:phase7 && npm run acceptance:phase8",
-    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:pack": "npm run build && electron-builder --dir -c.mac.identity=null",
     "desktop:dist": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
@@ -118,9 +118,13 @@
     "@types/node": "^24.3.0",
     "@vitest/coverage-v8": "^4.1.6",
     "electron": "^41.7.2",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "^26.15.2",
     "electron-playwright-helpers": "^2.1.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "@electron/asar": "4.2.0",
+    "global-agent": "4.1.3"
   }
 }
