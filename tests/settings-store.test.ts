@@ -110,17 +110,20 @@ describe("saveSettings", () => {
       launchAtLogin: false,
       launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
-      lastDismissedVersion: ""
+      lastDismissedVersion: "",
+      lastSeenVersion: ""
     });
   });
 
-  it("round-trips checkForUpdatesAutomatic and lastDismissedVersion", () => {
+  it("round-trips checkForUpdatesAutomatic and version markers", () => {
     const saved = saveSettings({
       checkForUpdatesAutomatic: false,
-      lastDismissedVersion: "0.2.0"
+      lastDismissedVersion: "0.2.0",
+      lastSeenVersion: "0.1.9"
     });
     expect(saved.checkForUpdatesAutomatic).toBe(false);
     expect(saved.lastDismissedVersion).toBe("0.2.0");
+    expect(saved.lastSeenVersion).toBe("0.1.9");
   });
 
   it("falls back to default checkForUpdatesAutomatic for non-boolean values", () => {

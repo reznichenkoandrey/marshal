@@ -29,6 +29,7 @@ import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingRecorder } from "./meeting/meeting-recorder.ts";
+import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
@@ -158,6 +159,27 @@ async function bootstrap(): Promise<void> {
     // surface fully testable.
     if (process.env.MARSHAL_HEADLESS !== "1") {
       logPermissionStatus();
+      void runPostInstallPermissionCheck({
+        currentVersion: app.getVersion(),
+        loadSettings,
+        saveSettings,
+        queryPermissions: () => ({
+          platform: process.platform,
+          microphoneStatus: process.platform === "darwin"
+            ? systemPreferences.getMediaAccessStatus("microphone")
+            : "granted",
+          screenStatus: process.platform === "darwin"
+            ? systemPreferences.getMediaAccessStatus("screen")
+            : "granted",
+          accessibilityTrusted: process.platform === "darwin"
+            ? systemPreferences.isTrustedAccessibilityClient(false)
+            : true
+        }),
+        showMessageBox: (options) => dialog.showMessageBox(options),
+        openExternal: (url) => shell.openExternal(url)
+      }).catch((err) => {
+        console.warn("[marshal] post-install permission check failed:", err);
+      });
       initTranslator();
       initCapture();
       initDictation();
