@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { config as loadDotenv } from "dotenv";
 import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
@@ -25,8 +27,11 @@ import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
-import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
+import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
+import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
+import { MeetingRecorder } from "./meeting/meeting-recorder.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
+import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import { LayoutSwitcher } from "./translator/layout-switcher.ts";
@@ -47,6 +52,7 @@ loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
+const execFileAsync = promisify(execFile);
 
 const backendClient = new DesktopBackendClient();
 
@@ -72,6 +78,11 @@ let translatorHistory: TranslatorHistoryStore | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
 let isDictating = false;
+const DICTATION_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+M";
+let meetingRecorder: MeetingRecorder | null = null;
+let meetingIndicator: MeetingIndicator | null = null;
+let isMeetingRecording = false;
+const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 
 // `mainWindow` and `tray` are cached refs to the menubar-managed window and
 // tray. The menubar instance owns lifecycle; these globals exist so existing
@@ -119,6 +130,22 @@ async function bootstrap(): Promise<void> {
       app.setActivationPolicy("accessory");
     }
 
+    // Second-pass .env load — production-only fallback. The top-of-file
+    // `loadDotenv()` resolves to `<projectRoot>/.env`, which lives inside
+    // app.asar in packaged builds and is therefore unreadable. The user's
+    // writable spot is app.getPath("userData") — drop a `.env` there and
+    // values like MARSHAL_API_KEY get picked up by the next launch.
+    // Available only after app.whenReady() because getPath("userData") is.
+    const userDataEnvPath = path.join(app.getPath("userData"), ".env");
+    if (fs.existsSync(userDataEnvPath)) {
+      const before = process.env.MARSHAL_API_KEY ? "present" : "absent";
+      loadDotenv({ path: userDataEnvPath, override: false });
+      const after = process.env.MARSHAL_API_KEY ? "present" : "absent";
+      console.log(`[marshal] loaded .env from ${userDataEnvPath} (MARSHAL_API_KEY ${before}→${after})`);
+    } else {
+      console.log(`[marshal] no .env at ${userDataEnvPath} — running with project-root .env only`);
+    }
+
     // Settings override .env values. Must be applied BEFORE the backend utility
     // process forks so the child inherits the correct env.
     const initialSettings = loadSettings();
@@ -140,6 +167,7 @@ async function bootstrap(): Promise<void> {
       initTranslator();
       initCapture();
       initDictation();
+      initMeetingRecorder();
       void initExtensionBridge();
       initUpdater();
     }
@@ -232,6 +260,7 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:get-setup-health", () => getSetupHealth());
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
   handleIpc("marshal:start-update-install", (event) => runUpdateInstall(event.sender));
@@ -261,10 +290,15 @@ function registerIpcHandlers(): void {
       return { ok: false, devices: [], error: message };
     }
   });
+  handleIpc("marshal:meeting-stop", async () => {
+    await stopMeetingRecording();
+    return { ok: true };
+  });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     const saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
     applyLaunchAtLogin(saved);
+    restartDictation();
     // Hot-swap the translator so the new choice takes effect without waiting
     // for a full app restart. Apply bridge FIRST so "auto" resolves against
     // the up-to-date provider before setBackend re-reads the choice.
@@ -723,6 +757,8 @@ async function performTeardown(): Promise<void> {
   layoutSwitcher?.stop();
   dictationService?.stop();
   dictationIndicator?.hide();
+  meetingRecorder?.kill();
+  meetingIndicator?.hide();
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
@@ -975,7 +1011,7 @@ function initDictation(): void {
   // Floating pill that surfaces recording state to the user even when their
   // focus is on a fullscreen / non-menubar app (the tray icon alone is not
   // discoverable enough — see #98).
-  dictationIndicator = new DictationIndicator(preloadPath);
+  dictationIndicator ??= new DictationIndicator(preloadPath);
 
   dictationService.on("recording-start", () => {
     isDictating = true;
@@ -1058,17 +1094,118 @@ function initDictation(): void {
   // reset that hits every self-signed bundle replace (#84). The uiohook
   // push-to-talk path stays available for users who can hold Input Monitoring
   // grants stable; the toggle is the dependable fallback.
-  const toggleAccelerator = "CommandOrControl+Alt+M";
-  const registered = globalShortcut.register(toggleAccelerator, () => {
+  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
+  const registered = globalShortcut.register(DICTATION_TOGGLE_ACCELERATOR, () => {
     if (!dictationService) return;
-    console.log(`[marshal] dictation: ${toggleAccelerator} pressed, toggling`);
+    console.log(`[marshal] dictation: ${DICTATION_TOGGLE_ACCELERATOR} pressed, toggling`);
     dictationService.toggleRecording();
   });
   if (registered) {
-    console.log(`[marshal] dictation: toggle accelerator ${toggleAccelerator} registered`);
+    console.log(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} registered`);
   } else {
-    console.warn(`[marshal] dictation: toggle accelerator ${toggleAccelerator} could not register (already in use?)`);
+    console.warn(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} could not register (already in use?)`);
   }
+}
+
+function stopDictationForReconfigure(): void {
+  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
+  dictationService?.removeAllListeners();
+  dictationService?.stop();
+  dictationService = null;
+  isDictating = false;
+  dictationIndicator?.hide();
+  void refreshTrayState();
+}
+
+function restartDictation(): void {
+  if (process.env.MARSHAL_HEADLESS === "1") return;
+  stopDictationForReconfigure();
+  initDictation();
+}
+
+function initMeetingRecorder(): void {
+  meetingRecorder = new MeetingRecorder({ userDataDir: app.getPath("userData") });
+  meetingIndicator = new MeetingIndicator(preloadPath);
+
+  meetingRecorder.on("recording-start", () => {
+    isMeetingRecording = true;
+    meetingIndicator?.show();
+    void refreshTrayState();
+  });
+  meetingRecorder.on("recording-stop", ({ session }) => {
+    isMeetingRecording = false;
+    meetingIndicator?.hide();
+    void refreshTrayState();
+    if (!Notification.isSupported()) return;
+    const notif = new Notification({
+      title: "Marshal — Meeting audio saved",
+      body: "Transcription is running…",
+      silent: true
+    });
+    notif.on("click", () => void shell.showItemInFolder(session.audioPath));
+    notif.show();
+  });
+  meetingRecorder.on("transcribed", ({ session, result }) => {
+    if (!Notification.isSupported()) return;
+    const preview = result.text.length > 100 ? `${result.text.slice(0, 97)}…` : result.text;
+    const notif = new Notification({
+      title: "Marshal — Meeting transcribed",
+      body: preview || "Transcript saved.",
+      silent: true
+    });
+    notif.on("click", () => void shell.showItemInFolder(session.transcriptPath ?? session.audioPath));
+    notif.show();
+  });
+  meetingRecorder.on("error", (err: Error) => {
+    console.error("[meeting] error:", err);
+    isMeetingRecording = false;
+    meetingIndicator?.hide();
+    void refreshTrayState();
+    if (!Notification.isSupported()) return;
+    new Notification({ title: "Marshal — Meeting recording error", body: err.message, silent: true }).show();
+  });
+
+  globalShortcut.unregister(MEETING_TOGGLE_ACCELERATOR);
+  const registered = globalShortcut.register(MEETING_TOGGLE_ACCELERATOR, () => {
+    void toggleMeetingRecording();
+  });
+  if (registered) {
+    console.log(`[marshal] meeting: toggle accelerator ${MEETING_TOGGLE_ACCELERATOR} registered`);
+  } else {
+    console.warn(`[marshal] meeting: toggle accelerator ${MEETING_TOGGLE_ACCELERATOR} could not register`);
+  }
+}
+
+async function toggleMeetingRecording(): Promise<void> {
+  if (!meetingRecorder) return;
+  if (isMeetingRecording || meetingRecorder.isRecording()) {
+    await stopMeetingRecording();
+  } else {
+    await startMeetingRecording();
+  }
+}
+
+async function startMeetingRecording(): Promise<void> {
+  if (!meetingRecorder || isMeetingRecording) return;
+  try {
+    await meetingRecorder.start();
+  } catch (err) {
+    isMeetingRecording = false;
+    meetingIndicator?.hide();
+    void refreshTrayState();
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Meeting recording failed",
+        body: err instanceof Error ? err.message : String(err),
+        silent: true
+      }).show();
+    }
+  }
+}
+
+async function stopMeetingRecording(): Promise<void> {
+  if (!meetingRecorder || (!isMeetingRecording && !meetingRecorder.isRecording())) return;
+  await meetingRecorder.stop();
 }
 
 function initCapture(): void {
@@ -1311,6 +1448,7 @@ function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
   const recording = dictationService?.isCurrentlyRecording() ?? false;
+  const meetingAvailable = meetingRecorder !== null;
 
   return Menu.buildFromTemplate([
     { label: "Open Marshal", click: () => void mb?.showWindow() },
@@ -1324,6 +1462,12 @@ function buildTrayMenu(): Electron.Menu {
       accelerator: "CommandOrControl+Alt+M",
       enabled: dictationAvailable,
       click: () => dictationService?.toggleRecording()
+    },
+    {
+      label: isMeetingRecording ? "Stop Meeting Recording" : "Start Meeting Recording",
+      accelerator: MEETING_TOGGLE_ACCELERATOR,
+      enabled: meetingAvailable,
+      click: () => void toggleMeetingRecording()
     },
     { label: "Capture", submenu: buildCaptureSubmenu() },
     { type: "separator" },
@@ -1369,6 +1513,38 @@ function applyLaunchAtLogin(settings: MarshalSettings): void {
     // suppresses any brief renderer flash.
     openAsHidden: true
   });
+}
+
+async function getSetupHealth(): Promise<SetupHealthSummary> {
+  const settings = loadSettings();
+  const whisper = resolveWhisperAssetPaths();
+  const isDarwin = process.platform === "darwin";
+  return buildSetupHealth({
+    platform: process.platform,
+    dictationEnabled: settings.dictationEnabled,
+    dictationBackend: settings.dictationBackend,
+    microphoneStatus: isDarwin ? systemPreferences.getMediaAccessStatus("microphone") : undefined,
+    screenStatus: isDarwin ? systemPreferences.getMediaAccessStatus("screen") : undefined,
+    accessibilityTrusted: isDarwin ? systemPreferences.isTrustedAccessibilityClient(false) : undefined,
+    apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
+    whisperBinPath: whisper.bin,
+    whisperModelPath: whisper.model,
+    codesignIdentityPresent: isDarwin ? await hasMarshalCodesignIdentity() : undefined
+  });
+}
+
+async function hasMarshalCodesignIdentity(): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/security", [
+      "find-identity",
+      "-v",
+      "-p",
+      "codesigning"
+    ], { timeout: 2_000 });
+    return stdout.includes("Marshal Self-Signed");
+  } catch {
+    return false;
+  }
 }
 
 function initTranslator(): void {
@@ -1550,6 +1726,7 @@ async function refreshTrayState(): Promise<void> {
   const status: string[] = [];
   if (isDictating) status.push("● Recording dictation…");
   if (isRecording) status.push("● Recording screen…");
+  if (isMeetingRecording) status.push("● Recording meeting…");
   tray.setToolTip(status.length > 0 ? `${base}\n${status.join("\n")}` : base);
 
   // Swap the menubar icon itself between an idle (template/grey) glyph and a
@@ -1558,7 +1735,7 @@ async function refreshTrayState(): Promise<void> {
   // nearly invisible on most setups (#83).
   if (!trayIconIdle) trayIconIdle = createTrayIcon();
   if (!trayIconRecording) trayIconRecording = createRecordingTrayIcon();
-  tray.setImage(isDictating || isRecording ? trayIconRecording : trayIconIdle);
+  tray.setImage(isDictating || isRecording || isMeetingRecording ? trayIconRecording : trayIconIdle);
   tray.setTitle("");
 
   // Mirror recording state into every Electron BrowserWindow that subscribed

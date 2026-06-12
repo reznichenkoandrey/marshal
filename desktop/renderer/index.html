@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Marshal</title>
     <link rel="stylesheet" href="./styles.css" />
@@ -97,6 +98,15 @@
             <p class="field-hint">System follows macOS appearance. Changes apply instantly.</p>
           </div>
 
+          <fieldset class="field-group">
+            <legend>Setup health</legend>
+            <div class="health-header">
+              <span id="settings-health-summary" class="health-summary">Checking…</span>
+              <button type="button" id="settings-health-refresh" class="btn btn-ghost">Refresh</button>
+            </div>
+            <div id="settings-health-list" class="health-list"></div>
+          </fieldset>
+
           <div class="field">
             <label for="settings-bridge-mode">Reasoning provider</label>
             <select id="settings-bridge-mode" name="bridgeMode">
@@ -161,6 +171,28 @@
               <p class="field-hint">
                 Hold to record, release to transcribe. Default <code>RightCmd</code> (just hold the right Command key).
                 Combos also work, e.g. <code>Cmd+Shift+D</code>.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-hold-delay">Hold delay</label>
+              <input id="settings-dictation-hold-delay" name="dictationHoldDelayMs" type="number"
+                min="0" max="1000" step="50" inputmode="numeric" />
+              <p class="field-hint">
+                Milliseconds before recording starts. <code>200</code> ignores accidental taps;
+                <code>0</code> starts immediately.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-toggle-tap-count">Hands-free toggle</label>
+              <select id="settings-dictation-toggle-tap-count" name="dictationToggleTapCount">
+                <option value="0">Off — hold to record</option>
+                <option value="2">Double tap hotkey to start/stop</option>
+                <option value="3">Triple tap hotkey to start/stop</option>
+              </select>
+              <p class="field-hint">
+                Toggle mode is useful for longer dictation. When enabled, holding is disabled for that hotkey.
               </p>
             </div>
 

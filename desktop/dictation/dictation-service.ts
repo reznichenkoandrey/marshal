@@ -19,10 +19,11 @@ import { fileURLToPath } from "node:url";
 
 import { clipboard } from "electron";
 
-import { PushToTalkHotkey } from "./hotkey-manager.ts";
+import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
 import {
   decideAutoPaste,
+  insertTextIntoFocused,
   isAxBlind,
   probeFocusedElement,
   sendPasteKeystroke
@@ -30,6 +31,7 @@ import {
 import {
   createWhisperBackend,
   resolveBackendName,
+  resolveDictationLanguage,
   resolveDictationPrompt,
   type WhisperBackend
 } from "./whisper-backend.ts";
@@ -38,6 +40,12 @@ const DEFAULT_HOTKEY = "RightCmd";
 // Hard safety-net: if the keyup event never arrives (known uiohook quirks on
 // macOS for modifier-only keys, #49) we auto-stop after this many ms.
 const MAX_RECORDING_MS = 60_000;
+// Upper bound on how long handleHoldEnd will block waiting for the recorder
+// to report "ready". AVCaptureSession.startRunning() typically takes 50–300 ms
+// on a warm mic, longer on first run while macOS issues the TCC prompt.
+// 1500 ms is generous enough to cover both without making a genuine failure
+// (recorder crashed silently) feel like a hang.
+const RECORDER_READY_MAX_WAIT_MS = 1_500;
 const currentFilePath = fileURLToPath(import.meta.url);
 const distDictationDir = path.dirname(currentFilePath);
 // asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
@@ -60,14 +68,6 @@ export type DictationEvents = {
   // → Input Monitoring. Issue #100.
   "input-monitoring-silent": [];
 };
-
-function resolveLanguage(raw: string | undefined): string | undefined {
-  const value = (raw ?? "auto").toLowerCase().trim();
-  if (!value || value === "auto") return undefined;
-  // Whisper language codes are 2-letter ISO 639-1. Keep the first two chars
-  // so both "uk" and "uk-UA" work.
-  return value.slice(0, 2);
-}
 
 // Minimum chunk size for the repeat collapser. Below this we leave the text
 // alone — natural language has plenty of short repetition (you you you,
@@ -108,25 +108,36 @@ export function collapseRepeats(text: string): string {
 }
 
 export class DictationService extends EventEmitter {
-  private readonly hotkey: PushToTalkHotkey;
+  private readonly hotkey: PushToTalkBackend;
   private readonly backend: WhisperBackend;
   private readonly recorderBin: string;
-  private readonly language: string | undefined;
-  private readonly prompt: string;
+  // language / prompt deliberately NOT cached — they're re-read from
+  // process.env on every transcription. The Settings UI hot-swaps env vars
+  // via applySettingsToEnv() and we want those changes to take effect on
+  // the very next hold without restarting the dictation service.
   private recorderProcess: ChildProcess | null = null;
   private currentWavPath: string | null = null;
   private isStopping = false;
   private isTranscribing = false;
   private safetyTimer: NodeJS.Timeout | null = null;
+  // True once audio-recorder has printed "ready" — AVCaptureSession armed,
+  // the WAV file is open, and audio frames are being written. Reset at the
+  // start of each session. Used by finishRecording() to wait out the
+  // handshake before sending SIGTERM, otherwise a quick tap produces a
+  // 44-byte header-only WAV and the user sees "Audio file is empty". #82.
+  private recorderReady = false;
 
   constructor() {
     super();
     const hotkeyString = process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_HOTKEY;
-    this.hotkey = new PushToTalkHotkey(hotkeyString);
+    // Backend selection happens inside createPushToTalkHotkey: modifier-only
+    // hotkeys (the default RightCmd here) go through the Swift helper that
+    // sidesteps the Sequoia CGEventTap TCC race; everything else stays on
+    // uiohook. The dictation service doesn't care which one is active —
+    // both expose the same EventEmitter surface.
+    this.hotkey = createPushToTalkHotkey(hotkeyString);
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
-    this.language = resolveLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
-    this.prompt = resolveDictationPrompt(process.env.MARSHAL_DICTATION_PROMPT);
 
     this.hotkey.on("hold-start", () => this.handleHoldStart());
     this.hotkey.on("hold-end", () => this.handleHoldEnd());
@@ -188,6 +199,19 @@ export class DictationService extends EventEmitter {
   }
 
   /**
+   * Current language passed to the whisper backend. Re-read on every call so
+   * Settings changes take effect without restarting the dictation service.
+   */
+  private get language(): string | undefined {
+    return resolveDictationLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
+  }
+
+  /** Current dictation prompt. Same hot-read contract as `language`. */
+  private get prompt(): string {
+    return resolveDictationPrompt(process.env.MARSHAL_DICTATION_PROMPT);
+  }
+
+  /**
    * Convenience for the globalShortcut path — start if idle, stop if already
    * recording. globalShortcut fires a single event per accelerator press, so
    * we can't model push-to-talk with it; toggle is the natural fit.
@@ -219,6 +243,7 @@ export class DictationService extends EventEmitter {
     const child = spawn(this.recorderBin, recorderArgs, { stdio: ["ignore", "pipe", "pipe"] });
     this.recorderProcess = child;
     this.isStopping = false;
+    this.recorderReady = false;
 
     // Safety net — force stop after MAX_RECORDING_MS if the user's keyup
     // event is ever lost by the OS (#49).
@@ -230,6 +255,7 @@ export class DictationService extends EventEmitter {
     child.stdout?.once("data", () => {
       // "ready" — engine is up. Safe to treat as recording.
       debug("  recorder ready");
+      this.recorderReady = true;
       this.emit("recording-start");
     });
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -289,6 +315,78 @@ export class DictationService extends EventEmitter {
     }
   }
 
+  /**
+   * Resolves once audio-recorder has printed "ready" to stdout (the
+   * AVCaptureSession handshake completed and audio frames are being written
+   * to the WAV file), or after RECORDER_READY_MAX_WAIT_MS — whichever comes
+   * first. Used by finishRecording() to avoid the fast-tap race described
+   * in its docstring.
+   *
+   * If the ready signal already fired before this is called (the common
+   * path on any hold > ~200 ms), resolves synchronously.
+   */
+  private waitForRecorderReady(child: ChildProcess): Promise<void> {
+    if (this.recorderReady) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        debug("recorder ready timed out — proceeding with kill anyway");
+        finish();
+      }, RECORDER_READY_MAX_WAIT_MS);
+      // `recorder ready` is detected by the same once("data") that
+      // handleHoldStart wired up — but that's a one-shot listener that
+      // already fired or hasn't. Layer a second listener here that lasts
+      // only for the duration of this finish. Also guard against the
+      // recorder dying before it can say `ready` (no data, just exit).
+      child.stdout?.once("data", () => {
+        clearTimeout(timer);
+        finish();
+      });
+      child.once("exit", () => {
+        clearTimeout(timer);
+        finish();
+      });
+    });
+  }
+
+  /**
+   * Deliver the transcript to wherever the user's cursor is. Primary path:
+   * a direct AX insertion at the caret of the focused element (#102) — no
+   * clipboard round-trip, no synthetic Cmd+V, the text simply appears where
+   * the user is typing. This is what works for native AppKit text fields.
+   *
+   * If the focused element refuses an inline insert (no text field in focus,
+   * or a Chromium / Electron contenteditable that won't accept
+   * kAXSelectedText), fall back to the focus-aware Cmd+V paste, which in turn
+   * degrades to clipboard-only (#90). The clipboard was already populated by
+   * the caller, so the user always has a manual paste as the last resort.
+   */
+  private async deliverText(text: string): Promise<void> {
+    // Diagnostic: where is keyboard focus right now? Synthetic typing lands in
+    // whatever app is frontmost, so logging it tells us whether the transcript
+    // is going to the user's target field or somewhere else (e.g. Marshal
+    // grabbing frontmost). probeFocusedElement reads frontmost reliably here;
+    // its AX role is usually blind (-25204) on self-signed helpers — expected.
+    const focus = await probeFocusedElement();
+    debug(
+      "deliverText → frontmost=", focus.frontmostApp || "?",
+      "(role=", focus.role || "?", "axError=", focus.axError, ")"
+    );
+
+    const typed = await insertTextIntoFocused(text);
+    if (typed) {
+      debug("typed transcript into frontmost focused field");
+      return;
+    }
+    debug("typing failed — falling back to clipboard / Cmd+V");
+    await this.maybeAutoPaste();
+  }
+
   private async maybeAutoPaste(): Promise<void> {
     const focus = await probeFocusedElement();
     const shouldPaste = decideAutoPaste(focus);
@@ -321,6 +419,17 @@ export class DictationService extends EventEmitter {
   private async finishRecording(child: ChildProcess, wavPath: string): Promise<void> {
     this.isTranscribing = true;
     try {
+      // Wait for the recorder to report ready before sending SIGTERM. On a
+      // fast tap the user releases the key before AVCaptureSession finishes
+      // its handshake; killing then closes the WAV file after only the
+      // 44-byte header is written, and the user sees a misleading "Audio
+      // file is empty / microphone denied" error. Waiting up to
+      // RECORDER_READY_MAX_WAIT_MS guarantees at least a few frames land
+      // before we tear the recorder down. If `ready` never arrives (recorder
+      // crashed before stdout flush) we proceed anyway so the loop doesn't
+      // wedge. Issue: fast-tap race after #82.
+      await this.waitForRecorderReady(child);
+
       await new Promise<void>((resolve) => {
         if (child.exitCode !== null) return resolve();
         child.once("exit", () => resolve());
@@ -356,12 +465,13 @@ export class DictationService extends EventEmitter {
       // need the raw output.
       const cleanText = collapseRepeats(result.text);
       if (cleanText.length > 0) {
+        // Always populate the clipboard first as the dependable fallback the
+        // user can paste by hand (#102). deliverText() then tries the primary
+        // path — a direct AX insert at the caret — and only synthesises Cmd+V
+        // if that's declined. Both paths are best-effort: worst case the text
+        // is still sitting on the clipboard.
         clipboard.writeText(cleanText);
-        // Focus-aware paste (#90): if the user's cursor sits inside a text
-        // input, slip the transcript in via Cmd+V; otherwise leave it on the
-        // clipboard so they can place it deliberately. Both probe and paste
-        // are best-effort — failures swallow back to clipboard-only.
-        await this.maybeAutoPaste();
+        await this.deliverText(cleanText);
         this.emit("transcribed", result);
       } else {
         this.emit(

@@ -1,9 +1,46 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Import the deferred hotkey parser. We avoid importing `PushToTalkHotkey`
 // because its constructor touches uiohook-napi's native binary, which isn't
 // loadable inside the test host.
-import { parseHotkey, matchesHotkey } from "../desktop/dictation/hotkey-manager.ts";
+import {
+  GesturePushToTalkHotkey,
+  matchesHotkey,
+  parseHotkey,
+  type PushToTalkBackend
+} from "../desktop/dictation/hotkey-manager.ts";
+
+class FakePttBackend extends EventEmitter implements PushToTalkBackend {
+  started = false;
+  stopped = false;
+  forced = false;
+
+  start(): void {
+    this.started = true;
+  }
+
+  stop(): void {
+    this.stopped = true;
+  }
+
+  forceEnd(): void {
+    this.forced = true;
+  }
+
+  down(): void {
+    this.emit("hold-start");
+  }
+
+  up(): void {
+    this.emit("hold-end");
+  }
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("parseHotkey", () => {
   it("parses Cmd+Shift+D", () => {
@@ -162,5 +199,98 @@ describe("matchesHotkey", () => {
         rightCmd
       )
     ).toBe(false);
+  });
+});
+
+describe("GesturePushToTalkHotkey", () => {
+  it("suppresses a tap shorter than the hold delay", () => {
+    vi.useFakeTimers();
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, {
+      holdDelayMs: 200,
+      toggleTapCount: 0,
+      toggleTapThresholdMs: 350
+    });
+    const events: string[] = [];
+    hotkey.on("hold-start", () => events.push("start"));
+    hotkey.on("hold-end", () => events.push("end"));
+
+    inner.down();
+    vi.advanceTimersByTime(100);
+    inner.up();
+    vi.advanceTimersByTime(200);
+
+    expect(events).toEqual([]);
+  });
+
+  it("starts after the hold delay and ends on release", () => {
+    vi.useFakeTimers();
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, {
+      holdDelayMs: 200,
+      toggleTapCount: 0,
+      toggleTapThresholdMs: 350
+    });
+    const events: string[] = [];
+    hotkey.on("hold-start", () => events.push("start"));
+    hotkey.on("hold-end", () => events.push("end"));
+
+    inner.down();
+    vi.advanceTimersByTime(199);
+    expect(events).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(events).toEqual(["start"]);
+    inner.up();
+
+    expect(events).toEqual(["start", "end"]);
+  });
+
+  it("toggles hands-free recording with repeated taps", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, {
+      holdDelayMs: 200,
+      toggleTapCount: 2,
+      toggleTapThresholdMs: 350
+    });
+    const events: string[] = [];
+    hotkey.on("hold-start", () => events.push("start"));
+    hotkey.on("hold-end", () => events.push("end"));
+
+    inner.down();
+    inner.up();
+    vi.setSystemTime(1_200);
+    inner.down();
+    inner.up();
+    expect(events).toEqual(["start"]);
+
+    vi.setSystemTime(1_400);
+    inner.down();
+    inner.up();
+    vi.setSystemTime(1_550);
+    inner.down();
+    inner.up();
+    expect(events).toEqual(["start", "end"]);
+  });
+
+  it("forceEnd clears pending and active gesture state", () => {
+    vi.useFakeTimers();
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, {
+      holdDelayMs: 200,
+      toggleTapCount: 0,
+      toggleTapThresholdMs: 350
+    });
+    const events: string[] = [];
+    hotkey.on("hold-start", () => events.push("start"));
+    hotkey.on("hold-end", () => events.push("end"));
+
+    inner.down();
+    vi.advanceTimersByTime(200);
+    hotkey.forceEnd();
+
+    expect(inner.forced).toBe(true);
+    expect(events).toEqual(["start", "end"]);
   });
 });

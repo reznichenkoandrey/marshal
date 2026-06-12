@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node index.ts",
     "operator": "npm run build && node dist/operator-main.js",
@@ -29,6 +32,7 @@
   "build": {
     "appId": "com.marshal.desktop",
     "productName": "Marshal",
+    "afterSign": "scripts/notarize.cjs",
     "files": [
       "dist/**/*",
       "assets/**/*",
@@ -39,9 +43,14 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*",
       "dist/desktop/dictation/audio-recorder",
+      "dist/desktop/dictation/focus-probe",
+      "dist/desktop/dictation/insert-text",
+      "dist/desktop/dictation/mic-list",
+      "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/ggml-small.bin",
       "dist/desktop/capture/screen-recorder",
+      "dist/desktop/capture/system-audio-recorder",
       "dist/desktop/capture/scroll-capture",
       "dist/desktop/capture/scroll-stitch",
       "dist/desktop/translator/apple-vision-ocr",
@@ -97,7 +106,7 @@
   },
   "main": "dist/desktop/main.js",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.104.1",
     "dotenv": "^17.4.2",
     "ffmpeg-static": "^5.3.0",
     "menubar": "^9.5.2",
@@ -105,10 +114,11 @@
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@types/chrome": "^0.1.24",
     "@types/node": "^24.3.0",
     "@vitest/coverage-v8": "^4.1.6",
-    "electron": "^41.0.3",
+    "electron": "^41.7.2",
     "electron-builder": "^26.8.1",
     "electron-playwright-helpers": "^2.1.0",
     "typescript": "^5.9.2",

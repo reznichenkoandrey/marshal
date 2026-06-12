@@ -121,6 +121,18 @@ if (process.platform === "darwin") {
       fallbackNote: "dictation will fall back to clipboard-only (no auto-paste)"
     },
     {
+      src: path.join(root, "desktop", "dictation", "insert-text.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "insert-text"),
+      label: "insert-text",
+      fallbackNote: "dictation will fall back to clipboard + Cmd+V (no direct caret insert)"
+    },
+    {
+      src: path.join(root, "desktop", "dictation", "ptt-monitor.swift"),
+      out: path.join(root, "dist", "desktop", "dictation", "ptt-monitor"),
+      label: "ptt-monitor",
+      fallbackNote: "modifier-only push-to-talk falls back to uiohook (needs Input Monitoring)"
+    },
+    {
       src: path.join(root, "desktop", "dictation", "mic-list.swift"),
       out: path.join(root, "dist", "desktop", "dictation", "mic-list"),
       label: "mic-list",
@@ -143,6 +155,12 @@ if (process.platform === "darwin") {
       out: path.join(root, "dist", "desktop", "capture", "screen-recorder"),
       label: "screen-recorder",
       fallbackNote: "video recording (Cmd+Option+6) will be unavailable"
+    },
+    {
+      src: path.join(root, "desktop", "capture", "swift", "system-audio-recorder.swift"),
+      out: path.join(root, "dist", "desktop", "capture", "system-audio-recorder"),
+      label: "system-audio-recorder",
+      fallbackNote: "meeting recording will fall back to microphone-only audio"
     },
     {
       src: path.join(root, "desktop", "capture", "swift", "scroll-capture.swift"),

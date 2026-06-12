@@ -32,6 +32,8 @@ afterEach(() => {
   delete process.env.MARSHAL_DICTATION_BACKEND;
   delete process.env.MARSHAL_DICTATION_LANGUAGE;
   delete process.env.MARSHAL_DICTATION_AUTOPASTE;
+  delete process.env.MARSHAL_DICTATION_HOLD_DELAY_MS;
+  delete process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT;
   delete process.env.MARSHAL_DICTATION_PROMPT;
   delete process.env.MARSHAL_TRANSLATOR_BACKEND;
 });
@@ -85,6 +87,8 @@ describe("saveSettings", () => {
       dictationBackend: "groq",
       dictationLanguage: "uk",
       dictationAutoPaste: true,
+      dictationHoldDelayMs: 350,
+      dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR"
     });
     expect(saved).toEqual({
@@ -98,6 +102,8 @@ describe("saveSettings", () => {
       dictationBackend: "groq",
       dictationLanguage: "uk",
       dictationAutoPaste: true,
+      dictationHoldDelayMs: 350,
+      dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR",
       dictationMicrophone: "",
       captureDefaultFolder: "",
@@ -150,13 +156,17 @@ describe("saveSettings", () => {
     const saved = saveSettings({
       dictationBackend: "bogus" as never,
       dictationLanguage: "fr" as never,
-      dictationHotkey: "   "
+      dictationHotkey: "   ",
+      dictationHoldDelayMs: -50,
+      dictationToggleTapCount: 1
     });
     // Default changed to hybrid (#93) — Groq with local fallback when API key
     // is set, else falls back to whisper-cpp via resolveBackendName.
     expect(saved.dictationBackend).toBe("hybrid");
     expect(saved.dictationLanguage).toBe("auto");
     expect(saved.dictationHotkey).toBe("RightCmd");
+    expect(saved.dictationHoldDelayMs).toBe(0);
+    expect(saved.dictationToggleTapCount).toBe(0);
   });
 
   it("falls back to auto for invalid translatorBackend", () => {
@@ -206,8 +216,12 @@ describe("applySettingsToEnv", () => {
       dictationBackend: "whisper-cpp",
       dictationLanguage: "auto",
       dictationAutoPaste: false,
+      dictationHoldDelayMs: 275,
+      dictationToggleTapCount: 3,
       dictationPrompt: ""
     });
     expect(process.env.MARSHAL_TRANSLATOR_BACKEND).toBe("codex-cli");
+    expect(process.env.MARSHAL_DICTATION_HOLD_DELAY_MS).toBe("275");
+    expect(process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT).toBe("3");
   });
 });

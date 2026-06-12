@@ -96,6 +96,9 @@ const dom = {
   settingsBtn: document.getElementById("settings-btn"),
   settingsModal: document.getElementById("settings-modal"),
   settingsForm: document.getElementById("settings-form"),
+  settingsHealthSummary: document.getElementById("settings-health-summary"),
+  settingsHealthList: document.getElementById("settings-health-list"),
+  settingsHealthRefresh: document.getElementById("settings-health-refresh"),
   settingsBridgeMode: document.getElementById("settings-bridge-mode"),
   settingsClaudeModel: document.getElementById("settings-claude-model"),
   settingsCodexModel: document.getElementById("settings-codex-model"),
@@ -103,6 +106,8 @@ const dom = {
   settingsTranslatorBackend: document.getElementById("settings-translator-backend"),
   settingsDictationEnabled: document.getElementById("settings-dictation-enabled"),
   settingsDictationHotkey: document.getElementById("settings-dictation-hotkey"),
+  settingsDictationHoldDelay: document.getElementById("settings-dictation-hold-delay"),
+  settingsDictationToggleTapCount: document.getElementById("settings-dictation-toggle-tap-count"),
   settingsDictationBackend: document.getElementById("settings-dictation-backend"),
   settingsDictationLanguage: document.getElementById("settings-dictation-language"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
@@ -841,6 +846,7 @@ function bindEvents() {
   // Settings
   dom.settingsBtn?.addEventListener("click", openSettings);
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
+  dom.settingsHealthRefresh?.addEventListener("click", () => refreshSetupHealth());
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
   dom.settingsCaptureFolderPick?.addEventListener("click", async () => {
     if (!api?.selectDirectory || !dom.settingsCaptureFolder) return;
@@ -955,6 +961,12 @@ async function openSettings() {
     if (dom.settingsDictationHotkey) {
       dom.settingsDictationHotkey.value = current.dictationHotkey ?? "Cmd+Shift+D";
     }
+    if (dom.settingsDictationHoldDelay) {
+      dom.settingsDictationHoldDelay.value = String(current.dictationHoldDelayMs ?? 200);
+    }
+    if (dom.settingsDictationToggleTapCount) {
+      dom.settingsDictationToggleTapCount.value = String(current.dictationToggleTapCount ?? 0);
+    }
     if (dom.settingsDictationBackend) {
       dom.settingsDictationBackend.value = current.dictationBackend ?? "hybrid";
     }
@@ -985,11 +997,56 @@ async function openSettings() {
     }
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
+    void refreshSetupHealth();
     clearSettingsStatus();
     dom.settingsModal.classList.remove("hidden");
   } catch (err) {
     console.error("openSettings failed", err);
   }
+}
+
+async function refreshSetupHealth() {
+  if (!api?.getSetupHealth || !dom.settingsHealthList || !dom.settingsHealthSummary) return;
+  if (dom.settingsHealthRefresh) dom.settingsHealthRefresh.disabled = true;
+  dom.settingsHealthSummary.textContent = "Checking…";
+  dom.settingsHealthList.innerHTML = "";
+  try {
+    const health = await api.getSetupHealth();
+    renderSetupHealth(health);
+  } catch (err) {
+    dom.settingsHealthSummary.textContent = `Check failed: ${err?.message ?? err}`;
+  } finally {
+    if (dom.settingsHealthRefresh) dom.settingsHealthRefresh.disabled = false;
+  }
+}
+
+function renderSetupHealth(health) {
+  const items = Array.isArray(health?.items) ? health.items : [];
+  const counts = health?.counts ?? {};
+  const blocking = Number(counts.error ?? 0);
+  const warnings = Number(counts.warn ?? 0);
+  dom.settingsHealthSummary.textContent = blocking > 0
+    ? `${blocking} blocking, ${warnings} warning${warnings === 1 ? "" : "s"}`
+    : warnings > 0
+      ? `${warnings} warning${warnings === 1 ? "" : "s"}`
+      : "Ready";
+  dom.settingsHealthList.innerHTML = items.map(renderSetupHealthItem).join("");
+}
+
+function renderSetupHealthItem(item) {
+  const status = typeof item?.status === "string" ? item.status : "unknown";
+  const label = escapeHtml(item?.label ?? "Unknown");
+  const detail = escapeHtml(item?.detail ?? "");
+  const action = item?.action ? `<span class="health-action">${escapeHtml(item.action)}</span>` : "";
+  return `
+    <div class="health-item health-${status}">
+      <span class="health-dot" aria-hidden="true"></span>
+      <div class="health-copy">
+        <div class="health-title">${label}</div>
+        <div class="health-detail">${detail}${action}</div>
+      </div>
+    </div>
+  `;
 }
 
 function closeSettings() {
@@ -1025,6 +1082,8 @@ async function saveSettingsFromForm() {
     translatorBackend: dom.settingsTranslatorBackend?.value ?? "auto",
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
+    dictationHoldDelayMs: Number.parseInt(dom.settingsDictationHoldDelay?.value ?? "200", 10),
+    dictationToggleTapCount: Number.parseInt(dom.settingsDictationToggleTapCount?.value ?? "0", 10),
     dictationBackend: dom.settingsDictationBackend?.value ?? "hybrid",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),

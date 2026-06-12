@@ -13,7 +13,7 @@ All three surface into one Electron tray app; dictation and translator work full
 ## Features
 
 ### Voice dictation (push-to-talk)
-- Hold **right Cmd** (default), speak, release → transcript in clipboard, OS notification with preview.
+- Hold **right Cmd** (default), speak, release → transcript inserted at the caret, clipboard fallback, OS notification with preview.
 - Backends: `whisper.cpp` (local, offline, free — runs with Metal on M-series Macs) or Groq `whisper-large-v3`.
 - Language: auto-detect, or pin to Ukrainian / English.
 - Works with AirPods, built-in mic, USB mics — AVAudioRecorder handles the resample.
@@ -75,7 +75,7 @@ Packaged builds (`npm run desktop:pack`) carry the same keys via `package.json �
 
 | Shortcut | Action |
 |---|---|
-| **Right Cmd (hold)** | Dictation — hold, speak, release → transcript in clipboard |
+| **Right Cmd (hold)** | Dictation — hold, speak, release → insert transcript at the caret |
 | **⌘⌥T** | Translate current clipboard text |
 | **⌘⇧2** | Capture screen region → OCR + translate |
 | **double ⌘C** within 600 ms | Auto-translate just-copied text |
@@ -233,7 +233,7 @@ Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) (to be added).
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 

@@ -33,8 +33,10 @@ const translatorDistDir = asarUnpacked(
 
 const DEFAULT_PROBE_BIN = path.join(dictationDistDir, "focus-probe");
 const DEFAULT_SEND_KEY_BIN = path.join(translatorDistDir, "send-keystroke");
+const DEFAULT_INSERT_BIN = path.join(dictationDistDir, "insert-text");
 const PROBE_TIMEOUT_MS = 250;
 const PASTE_TIMEOUT_MS = 1_500;
+const INSERT_TIMEOUT_MS = 1_500;
 
 export interface FocusProbeResult {
   isTextInput: boolean;
@@ -102,23 +104,38 @@ export function parseFocusProbe(stdout: string): FocusProbeResult {
 }
 
 /**
- * Decide whether to auto-paste the transcribed text. Three-tier rule:
- *  1. If AX explicitly says "yes, text input" — paste.
- *  2. If AX gave a clean answer with a non-text role — clipboard only.
- *  3. If AX failed (target app doesn't publish a tree, common for Tauri /
- *     native apps) — fall back to a frontmost-app blacklist. Paste anywhere
- *     except apps that we know don't accept it.
+ * Decide whether to auto-paste the transcribed text. Fail-CLOSED rule:
+ *  1. AX explicitly says "yes, text input" AND the helper is trusted — paste.
+ *  2. Anything else — clipboard only, user pastes with ⌘V.
  *
- * The fail-OPEN behavior on tier 3 trades a small risk of pasting into the
- * wrong place (e.g. Spotlight when it lacks AX) for the much larger UX win
- * of dictation working at all in modern non-Chromium apps.
+ * Previously we treated tier 3 (AX blind) as fail-OPEN and synthesised a
+ * ⌘V anyway. On self-signed Sequoia bundles, focus-probe runs as a separate
+ * binary whose Accessibility trust is unreliable (each Swift helper gets its
+ * own TCC entry, which the user often hasn't granted), and synthetic CGEventPost
+ * from an untrusted helper silently shifts focus away from the target input
+ * — leaving the user with "where did my cursor go and nothing was pasted?"
+ * UX. Going fail-closed sacrifices a small win on Tauri/non-AX apps for
+ * predictable behaviour: text always ends up in the clipboard, the cursor
+ * stays where it was, and ⌘V works.
+ *
+ * When focus-probe IS trusted (`focus.axTrusted === true`) the previous
+ * heuristic was reliable — we keep the original behaviour for that path so
+ * users who grant Accessibility to the helper still get auto-paste.
  */
 export function decideAutoPaste(focus: FocusProbeResult): boolean {
+  // Tier 1 — explicit success. Always paste.
   if (focus.isTextInput) return true;
-  // AX answered successfully ("role" populated) but the role isn't a text
-  // input. Trust it — the user is on a button / row / picker / etc.
+  // Tier 2 — clean non-text answer. Clipboard only.
   if (focus.axError === 0 && focus.role !== "") return false;
-  // AX silent or errored. Use frontmost app heuristic.
+  // Tier 3 — AX silent or errored. Fall back to the frontmost-app blacklist
+  // and paste anywhere not on it. We deliberately ignore `axTrusted` here:
+  // each Swift helper has its own TCC bucket and `AXIsProcessTrusted()`
+  // reports per-binary state, so a child binary often returns `false` even
+  // when the parent app is trusted. CGEventPost (the actual paste path)
+  // works under the parent's grant via process inheritance — that's the
+  // mechanism send-keystroke.swift relies on. The focus shift the user
+  // reported turned out to be unrelated (ptt-monitor activating AppKit
+  // implicitly; now fixed via .prohibited activation policy).
   if (NON_TEXT_FRONTMOST_APPS.has(focus.frontmostApp)) return false;
   return true;
 }
@@ -238,5 +255,72 @@ export function sendPasteKeystroke(options: PasteOptions = {}): Promise<void> {
         reject(new Error(`send-keystroke exited ${code}: ${stderr.slice(0, 200) || "(no stderr)"}`));
       }
     });
+  });
+}
+
+export interface InsertOptions {
+  binPath?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Spawn insert-text and pipe `text` to its stdin. The helper types the
+ * transcript into the frontmost app's focused field via synthetic CGEvent
+ * unicode keystrokes (cghidEventTap — the same grant the working send-keystroke
+ * uses), no clipboard, no AX tree. This is the primary delivery path for
+ * dictation (#102). We use CGEvent rather than the Accessibility API because
+ * self-signed Swift helpers have no per-binary TCC Accessibility grant, so
+ * AX focused-element reads fail with -25204 even on native fields.
+ *
+ * Resolves `true` when the helper posted the keystrokes (exit 0), `false` only
+ * on CGEvent infrastructure failure or spawn/timeout/error. Never rejects — the
+ * caller falls back to the clipboard + Cmd+V path on `false`. Note: posting
+ * succeeds even with no focused field (events go nowhere), which is why the
+ * caller always writes the clipboard first as a backup.
+ */
+export function insertTextIntoFocused(text: string, options: InsertOptions = {}): Promise<boolean> {
+  const binPath = options.binPath ?? DEFAULT_INSERT_BIN;
+  const timeoutMs = options.timeoutMs ?? INSERT_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let child;
+    try {
+      child = spawn(binPath, [], { stdio: ["pipe", "ignore", "ignore"] });
+    } catch {
+      resolve(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      resolve(false);
+    }, timeoutMs);
+
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(false);
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+
+    // Pipe the transcript in and close stdin so the helper's
+    // readDataToEndOfFile() returns. A write-after-spawn EPIPE (helper already
+    // exited) is harmless — the close handler / timeout settles the promise.
+    try {
+      child.stdin?.write(text, "utf8");
+      child.stdin?.end();
+    } catch {
+      // no-op — settled by close/error/timeout
+    }
   });
 }

@@ -82,6 +82,12 @@ export function resolveDictationPrompt(raw: string | undefined): string {
   return trimmed;
 }
 
+export function resolveDictationLanguage(raw: string | undefined): string | undefined {
+  const value = (raw ?? "uk").toLowerCase().trim();
+  if (!value || value === "auto") return undefined;
+  return value.slice(0, 2);
+}
+
 export function createWhisperBackend(name: BackendName): WhisperBackend {
   if (name === "groq") return new GroqWhisperBackend();
   if (name === "hybrid") return new HybridWhisperBackend();
@@ -276,14 +282,14 @@ function firstExisting(candidates: string[]): string {
   return candidates[0];
 }
 
-function resolveDefaultBin(): string {
+export function resolveDefaultBin(): string {
   return firstExisting([
     path.join(distDictationDirOnDisk, "whisper-cli"),
     path.join(process.cwd(), ".whisper", "bin", "whisper-cli")
   ]);
 }
 
-function resolveDefaultModel(): string {
+export function resolveDefaultModel(): string {
   // whisper-cli loads the model via its own fopen() call — that's also an
   // OS-level path, so it needs the unpacked path too.
   //
@@ -297,4 +303,11 @@ function resolveDefaultModel(): string {
     candidates.push(path.join(process.cwd(), ".whisper", "models", name));
   }
   return firstExisting(candidates);
+}
+
+export function resolveWhisperAssetPaths(): { bin: string; model: string } {
+  return {
+    bin: process.env.MARSHAL_WHISPER_BIN ?? resolveDefaultBin(),
+    model: process.env.MARSHAL_WHISPER_MODEL ?? resolveDefaultModel()
+  };
 }

@@ -3,6 +3,11 @@ import path from "node:path";
 
 import { app } from "electron";
 
+import {
+  DEFAULT_HOLD_DELAY_MS,
+  DEFAULT_TOGGLE_TAP_COUNT,
+  normalizeToggleTapCount
+} from "./dictation/gesture-options.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import type { TranslatorBackendChoice } from "./translator/translator-service.ts";
 
@@ -39,6 +44,16 @@ export type MarshalSettings = {
   dictationBackend: DictationBackend;
   dictationLanguage: DictationLanguage;
   dictationAutoPaste: boolean;
+  /**
+   * Delay before a physical hold starts recording. Suppresses accidental taps
+   * and mirrors the more deliberate push-to-talk feel of native dictation apps.
+   */
+  dictationHoldDelayMs: number;
+  /**
+   * 0 disables hands-free tapping. 2 or 3 means double/triple tap the PTT key
+   * to toggle recording on/off without holding the key down.
+   */
+  dictationToggleTapCount: number;
   /**
    * Initial prompt (glossary + style hint) seeded into whisper before each
    * transcription. Empty string disables prompting; leave blank only if the
@@ -95,6 +110,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationBackend: "hybrid",
   dictationLanguage: "auto",
   dictationAutoPaste: false,
+  dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
+  dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
   dictationMicrophone: "",
   captureDefaultFolder: "",
@@ -178,6 +195,8 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_BACKEND = settings.dictationBackend;
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
+  process.env.MARSHAL_DICTATION_HOLD_DELAY_MS = String(settings.dictationHoldDelayMs);
+  process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT = String(settings.dictationToggleTapCount);
   process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
   if (settings.dictationMicrophone) {
     process.env.MARSHAL_DICTATION_MIC = settings.dictationMicrophone;
@@ -232,6 +251,14 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     ? (appearanceCandidate as Appearance)
     : DEFAULT_SETTINGS.appearance;
 
+  const dictationHoldDelayMs = normalizeInteger(
+    input.dictationHoldDelayMs,
+    DEFAULT_SETTINGS.dictationHoldDelayMs,
+    0,
+    1_000
+  );
+  const dictationToggleTapCount = normalizeToggleTapCount(input.dictationToggleTapCount);
+
   return {
     bridgeMode,
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
@@ -247,6 +274,8 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,
+    dictationHoldDelayMs,
+    dictationToggleTapCount,
     dictationPrompt: typeof input.dictationPrompt === "string"
       ? input.dictationPrompt
       : DEFAULT_SETTINGS.dictationPrompt,
@@ -266,4 +295,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       ? input.lastDismissedVersion
       : DEFAULT_SETTINGS.lastDismissedVersion
   };
+}
+
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
 }
