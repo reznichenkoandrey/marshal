@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { config as loadDotenv } from "dotenv";
-import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences } from "electron";
-import { menubar, type Menubar } from "menubar";
+import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences, screen } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
@@ -84,16 +83,11 @@ let meetingIndicator: MeetingIndicator | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 
-// `mainWindow` and `tray` are cached refs to the menubar-managed window and
-// tray. The menubar instance owns lifecycle; these globals exist so existing
-// code paths (IPC handlers, capture overlays, recording state fan-out) can
-// keep referring to the popover by familiar names. After menubar emits
-// `ready`, `tray` is populated; after `after-create-window` (which fires on
-// startup thanks to `preloadWindow: true`, and again if the user ⌘W-closes
-// the popover) `mainWindow` is populated.
+// `mainWindow` and `tray` are owned directly by the main process. Existing
+// code paths (IPC handlers, capture overlays, recording state fan-out) use
+// these globals to coordinate the app popover and tray status.
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let mb: Menubar | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -122,7 +116,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     app.on("second-instance", () => {
-      void mb?.showWindow();
+      showMainWindow();
     });
 
     await app.whenReady();
@@ -153,7 +147,7 @@ async function bootstrap(): Promise<void> {
     initialSettings = applyLaunchAtLogin(initialSettings);
 
     registerIpcHandlers();
-    createMenubarAndWindow();
+    createTrayAndWindow();
     scheduleTrayRefresh();
 
     // `MARSHAL_HEADLESS=1` disables every subsystem that needs real hardware,
@@ -173,7 +167,7 @@ async function bootstrap(): Promise<void> {
     }
 
     app.on("activate", () => {
-      void mb?.showWindow();
+      showMainWindow();
     });
 
     // Mark quitting early so other listeners (e.g. blur → hide) stop firing.
@@ -580,7 +574,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
   // Hide Marshal's own windows so they don't leak into the frame.
   translatorWindow?.hide();
   const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) mb?.hideWindow();
+  if (mainWasVisible) hideMainWindow();
   await new Promise<void>((r) => setTimeout(r, 120));
 
   try {
@@ -602,7 +596,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
     }
     console.error("[marshal] capture failed:", err);
   } finally {
-    if (mainWasVisible) void mb?.showWindow();
+    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -632,7 +626,7 @@ async function runScrollingCapture(): Promise<void> {
 
   const mainWasVisible = mainWindow?.isVisible() ?? false;
   translatorWindow?.hide();
-  if (mainWasVisible) mb?.hideWindow();
+  if (mainWasVisible) hideMainWindow();
 
   try {
     const pick = await pickArea({ preloadPath });
@@ -687,7 +681,7 @@ async function runScrollingCapture(): Promise<void> {
     }
     console.error("[marshal] scrolling capture failed:", err);
   } finally {
-    if (mainWasVisible) void mb?.showWindow();
+    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -763,6 +757,13 @@ async function performTeardown(): Promise<void> {
   recordingIndicator?.hide();
   videoRecorder?.kill();
   gifDialog?.close();
+  if (mainWindow) {
+    mainWindow.removeAllListeners("close");
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+  tray?.destroy();
+  tray = null;
   // Release every registered accelerator, including any new ones added later.
   // Safer than tracking each shortcut by name.
   globalShortcut.unregisterAll();
@@ -1009,7 +1010,7 @@ function initDictation(): void {
   }
 
   // Floating pill that surfaces recording state to the user even when their
-  // focus is on a fullscreen / non-menubar app (the tray icon alone is not
+  // focus is on a fullscreen / non-menu-bar app (the tray icon alone is not
   // discoverable enough — see #98).
   dictationIndicator ??= new DictationIndicator(preloadPath);
 
@@ -1276,7 +1277,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
   // Hide Marshal's own windows so they don't appear in the recording.
   translatorWindow?.hide();
   const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) mb?.hideWindow();
+  if (mainWasVisible) hideMainWindow();
 
   let area: { x: number; y: number; width: number; height: number } | null = null;
 
@@ -1284,7 +1285,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
     if (kind === "area") {
       const pick = await pickArea({ preloadPath });
       if (!pick) {
-        if (mainWasVisible) void mb?.showWindow();
+        if (mainWasVisible) showMainWindow();
         return;
       }
       area = {
@@ -1333,7 +1334,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
         silent: true
       }).show();
     }
-    if (mainWasVisible) void mb?.showWindow();
+    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -1451,7 +1452,7 @@ function buildTrayMenu(): Electron.Menu {
   const meetingAvailable = meetingRecorder !== null;
 
   return Menu.buildFromTemplate([
-    { label: "Open Marshal", click: () => void mb?.showWindow() },
+    { label: "Open Marshal", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
     // Dictation toggle — visible primary action so the user always has a path
@@ -1684,63 +1685,91 @@ function initTranslator(): void {
   });
 }
 
-function createMenubarAndWindow(): void {
-  // `menubar` owns the popover: positions it under the tray icon, toggles on
-  // left-click, fans out to multiple workspaces, and recreates the window on
-  // demand if it was closed. We rely on `alwaysOnTop: true` to bypass the
-  // library's built-in blur→hide so we can apply our DevTools guard via the
-  // `focus-lost` event instead.
-  mb = menubar({
-    index: `file://${rendererHtmlPath}`,
-    icon: createTrayIcon(),
-    tooltip: "Marshal",
-    showDockIcon: false,
-    showOnAllWorkspaces: false,
-    windowPosition: "trayCenter",
-    preloadWindow: true,
-    browserWindow: {
-      width: 380,
-      height: 560,
-      minWidth: 360,
-      minHeight: 480,
-      backgroundColor: "#ffffff",
-      icon: appIconPath,
-      autoHideMenuBar: true,
-      alwaysOnTop: true,
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false
-      }
+function createTrayAndWindow(): void {
+  tray = new Tray(createTrayIcon());
+  tray.setToolTip("Marshal");
+  tray.on("click", () => toggleMainWindow());
+  tray.on("right-click", () => {
+    tray?.popUpContextMenu(buildTrayMenu());
+  });
+
+  mainWindow = new BrowserWindow({
+    width: 380,
+    height: 560,
+    minWidth: 360,
+    minHeight: 480,
+    show: false,
+    backgroundColor: "#ffffff",
+    icon: appIconPath,
+    autoHideMenuBar: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
     }
   });
-
-  mb.on("ready", () => {
-    if (!mb) return;
-    tray = mb.tray;
-    // menubar binds left-click for toggle; the context menu goes on right-click.
-    mb.tray.on("right-click", () => {
-      mb?.tray.popUpContextMenu(buildTrayMenu());
-    });
-    void refreshTrayState();
+  mainWindow.setVisibleOnAllWorkspaces(false);
+  mainWindow.loadFile(rendererHtmlPath).catch((err) => {
+    console.error("[marshal] failed to load renderer:", err);
   });
-
-  // Fires on initial preload and again whenever the user closes the popover
-  // (⌘W) and re-opens it. Re-bind window-scoped listeners and refresh the
-  // cached ref each time.
-  mb.on("after-create-window", () => {
-    if (!mb?.window) return;
-    mainWindow = mb.window;
-  });
-
-  // `alwaysOnTop: true` causes menubar to emit `focus-lost` instead of
-  // calling hideWindow() directly on blur. Apply the DevTools guard, then
-  // delegate so the library's `_isVisible` state stays consistent.
-  mb.on("focus-lost", () => {
+  mainWindow.on("blur", () => {
     if (isQuitting) return;
     if (mainWindow?.webContents.isDevToolsOpened()) return;
-    mb?.hideWindow();
+    hideMainWindow();
   });
+  mainWindow.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    hideMainWindow();
+  });
+
+  void refreshTrayState();
+}
+
+function toggleMainWindow(): void {
+  if (mainWindow?.isVisible()) {
+    hideMainWindow();
+    return;
+  }
+  showMainWindow();
+}
+
+function showMainWindow(): void {
+  if (!mainWindow) return;
+  positionMainWindow();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function hideMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.hide();
+}
+
+function positionMainWindow(): void {
+  if (!mainWindow || !tray) return;
+
+  const trayBounds = tray.getBounds();
+  const windowBounds = mainWindow.getBounds();
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(trayBounds.x + trayBounds.width / 2),
+    y: Math.round(trayBounds.y + trayBounds.height / 2)
+  });
+  const workArea = display.workArea;
+  const gap = 6;
+  const desiredX = Math.round(trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2);
+  const maxX = workArea.x + workArea.width - windowBounds.width;
+  const x = Math.min(Math.max(desiredX, workArea.x), maxX);
+  const opensDownward = trayBounds.y < workArea.y + workArea.height / 2;
+  const desiredY = opensDownward
+    ? trayBounds.y + trayBounds.height + gap
+    : trayBounds.y - windowBounds.height - gap;
+  const maxY = workArea.y + workArea.height - windowBounds.height;
+  const y = Math.min(Math.max(Math.round(desiredY), workArea.y), maxY);
+
+  mainWindow.setPosition(x, y, false);
 }
 
 async function refreshTrayState(): Promise<void> {
@@ -1760,7 +1789,7 @@ async function refreshTrayState(): Promise<void> {
   if (isMeetingRecording) status.push("● Recording meeting…");
   tray.setToolTip(status.length > 0 ? `${base}\n${status.join("\n")}` : base);
 
-  // Swap the menubar icon itself between an idle (template/grey) glyph and a
+  // Swap the menu bar icon itself between an idle (template/grey) glyph and a
   // recording (red) glyph so the active state is obvious at a glance. A small
   // text indicator next to the icon was tried earlier and turned out to be
   // nearly invisible on most setups (#83).
@@ -1777,7 +1806,7 @@ async function refreshTrayState(): Promise<void> {
     }
   }
 
-  // Context menu is set via right-click handler in createMenubarAndWindow()
+  // Context menu is opened from the tray right-click handler in createTrayAndWindow().
 }
 
 function scheduleTrayRefresh(): void {
@@ -1809,7 +1838,7 @@ function createTrayIcon(): Electron.NativeImage {
   }
 
   // Defensive: an empty NativeImage renders as nothing on macOS — the icon is
-  // gone from the menubar and the user thinks the app is broken. If the file
+  // gone from the menu bar and the user thinks the app is broken. If the file
   // lookups produced an empty image, use the inline glyph.
   if (img.isEmpty()) {
     img = makeFallbackTrayIcon();
@@ -1821,12 +1850,12 @@ function createTrayIcon(): Electron.NativeImage {
 
 /**
  * Recording variant of the tray icon — full-color red, NOT a template image,
- * so it renders in red on both dark and light menubars instead of getting
+ * so it renders in red on both dark and light menu bars instead of getting
  * auto-tinted to the foreground color. Used while dictation or screen capture
  * is active so the user can tell at a glance that the mic or screen is live.
  *
  * Falls back to the default template icon when the asset is missing, which
- * keeps the menubar from going blank on a stripped-down build.
+ * keeps the menu bar from going blank on a stripped-down build.
  */
 function createRecordingTrayIcon(): Electron.NativeImage {
   const recording2x = path.join(projectRootDir, "assets", "tray-icon-recording@2x.png");
@@ -1840,7 +1869,7 @@ function createRecordingTrayIcon(): Electron.NativeImage {
     img = nativeImage.createFromPath(recording1x);
   } else {
     // Missing asset — degrade to the default template glyph rather than
-    // emptying the menubar.
+    // emptying the menu bar.
     return createTrayIcon();
   }
 
@@ -1858,7 +1887,7 @@ let trayIconRecording: Electron.NativeImage | null = null;
  * Inline 18×18 "M" glyph used when assets/ is missing or unreadable. SVG
  * created via nativeImage.createFromDataURL is sized by the SVG's intrinsic
  * dimensions, so we declare width/height = 18 to match the standard macOS
- * template icon size — otherwise the menubar renders the glyph too large or
+ * template icon size — otherwise the menu bar renders the glyph too large or
  * invisible.
  */
 function makeFallbackTrayIcon(): Electron.NativeImage {
