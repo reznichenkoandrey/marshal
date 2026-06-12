@@ -120,6 +120,7 @@ const desktopApi = {
     dictationToggleTapCount?: number;
     dictationPrompt?: string;
     dictationMicrophone?: string;
+    launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
   listMicrophones: () => ipcRenderer.invoke("marshal:dictation-list-mics") as Promise<{

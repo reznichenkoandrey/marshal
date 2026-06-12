@@ -24,6 +24,9 @@ export type SetupHealthInput = {
   whisperBinPath: string;
   whisperModelPath: string;
   codesignIdentityPresent?: boolean;
+  launchAtLogin: boolean;
+  launchAtLoginOpenAtLogin?: boolean;
+  launchAtLoginLastError?: string;
   exists?: (path: string) => boolean;
 };
 
@@ -110,9 +113,51 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
       : undefined
   });
 
+  items.push(launchAtLoginItem(input));
+
   return {
     items,
     counts: countStatuses(items)
+  };
+}
+
+function launchAtLoginItem(input: SetupHealthInput): SetupHealthItem {
+  if (input.platform !== "darwin" && input.platform !== "win32") {
+    return {
+      id: "launch-at-login",
+      label: "Start at Login",
+      status: "unknown",
+      detail: "Only checked on macOS and Windows."
+    };
+  }
+
+  const lastError = (input.launchAtLoginLastError ?? "").trim();
+  if (!input.launchAtLogin) {
+    return {
+      id: "launch-at-login",
+      label: "Start at Login",
+      status: lastError ? "warn" : "ok",
+      detail: lastError
+        ? `Disabled because the OS rejected the last Login Item update: ${lastError}`
+        : "Disabled by preference."
+    };
+  }
+
+  if (input.launchAtLoginOpenAtLogin) {
+    return {
+      id: "launch-at-login",
+      label: "Start at Login",
+      status: "ok",
+      detail: "Enabled. The OS reports Marshal as a Login Item."
+    };
+  }
+
+  return {
+    id: "launch-at-login",
+    label: "Start at Login",
+    status: "warn",
+    detail: lastError || "Requested, but the OS does not report Marshal as a Login Item.",
+    action: input.platform === "darwin" ? "System Settings -> General -> Login Items" : undefined
   };
 }
 

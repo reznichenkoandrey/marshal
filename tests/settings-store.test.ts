@@ -108,6 +108,7 @@ describe("saveSettings", () => {
       dictationMicrophone: "",
       captureDefaultFolder: "",
       launchAtLogin: false,
+      launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
       lastDismissedVersion: ""
     });
@@ -135,6 +136,11 @@ describe("saveSettings", () => {
   it("round-trips launchAtLogin true", () => {
     saveSettings({ launchAtLogin: true });
     expect(loadSettings().launchAtLogin).toBe(true);
+  });
+
+  it("round-trips launchAtLoginLastError", () => {
+    saveSettings({ launchAtLoginLastError: "Operation not permitted" });
+    expect(loadSettings().launchAtLoginLastError).toBe("Operation not permitted");
   });
 
   it("falls back to default launchAtLogin for non-boolean values", () => {

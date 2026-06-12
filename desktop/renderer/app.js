@@ -1096,9 +1096,21 @@ async function saveSettingsFromForm() {
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);
   try {
-    await api.updateSettings(payload);
-    showSettingsStatus("Saved. New settings are active.", "success");
-    setTimeout(closeSettings, 900);
+    const saved = await api.updateSettings(payload);
+    if (dom.settingsLaunchAtLogin) {
+      dom.settingsLaunchAtLogin.checked = saved?.launchAtLogin ?? false;
+    }
+    void refreshSetupHealth();
+    const launchRejected = payload.launchAtLogin && saved?.launchAtLogin === false;
+    showSettingsStatus(
+      launchRejected
+        ? "Saved, but macOS rejected Start at Login. See Setup Health."
+        : "Saved. New settings are active.",
+      launchRejected ? "error" : "success"
+    );
+    if (!launchRejected) {
+      setTimeout(closeSettings, 900);
+    }
   } catch (err) {
     console.error("saveSettings failed", err);
     showSettingsStatus(`Failed: ${err?.message ?? err}`, "error");

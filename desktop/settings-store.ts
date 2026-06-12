@@ -80,6 +80,13 @@ export type MarshalSettings = {
    */
   launchAtLogin: boolean;
   /**
+   * Last macOS/Windows Login Item reconciliation failure. Empty string means
+   * the persisted preference matches what the OS reports, or the feature is
+   * disabled. Kept in settings so Setup Health can surface failures discovered
+   * during startup before the Settings modal is opened.
+   */
+  launchAtLoginLastError: string;
+  /**
    * Check the GitHub Releases API on a schedule and surface new versions as
    * a tray notification. Disabling this only stops the silent background
    * check; the manual "Check for updates…" tray entry still works.
@@ -116,6 +123,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationMicrophone: "",
   captureDefaultFolder: "",
   launchAtLogin: false,
+  launchAtLoginLastError: "",
   checkForUpdatesAutomatic: true,
   lastDismissedVersion: ""
 };
@@ -288,6 +296,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     launchAtLogin: typeof input.launchAtLogin === "boolean"
       ? input.launchAtLogin
       : DEFAULT_SETTINGS.launchAtLogin,
+    launchAtLoginLastError: typeof input.launchAtLoginLastError === "string"
+      ? input.launchAtLoginLastError.trim()
+      : DEFAULT_SETTINGS.launchAtLoginLastError,
     checkForUpdatesAutomatic: typeof input.checkForUpdatesAutomatic === "boolean"
       ? input.checkForUpdatesAutomatic
       : DEFAULT_SETTINGS.checkForUpdatesAutomatic,
