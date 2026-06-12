@@ -19,6 +19,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/whisper-cli",
       whisperModelPath: "/model.bin",
       codesignIdentityPresent: true,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => true
     });
 
@@ -30,7 +32,8 @@ describe("buildSetupHealth", () => {
       "screen-recording": "ok",
       "whisper-local": "ok",
       "cloud-api": "ok",
-      codesign: "ok"
+      codesign: "ok",
+      "launch-at-login": "ok"
     });
   });
 
@@ -46,6 +49,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/missing-bin",
       whisperModelPath: "/missing-model",
       codesignIdentityPresent: true,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => false
     });
 
@@ -65,6 +70,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/whisper-cli",
       whisperModelPath: "/model.bin",
       codesignIdentityPresent: true,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => true
     });
     const local = buildSetupHealth({
@@ -78,6 +85,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/whisper-cli",
       whisperModelPath: "/model.bin",
       codesignIdentityPresent: true,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => true
     });
 
@@ -97,6 +106,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/whisper-cli",
       whisperModelPath: "/model.bin",
       codesignIdentityPresent: false,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => true
     });
 
@@ -121,6 +132,8 @@ describe("buildSetupHealth", () => {
       whisperBinPath: "/missing-bin",
       whisperModelPath: "/missing-model",
       codesignIdentityPresent: true,
+      launchAtLogin: false,
+      launchAtLoginOpenAtLogin: false,
       exists: () => false
     });
 
@@ -131,5 +144,49 @@ describe("buildSetupHealth", () => {
       "screen-recording": "ok"
     });
     expect(summary.counts.error).toBe(0);
+  });
+
+  it("warns when launch-at-login was requested but the OS rejected it", () => {
+    const summary = buildSetupHealth({
+      platform: "darwin",
+      dictationEnabled: true,
+      dictationBackend: "hybrid",
+      microphoneStatus: "granted",
+      screenStatus: "granted",
+      accessibilityTrusted: true,
+      apiKeyPresent: true,
+      whisperBinPath: "/whisper-cli",
+      whisperModelPath: "/model.bin",
+      codesignIdentityPresent: true,
+      launchAtLogin: true,
+      launchAtLoginOpenAtLogin: false,
+      launchAtLoginLastError: "Operation not permitted",
+      exists: () => true
+    });
+
+    const item = summary.items.find((entry) => entry.id === "launch-at-login");
+    expect(item?.status).toBe("warn");
+    expect(item?.detail).toContain("Operation not permitted");
+  });
+
+  it("marks launch-at-login ready when the OS reports it enabled", () => {
+    const summary = buildSetupHealth({
+      platform: "darwin",
+      dictationEnabled: true,
+      dictationBackend: "hybrid",
+      microphoneStatus: "granted",
+      screenStatus: "granted",
+      accessibilityTrusted: true,
+      apiKeyPresent: true,
+      whisperBinPath: "/whisper-cli",
+      whisperModelPath: "/model.bin",
+      codesignIdentityPresent: true,
+      launchAtLogin: true,
+      launchAtLoginOpenAtLogin: true,
+      exists: () => true
+    });
+
+    expect(ids(summary)["launch-at-login"]).toBe("ok");
+    expect(summary.counts.warn).toBe(0);
   });
 });

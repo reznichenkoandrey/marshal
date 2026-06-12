@@ -148,9 +148,9 @@ async function bootstrap(): Promise<void> {
 
     // Settings override .env values. Must be applied BEFORE the backend utility
     // process forks so the child inherits the correct env.
-    const initialSettings = loadSettings();
+    let initialSettings = loadSettings();
     applySettingsToEnv(initialSettings);
-    applyLaunchAtLogin(initialSettings);
+    initialSettings = applyLaunchAtLogin(initialSettings);
 
     registerIpcHandlers();
     createMenubarAndWindow();
@@ -295,9 +295,9 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
-    const saved = saveSettings(next ?? {});
+    let saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
-    applyLaunchAtLogin(saved);
+    saved = applyLaunchAtLogin(saved);
     restartDictation();
     // Hot-swap the translator so the new choice takes effect without waiting
     // for a full app restart. Apply bridge FIRST so "auto" resolves against
@@ -1504,15 +1504,41 @@ function buildTrayMenu(): Electron.Menu {
  * supported only on macOS/Windows and we deliberately scope packaging to
  * macOS today.
  */
-function applyLaunchAtLogin(settings: MarshalSettings): void {
-  if (process.platform !== "darwin" && process.platform !== "win32") return;
-  app.setLoginItemSettings({
-    openAtLogin: settings.launchAtLogin,
-    // openAsHidden hides the dock-less accessory app on launch — we already
-    // suppress the dock via setActivationPolicy("accessory"), but this also
-    // suppresses any brief renderer flash.
-    openAsHidden: true
-  });
+function applyLaunchAtLogin(settings: MarshalSettings): MarshalSettings {
+  if (process.platform !== "darwin" && process.platform !== "win32") return settings;
+
+  const requested = settings.launchAtLogin;
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: requested,
+      // openAsHidden hides the dock-less accessory app on launch — we already
+      // suppress the dock via setActivationPolicy("accessory"), but this also
+      // suppresses any brief renderer flash.
+      openAsHidden: true
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[marshal] launch-at-login update failed:", message);
+    return saveSettings({
+      launchAtLogin: false,
+      launchAtLoginLastError: message
+    });
+  }
+
+  const actual = app.getLoginItemSettings().openAtLogin;
+  if (requested && !actual) {
+    const message = "macOS rejected the Login Item update. Check System Settings -> General -> Login Items.";
+    console.warn("[marshal] launch-at-login update rejected:", message);
+    return saveSettings({
+      launchAtLogin: false,
+      launchAtLoginLastError: message
+    });
+  }
+
+  if (settings.launchAtLoginLastError) {
+    return saveSettings({ launchAtLoginLastError: "" });
+  }
+  return settings;
 }
 
 async function getSetupHealth(): Promise<SetupHealthSummary> {
@@ -1529,7 +1555,12 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
     apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
     whisperBinPath: whisper.bin,
     whisperModelPath: whisper.model,
-    codesignIdentityPresent: isDarwin ? await hasMarshalCodesignIdentity() : undefined
+    codesignIdentityPresent: isDarwin ? await hasMarshalCodesignIdentity() : undefined,
+    launchAtLogin: settings.launchAtLogin,
+    launchAtLoginOpenAtLogin: process.platform === "darwin" || process.platform === "win32"
+      ? app.getLoginItemSettings().openAtLogin
+      : undefined,
+    launchAtLoginLastError: settings.launchAtLoginLastError
   });
 }
 
