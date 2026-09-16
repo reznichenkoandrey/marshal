@@ -12,16 +12,22 @@ import { describe, expect, it } from "vitest";
 import {
   CANVAS_FONT_STACK,
   canStartDraft,
+  clampZoom,
+  computeFitZoom,
   counterFontString,
   DRAWABLE_TOOLS,
   HISTORY_LIMIT,
   HistoryStack,
   isNoOpShape,
   normalizeShape,
+  FIT_PADDING,
+  MAX_ZOOM,
+  MIN_ZOOM,
   SPECIAL_TOOLS,
   textFontSize,
   textFontString,
-  textLineHeight
+  textLineHeight,
+  zoomedSize
 } from "../desktop/renderer/capture-shapes.js";
 
 describe("font strings", () => {
@@ -251,5 +257,77 @@ describe("HistoryStack", () => {
     history.reset();
     expect(history.canUndo).toBe(false);
     expect(history.canRedo).toBe(false);
+  });
+});
+
+describe("zoom geometry", () => {
+  it("presents the capture at the zoomed CSS size", () => {
+    expect(zoomedSize(3600, 2338, 0.27)).toEqual({ width: 972, height: 631 });
+    expect(zoomedSize(800, 600, 1)).toEqual({ width: 800, height: 600 });
+    expect(zoomedSize(800, 600, 2)).toEqual({ width: 1600, height: 1200 });
+  });
+
+  it("never collapses the canvas to zero", () => {
+    // A zero-sized layout box would make the capture unclickable and render
+    // an empty viewport — the visible symptom of #139.
+    const tiny = zoomedSize(4, 4, MIN_ZOOM);
+    expect(tiny.width).toBeGreaterThanOrEqual(1);
+    expect(tiny.height).toBeGreaterThanOrEqual(1);
+  });
+
+  it("fits an oversized capture inside the viewport", () => {
+    // A Retina fullscreen capture in a typical editor window.
+    const zoom = computeFitZoom(1100, 700, 3600, 2338) as number;
+    expect(zoom).toBeGreaterThan(0);
+    expect(zoom).toBeLessThan(1);
+
+    const presented = zoomedSize(3600, 2338, zoom);
+    expect(presented.width).toBeLessThanOrEqual(1100 - FIT_PADDING);
+    expect(presented.height).toBeLessThanOrEqual(700 - FIT_PADDING);
+  });
+
+  it("leaves a small capture at 1:1 rather than magnifying it", () => {
+    expect(computeFitZoom(1400, 900, 400, 300)).toBe(1);
+  });
+
+  it("fits against the tighter axis", () => {
+    // Wide and short: width is the binding constraint.
+    const wide = computeFitZoom(1000, 1000, 4000, 200) as number;
+    expect(wide).toBeCloseTo((1000 - FIT_PADDING) / 4000, 5);
+
+    // Tall and narrow: height binds instead.
+    const tall = computeFitZoom(1000, 1000, 200, 4000) as number;
+    expect(tall).toBeCloseTo((1000 - FIT_PADDING) / 4000, 5);
+  });
+
+  it("returns null instead of a bogus zoom when there is nothing to fit", () => {
+    expect(computeFitZoom(1000, 800, 0, 0)).toBeNull();
+    expect(computeFitZoom(1000, 800, -10, 500)).toBeNull();
+  });
+
+  it("returns null when the viewport is smaller than the padding", () => {
+    // Happens while the window is still laying out; the caller keeps the
+    // current zoom rather than collapsing the canvas.
+    expect(computeFitZoom(20, 20, 800, 600)).toBeNull();
+  });
+
+  it("never fits below the minimum zoom", () => {
+    const zoom = computeFitZoom(200, 200, 100000, 100000) as number;
+    expect(zoom).toBe(MIN_ZOOM);
+  });
+
+  it("clamps zoom to the range the toolbar agrees on", () => {
+    expect(clampZoom(0.001)).toBe(MIN_ZOOM);
+    expect(clampZoom(99)).toBe(MAX_ZOOM);
+    expect(clampZoom(0.5)).toBe(0.5);
+  });
+
+  it("stays inside the range when stepping repeatedly", () => {
+    let zoom = 1;
+    for (let i = 0; i < 40; i++) zoom = clampZoom(zoom * 1.2);
+    expect(zoom).toBe(MAX_ZOOM);
+
+    for (let i = 0; i < 80; i++) zoom = clampZoom(zoom / 1.2);
+    expect(zoom).toBe(MIN_ZOOM);
   });
 });
