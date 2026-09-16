@@ -42,6 +42,11 @@ import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } 
 import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
+import {
+  TranslatorGlossaryStore,
+  buildGlossaryEntry,
+  type GlossaryEntry
+} from "./translator/glossary-store.ts";
 import { insertTranslation } from "./translator/insert-service.ts";
 import { LANGUAGES, resolveLangCode, resolveSourceLang } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
@@ -90,6 +95,7 @@ let lastRecordingPath: string | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
 let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
+let translatorGlossary: TranslatorGlossaryStore | null = null;
 // In-flight whisper model download. The model is a 1.5 GB out-of-band asset
 // (see dictation/model-installer.ts), so the tray shows progress and offers
 // a cancel instead of blocking on a modal.
@@ -450,6 +456,29 @@ function registerIpcHandlers(): void {
       timestamp: Date.now()
     });
     return translatorHistory?.list() ?? [];
+  });
+
+  // Fixed terms. Every mutation pushes the fresh list into the service, so the
+  // hotkey paths use the same glossary as the window without a restart.
+  handleIpc("marshal:translator-glossary-list", () => translatorGlossary?.list() ?? []);
+
+  handleIpc(
+    "marshal:translator-glossary-add",
+    (_event, payload: { term?: unknown; targetLang?: unknown; translation?: unknown }) => {
+      if (!translatorGlossary) throw new Error("Translator glossary is not initialized.");
+      const entry = buildGlossaryEntry(payload?.term, payload?.targetLang, payload?.translation);
+      if (!entry) throw new Error("A glossary entry needs a term.");
+      const next = translatorGlossary.upsert(entry);
+      translatorService?.setGlossary(next);
+      return next;
+    }
+  );
+
+  handleIpc("marshal:translator-glossary-remove", (_event, term: string) => {
+    if (!translatorGlossary) throw new Error("Translator glossary is not initialized.");
+    const next = translatorGlossary.remove(typeof term === "string" ? term : "");
+    translatorService?.setGlossary(next);
+    return next;
   });
 
   handleIpc("marshal:translator-history-list", () => translatorHistory?.list() ?? []);
@@ -1901,6 +1930,8 @@ function initTranslator(): void {
   translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
+  translatorGlossary = new TranslatorGlossaryStore(app.getPath("userData"));
+  translatorService.setGlossary(translatorGlossary.list());
 
   // A rejected API key makes `auto` swap to a keyless backend mid-session.
   // Say so once: the user's own symptom is otherwise just "why is this slow

@@ -67,7 +67,9 @@ const ICON_PATHS = {
   "corner-down-left":
     '<path d="M20 4v7a4 4 0 0 1-4 4H4"/><path d="m9 10-5 5 5 5"/>',
   search:
-    '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
+    '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  book:
+    '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a2.5 2.5 0 0 1 0-5H20"/>'
 };
 
 function renderIcon(name, options = {}) {

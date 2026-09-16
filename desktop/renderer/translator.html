@@ -19,6 +19,9 @@
         <button class="icon-btn" id="btn-pin" title="Keep window open (⌘P)" aria-pressed="false">
           <span data-icon="pin" data-icon-size="14"></span>
         </button>
+        <button class="icon-btn" id="btn-glossary" title="Glossary — terms the translator must not rewrite">
+          <span data-icon="book" data-icon-size="14"></span>
+        </button>
         <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">
           <span data-icon="rotate-ccw" data-icon-size="14"></span>
         </button>
@@ -123,6 +126,20 @@
         <input type="text" id="lang-filter" placeholder="Search language" spellcheck="false" />
       </div>
       <div class="lang-options" id="lang-options"></div>
+    </div>
+
+    <!-- Glossary: terms that must always come out the same way -->
+    <div id="glossary-panel" class="history-panel glossary-panel" hidden>
+      <div class="history-header">
+        <span class="history-title">Glossary</span>
+        <span class="glossary-hint" id="glossary-hint"></span>
+      </div>
+      <form class="glossary-form" id="glossary-form">
+        <input type="text" id="glossary-term" placeholder="Term, e.g. backoff" spellcheck="false" />
+        <input type="text" id="glossary-translation" placeholder="Empty = keep as-is" spellcheck="false" />
+        <button type="submit" class="toolbar-btn" id="glossary-add">Add</button>
+      </form>
+      <div id="glossary-list" class="history-list glossary-list"></div>
     </div>
 
     <!-- History dropdown -->

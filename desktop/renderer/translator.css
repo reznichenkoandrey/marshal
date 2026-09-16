@@ -686,6 +686,84 @@ input:focus-visible {
   font-size: var(--fs-sm);
 }
 
+/* ── Glossary panel ── */
+.glossary-panel {
+  width: 360px;
+  max-height: 340px;
+}
+
+.glossary-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.glossary-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.glossary-form input {
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-default);
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+}
+.glossary-form input::placeholder {
+  color: var(--text-subtle);
+  font-size: var(--fs-xs);
+}
+
+.glossary-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.glossary-item:last-child {
+  border-bottom: none;
+}
+.glossary-item:hover {
+  background: var(--bg-hover);
+}
+
+.glossary-term {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-strong);
+}
+
+/* "→ тег кешу" for a mapped term, "kept as-is" for one we only protect. */
+.glossary-value {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glossary-value.kept {
+  color: var(--text-subtle);
+  font-style: italic;
+}
+
+.glossary-remove {
+  margin-left: auto;
+  color: var(--text-subtle);
+  font-size: var(--fs-xs);
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.glossary-remove:hover {
+  color: var(--danger);
+}
+
 /* Scrollbar — same as main app */
 ::-webkit-scrollbar {
   width: 8px;

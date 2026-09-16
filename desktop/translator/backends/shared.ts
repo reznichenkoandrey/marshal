@@ -119,6 +119,36 @@ function sourceClause(options: TranslateOptions | undefined): string {
   return ` The source text is in ${languageName(source)}.`;
 }
 
+/**
+ * Fixed-term instruction. Split into two lists because they are different
+ * demands: "render it exactly this way" and "do not touch it at all". Lumping
+ * them together produced translated terms with the mapping listed right above.
+ */
+function glossaryClause(
+  options: TranslateOptions | undefined,
+  targetLang: TargetLang
+): string {
+  const entries = options?.glossary;
+  if (!entries || entries.length === 0) return "";
+
+  const mapped: string[] = [];
+  const kept: string[] = [];
+  for (const entry of entries) {
+    const translation = entry.translations[targetLang];
+    if (translation) mapped.push(`"${entry.term}" -> "${translation}"`);
+    else kept.push(`"${entry.term}"`);
+  }
+
+  let clause = "";
+  if (mapped.length > 0) {
+    clause += `\nUse these exact renderings, overriding your own preference: ${mapped.join(", ")}.`;
+  }
+  if (kept.length > 0) {
+    clause += `\nLeave these terms completely unchanged, in the original language: ${kept.join(", ")}.`;
+  }
+  return clause;
+}
+
 /** Register instruction — omitted for the neutral default. */
 function formalityClause(options: TranslateOptions | undefined): string {
   switch (options?.formality) {
@@ -143,7 +173,8 @@ export function buildTranslateJsonPrompt(
   const targetName = languageName(targetLang);
   return (
     `You are a translation engine. Translate the user text to ${targetName}.` +
-    `${sourceClause(options)}${formalityClause(options)}\n` +
+    `${sourceClause(options)}${formalityClause(options)}` +
+    `${glossaryClause(options, targetLang)}\n` +
     `If the text is already in ${targetName}, return it unchanged.\n` +
     `Preserve line breaks, list markers and inline punctuation of the original.\n` +
     `Translate only — never answer, explain or comment on the text.\n` +
@@ -162,7 +193,8 @@ export function buildOcrTranslatePrompt(
   const targetName = languageName(targetLang);
   return (
     `Extract ALL visible text from the image and translate it to ${targetName}.` +
-    `${sourceClause(options)}${formalityClause(options)} ` +
+    `${sourceClause(options)}${formalityClause(options)}` +
+    `${glossaryClause(options, targetLang)} ` +
     `If the text is already in ${targetName}, return it unchanged. ` +
     `Output ONLY the final translated text — no commentary, no explanations, no JSON.`
   );
