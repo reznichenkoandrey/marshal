@@ -106,6 +106,7 @@ const dom = {
   stateLoading: document.getElementById("state-loading"),
   stateEmpty: document.getElementById("state-empty"),
   errorMsg: document.getElementById("error-msg"),
+  noticeMsg: document.getElementById("notice-msg"),
   langBadge: document.getElementById("lang-badge"),
   btnInsert: document.getElementById("btn-insert"),
   copyBtn: document.getElementById("copy-btn"),
@@ -676,6 +677,14 @@ api.onError((_, { message }) => {
   showError(message);
 });
 
+// The service swapped backends because a credential was refused. Informational
+// — the translation still arrives, just slower, so this must not clear the
+// result or look like a failure. Shown until dismissed; it is not repeated,
+// the main process emits it once per session.
+api.onNotice?.((_, { message }) => {
+  showNotice(message);
+});
+
 // ── Global keys ──
 
 document.addEventListener("keydown", (e) => {
@@ -728,6 +737,22 @@ function setState(state) {
   dom.stateEmpty.style.display = state === "empty" ? "flex" : "none";
   dom.resultText.style.display = state === "result" ? "block" : "none";
   dom.errorMsg.style.display = "none";
+}
+
+function showNotice(message) {
+  dom.noticeMsg.textContent = "";
+  const text = document.createElement("span");
+  text.textContent = message;
+  const dismiss = document.createElement("button");
+  dismiss.className = "notice-dismiss";
+  dismiss.title = "Dismiss";
+  dismiss.textContent = "✕";
+  dismiss.addEventListener("click", () => {
+    dom.noticeMsg.hidden = true;
+  });
+  dom.noticeMsg.appendChild(text);
+  dom.noticeMsg.appendChild(dismiss);
+  dom.noticeMsg.hidden = false;
 }
 
 function showError(msg) {

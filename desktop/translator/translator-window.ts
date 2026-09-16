@@ -78,6 +78,16 @@ export class TranslatorWindow {
     this.win.webContents.send("translator-error", { message });
   }
 
+  /**
+   * A non-blocking note in the translator window. Used when the service had
+   * to swap backends behind the user's back (#160) — without it the only
+   * symptom is that translation suddenly takes ten seconds.
+   */
+  showNotice(message: string): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    this.win.webContents.send("translator-notice", { message });
+  }
+
   /** Sends translation result for image mode. */
   showImageResult(translation: string, targetLang = "uk"): void {
     if (!this.win || this.win.isDestroyed()) return;

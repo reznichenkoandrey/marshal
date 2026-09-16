@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { TranslatorAuthError, isAuthStatus } from "./errors.ts";
 import type {
   TargetLang,
   TranslateOptions,
@@ -43,7 +44,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
 
   async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
     const prompt = buildTranslateJsonPrompt(text, targetLang, options);
-    const response = await this.client.messages.create({
+    const response = await this.send({
       model: this.model,
       max_tokens: MAX_TOKENS,
       messages: [{ role: "user", content: prompt }]
@@ -64,7 +65,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
     options?: TranslateOptions
   ): Promise<TranslationResult> {
     const mediaType = this.normalizeMediaType(mimeType);
-    const response = await this.client.messages.create({
+    const response = await this.send({
       model: this.model,
       max_tokens: MAX_TOKENS,
       messages: [
@@ -86,6 +87,24 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
       sourceLang: ocrSourceLang(options),
       targetLang
     };
+  }
+
+  /**
+   * Single exit to the SDK, so a rejected credential comes back as a
+   * TranslatorAuthError from every call path. Detection is by status rather
+   * than `instanceof` — the service must not have to import the SDK, and the
+   * class names have moved between SDK majors before. See #160.
+   */
+  private async send(body: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
+    try {
+      return await this.client.messages.create(body);
+    } catch (err) {
+      if (err && typeof err === "object" && isAuthStatus((err as { status?: unknown }).status)) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new TranslatorAuthError(this.id, (err as { status: number }).status, detail.slice(0, 200));
+      }
+      throw err;
+    }
   }
 
   private extractText(response: Anthropic.Message): string {

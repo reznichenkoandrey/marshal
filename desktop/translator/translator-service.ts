@@ -5,6 +5,9 @@
 // pinned to an explicit backend. Also owns the active language pair, which the
 // hotkey path needs in order to choose a direction on its own.
 
+import { EventEmitter } from "node:events";
+
+import { isTranslatorAuthError } from "./backends/errors.ts";
 import { createTranslatorBackend, resolveTranslatorBackendId, translatorBackendForBridge } from "./backends/factory.ts";
 import { detectScriptLang } from "./languages.ts";
 import type {
@@ -31,6 +34,13 @@ export type {
 
 export type TranslatorBackendChoice = TranslatorBackendId | "auto";
 
+/** Emitted as `"fallback"` when a rejected credential forces a backend swap. */
+export interface TranslatorFallbackNotice {
+  from: TranslatorBackendId;
+  to: TranslatorBackendId;
+  status: number;
+}
+
 const DEFAULT_BRIDGE: TranslatorBridgeMode = "claude-cli";
 const DEFAULT_SOURCE: SourceLang = "auto";
 const DEFAULT_TARGET: TargetLang = "uk";
@@ -45,8 +55,15 @@ export interface TranslatorServiceInit {
   formality?: Formality;
 }
 
-export class TranslatorService {
+export class TranslatorService extends EventEmitter {
   private backend: TranslatorBackend;
+  /**
+   * A backend whose credential was rejected this session. `auto` stops
+   * choosing it, so we don't pay a doomed round trip per keystroke. Cleared
+   * whenever the user changes provider settings, since that is the moment a
+   * fixed key would show up.
+   */
+  private rejectedBackend: TranslatorBackendId | null = null;
   private choice: TranslatorBackendChoice;
   private bridgeMode: TranslatorBridgeMode;
   private sourceLang: SourceLang;
@@ -54,6 +71,7 @@ export class TranslatorService {
   private formality: Formality;
 
   constructor(init: TranslatorServiceInit = {}) {
+    super();
     this.bridgeMode = init.bridgeMode ?? DEFAULT_BRIDGE;
     this.choice = init.choice ?? "auto";
     this.sourceLang = init.sourceLang ?? DEFAULT_SOURCE;
@@ -75,6 +93,7 @@ export class TranslatorService {
   /** Swap the backend choice at runtime (e.g. after Settings change). */
   setBackend(choice: TranslatorBackendChoice): void {
     this.choice = choice;
+    this.rejectedBackend = null;
     this.rebuildBackend();
   }
 
@@ -82,6 +101,7 @@ export class TranslatorService {
   setBridgeMode(mode: TranslatorBridgeMode): void {
     if (this.bridgeMode === mode) return;
     this.bridgeMode = mode;
+    this.rejectedBackend = null;
     if (this.choice === "auto") {
       this.rebuildBackend();
     }
@@ -95,7 +115,8 @@ export class TranslatorService {
   }
 
   translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
-    return this.backend.translateText(text, targetLang, this.withDefaults(options));
+    const filled = this.withDefaults(options);
+    return this.run((backend) => backend.translateText(text, targetLang, filled));
   }
 
   translateImage(
@@ -104,7 +125,8 @@ export class TranslatorService {
     targetLang: TargetLang,
     options?: TranslateOptions
   ): Promise<TranslationResult> {
-    return this.backend.translateImage(base64, mimeType, targetLang, this.withDefaults(options));
+    const filled = this.withDefaults(options);
+    return this.run((backend) => backend.translateImage(base64, mimeType, targetLang, filled));
   }
 
   /**
@@ -115,10 +137,44 @@ export class TranslatorService {
    * call later fails.
    */
   translateAuto(text: string): Promise<TranslationResult> {
-    return this.backend.translateText(text, this.autoTarget(text), {
-      sourceLang: "auto",
-      formality: this.formality
-    });
+    const targetLang = this.autoTarget(text);
+    return this.run((backend) =>
+      backend.translateText(text, targetLang, { sourceLang: "auto", formality: this.formality })
+    );
+  }
+
+  /**
+   * Runs a translation, and survives a rejected credential.
+   *
+   * When `auto` picked the backend, the user never chose that provider — so a
+   * 401 is our problem to solve, not theirs: swap to whatever the reasoning
+   * provider maps to (a CLI, which needs no key) and run the same call again.
+   * The swap is announced through `"fallback"` exactly once, because the
+   * alternative is a translator that silently got ten times slower.
+   *
+   * An explicitly pinned backend is left to fail loudly — the user asked for
+   * that provider, and hiding its auth error would hide the thing they need
+   * to fix. See #160.
+   */
+  private async run<T>(call: (backend: TranslatorBackend) => Promise<T>): Promise<T> {
+    try {
+      return await call(this.backend);
+    } catch (err) {
+      if (this.choice !== "auto" || !isTranslatorAuthError(err)) throw err;
+
+      const from = this.backend.id;
+      this.rejectedBackend = from;
+      this.rebuildBackend();
+      if (this.backend.id === from) {
+        // Nothing to fall back to — surface the original error.
+        this.rejectedBackend = null;
+        throw err;
+      }
+
+      const status = (err as { status?: number }).status ?? 401;
+      this.emit("fallback", { from, to: this.backend.id, status } satisfies TranslatorFallbackNotice);
+      return call(this.backend);
+    }
   }
 
   /** Target language `translateAuto` would pick for this text. */
@@ -140,17 +196,21 @@ export class TranslatorService {
   }
 
   private resolveBackendId(): TranslatorBackendId {
-    if (this.choice === "auto") {
-      // Read the env on every resolve rather than caching it in the
-      // constructor: the packaged app loads a second .env from its userData
-      // directory, and Settings changes re-run applySettingsToEnv, so the key
-      // can appear after this service was built.
-      return translatorBackendForBridge(this.bridgeMode, {
-        apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
-        platform: process.platform
-      });
-    }
-    return this.choice;
+    if (this.choice !== "auto") return this.choice;
+
+    // Read the env on every resolve rather than caching it in the
+    // constructor: the packaged app loads a second .env from its userData
+    // directory, and Settings changes re-run applySettingsToEnv, so the key
+    // can appear after this service was built.
+    const preferred = translatorBackendForBridge(this.bridgeMode, {
+      apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
+      platform: process.platform
+    });
+    if (preferred !== this.rejectedBackend) return preferred;
+
+    // The fast backend's credential was already refused. Resolve as if no key
+    // existed, which is the keyless mapping of the reasoning provider.
+    return translatorBackendForBridge(this.bridgeMode);
   }
 
   private rebuildBackend(): void {

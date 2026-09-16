@@ -46,7 +46,11 @@ import { insertTranslation } from "./translator/insert-service.ts";
 import { LANGUAGES, resolveLangCode, resolveSourceLang } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
 import { LayoutSwitcher } from "./translator/layout-switcher.ts";
-import { TranslatorService, type Formality } from "./translator/translator-service.ts";
+import {
+  TranslatorService,
+  type Formality,
+  type TranslatorFallbackNotice
+} from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
 import { shutdownUiohookForQuit } from "./uiohook-lifecycle.ts";
@@ -1615,6 +1619,25 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
  * progress/cancel row, because a 1.5 GB fetch is the one operation here the
  * user may well want to stop.
  */
+/** Human-readable backend names for user-facing notices. */
+function backendLabel(id: string): string {
+  switch (id) {
+    case "claude-cli":
+      return "Claude CLI";
+    case "codex-cli":
+      return "Codex CLI";
+    case "claude-api":
+      return "Anthropic API";
+    case "openai-api":
+    case "groq":
+      return "the OpenAI-compatible API";
+    case "apple-vision":
+      return "Apple Vision + API";
+    default:
+      return id;
+  }
+}
+
 function buildModelMenuItem(): Electron.MenuItemConstructorOptions {
   if (modelDownload) {
     return {
@@ -1858,6 +1881,20 @@ function initTranslator(): void {
   translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
+
+  // A rejected API key makes `auto` swap to a keyless backend mid-session.
+  // Say so once: the user's own symptom is otherwise just "why is this slow
+  // now" (#160).
+  translatorService.on("fallback", (notice: TranslatorFallbackNotice) => {
+    console.warn(
+      `[marshal] translator: ${notice.from} rejected the credential (HTTP ${notice.status}); using ${notice.to}`
+    );
+    translatorWindow?.showNotice(
+      `${backendLabel(notice.from)} rejected the API key (HTTP ${notice.status}). ` +
+      `Translating through ${backendLabel(notice.to)} instead, which is slower. ` +
+      "Fix MARSHAL_API_KEY and restart Marshal, or pin a backend in Settings."
+    );
+  });
 
   clipboardMonitor = new ClipboardMonitor();
   clipboardMonitor.on("translate", (text: string) => {

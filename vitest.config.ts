@@ -20,6 +20,7 @@ export default defineConfig({
         "desktop/settings-store.ts",
         "desktop/translator/translator-service.ts",
         "desktop/translator/languages.ts",
+        "desktop/translator/backends/errors.ts",
         "desktop/translator/insert-service.ts",
         "desktop/translator/backends/shared.ts",
         "desktop/translator/translator-backend-factory.ts",

@@ -65,6 +65,8 @@ const translatorApi = {
     registerListener<[Record<string, unknown>]>("translator-result", cb),
   onError: (cb: (event: IpcRendererEvent, data: { message: string }) => void) =>
     registerListener<[{ message: string }]>("translator-error", cb),
+  onNotice: (cb: (event: IpcRendererEvent, data: { message: string }) => void) =>
+    registerListener<[{ message: string }]>("translator-notice", cb),
   // Crop overlay. Each overlay gets a unique pair of channels (see
   // desktop/translator/screenshot-service.ts) — renderer receives them via
   // `onCropInit` and echoes them back in `selectCrop` / `cancelCrop`.
