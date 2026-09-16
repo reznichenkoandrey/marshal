@@ -141,7 +141,14 @@ export class TranslatorService {
 
   private resolveBackendId(): TranslatorBackendId {
     if (this.choice === "auto") {
-      return translatorBackendForBridge(this.bridgeMode);
+      // Read the env on every resolve rather than caching it in the
+      // constructor: the packaged app loads a second .env from its userData
+      // directory, and Settings changes re-run applySettingsToEnv, so the key
+      // can appear after this service was built.
+      return translatorBackendForBridge(this.bridgeMode, {
+        apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
+        platform: process.platform
+      });
     }
     return this.choice;
   }

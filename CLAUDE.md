@@ -44,7 +44,11 @@
      - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).
      - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo` + stable identity `099164E16AE88B2052B842BE1036FB10411B7239`.
   3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
-- Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
+- Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`).
+  **Для встановленого застосунку — `npm run setup:env`**: packaged білд шукає `.env` у
+  `~/Library/Application Support/Marshal/.env`, бо той, що в репо, лежить усередині `.app`.
+  Без ключа `auto` падає на CLI-backend і переклад займає ~10 с замість «менше секунди»,
+  через що переклад під час набору перетворюється в лаг (#155).
 - **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
   руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
   блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,

@@ -152,8 +152,11 @@
                 <option value="openai-api">OpenAI-compatible API (Groq / Gemini / OpenRouter / OpenAI)</option>
               </select>
               <p class="field-hint">
-                Translator uses the same billing as your main reasoning provider by default. Pin an explicit backend
-                if you want the translator on a different account than the chat.
+                On <strong>Follow main provider</strong> the translator uses the same billing as your main reasoning
+                provider — except that a CLI provider takes about ten seconds per translation, which breaks
+                translate-as-you-type. So when <code>MARSHAL_API_KEY</code> is set, the translator takes the fast API
+                instead (local OCR on macOS) and the chat keeps its own provider. Pin an explicit backend to override
+                that, or to put the translator on a different account than the chat.
               </p>
             </div>
           </fieldset>

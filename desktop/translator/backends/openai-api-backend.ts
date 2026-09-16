@@ -45,10 +45,11 @@ type ChatOptions = {
  * OpenAI itself, Together.ai, Fireworks, etc.
  *
  * Env vars:
- *   MARSHAL_API_KEY         — required
- *   MARSHAL_API_BASE        — optional (default Groq)
- *   MARSHAL_MODEL           — optional text model override
- *   MARSHAL_VISION_MODEL    — optional vision model override
+ *   MARSHAL_API_KEY           — required
+ *   MARSHAL_API_BASE          — optional (default Groq)
+ *   MARSHAL_TRANSLATOR_MODEL  — optional text model, translator only
+ *   MARSHAL_MODEL             — optional text model, shared with the agent
+ *   MARSHAL_VISION_MODEL      — optional vision model override
  */
 export class OpenAiApiTranslatorBackend implements TranslatorBackend {
   readonly id: TranslatorBackendId;
@@ -65,7 +66,11 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
     this.id = id;
     this.apiKey = process.env.MARSHAL_API_KEY ?? "";
     this.baseUrl = (process.env.MARSHAL_API_BASE ?? DEFAULT_BASE_URL).replace(/\/+$/u, "");
-    this.textModel = process.env.MARSHAL_MODEL ?? DEFAULT_TEXT_MODEL;
+    // MARSHAL_MODEL is shared with the agent bridges, where users point at
+    // big reasoning models. Translation wants a fast one, so it gets its own
+    // override and only falls back to the shared value. See #155.
+    this.textModel =
+      process.env.MARSHAL_TRANSLATOR_MODEL ?? process.env.MARSHAL_MODEL ?? DEFAULT_TEXT_MODEL;
     this.visionModel = process.env.MARSHAL_VISION_MODEL ?? DEFAULT_VISION_MODEL;
     this.temperature = parseFloatEnv("MARSHAL_TRANSLATOR_TEMPERATURE", DEFAULT_TEMPERATURE);
     this.maxTokens = parseIntEnv("MARSHAL_TRANSLATOR_MAX_TOKENS", DEFAULT_MAX_TOKENS);

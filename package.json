@@ -1,6 +1,6 @@
 {
   "name": "local-chatgpt-agent",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -29,6 +29,7 @@
     "setup:dictation": "bash scripts/install-whisper-cpp.sh",
     "setup:codesign-cert": "bash scripts/setup-codesign-cert.sh",
     "install:local": "bash scripts/install-local.sh",
+    "setup:env": "bash scripts/setup-env.sh",
     "test:e2e:capture": "npm run build && electron tests/e2e/capture-editor.mjs"
   },
   "build": {

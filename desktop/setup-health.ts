@@ -21,6 +21,12 @@ export type SetupHealthInput = {
   screenStatus?: MediaPermissionStatus;
   accessibilityTrusted?: boolean;
   apiKeyPresent: boolean;
+  /**
+   * Where a packaged build looks for its own `.env`. Naming the path matters:
+   * the project-root `.env` is inside the .app and unreachable once
+   * installed, so "put it in .env" is not actionable advice there (#155).
+   */
+  envFilePath?: string;
   whisperBinPath: string;
   whisperModelPath: string;
   codesignIdentityPresent?: boolean;
@@ -93,7 +99,7 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
       label: "Cloud API key",
       status: cloudStatus(input.dictationBackend, input.apiKeyPresent),
       detail: cloudDetail(input.dictationBackend, input.apiKeyPresent),
-      action: input.apiKeyPresent ? undefined : "Set MARSHAL_API_KEY in .env"
+      action: apiKeyAction(input.apiKeyPresent, input.envFilePath)
     }
     : disabledDictationItem("cloud-api", "Cloud API key"));
 
@@ -233,6 +239,13 @@ function whisperDetail(backend: DictationBackend, binExists: boolean, modelExist
     return `Local fallback is missing ${missing}; Groq-only dictation can still run while online.`;
   }
   return `Local transcription is missing ${missing}.`;
+}
+
+function apiKeyAction(apiKeyPresent: boolean, envFilePath: string | undefined): string | undefined {
+  if (apiKeyPresent) return undefined;
+  return envFilePath
+    ? `Set MARSHAL_API_KEY in ${envFilePath} (npm run setup:env copies it there)`
+    : "Set MARSHAL_API_KEY in .env";
 }
 
 function cloudStatus(backend: DictationBackend, apiKeyPresent: boolean): SetupHealthStatus {
