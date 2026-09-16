@@ -31,15 +31,31 @@ window.addEventListener("beforeunload", () => {
 });
 
 // ── Translator API ──
+type TranslateRequestOptions = {
+  sourceLang?: string;
+  targetLang?: string;
+  formality?: string;
+};
+
 const translatorApi = {
-  translateText: (text: string, targetLang: string) =>
-    ipcRenderer.invoke("marshal:translator-translate-text", { text, targetLang }),
-  translateImage: (base64: string, mimeType: string, targetLang: string) =>
-    ipcRenderer.invoke("marshal:translator-translate-image", { base64, mimeType, targetLang }),
+  translateText: (text: string, options: TranslateRequestOptions = {}) =>
+    ipcRenderer.invoke("marshal:translator-translate-text", { text, ...options }),
+  translateImage: (base64: string, mimeType: string, options: TranslateRequestOptions = {}) =>
+    ipcRenderer.invoke("marshal:translator-translate-image", { base64, mimeType, ...options }),
   captureScreen: () => ipcRenderer.invoke("marshal:translator-capture-screen"),
   close: () => ipcRenderer.invoke("marshal:translator-close"),
-  // History — list/clear for recalling past translations
+  // Language registry + the persisted pair, fetched once on load.
+  getLanguages: () => ipcRenderer.invoke("marshal:translator-languages"),
+  setPair: (options: TranslateRequestOptions) =>
+    ipcRenderer.invoke("marshal:translator-set-pair", options),
+  // Pinned windows survive blur so the user can type in another app.
+  setPinned: (pinned: boolean) => ipcRenderer.invoke("marshal:translator-pin", pinned),
+  // Paste the translation into the app behind the translator.
+  insertTranslation: (text: string) => ipcRenderer.invoke("marshal:translator-insert", text),
+  // History — list/push/clear for recalling past translations
   listHistory: () => ipcRenderer.invoke("marshal:translator-history-list"),
+  pushHistory: (item: Record<string, unknown>) =>
+    ipcRenderer.invoke("marshal:translator-history-push", item),
   clearHistory: () => ipcRenderer.invoke("marshal:translator-history-clear"),
   // Events from main → renderer. Each `on*` returns a disposer so callers can
   // detach the listener; all listeners are also flushed on `beforeunload`.

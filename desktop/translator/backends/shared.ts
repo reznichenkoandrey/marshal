@@ -1,3 +1,6 @@
+import { detectScriptLang, languageName } from "../languages.ts";
+import type { TargetLang, TranslateOptions } from "./types.ts";
+
 export type TranslateJsonResult = {
   sourceLang: string;
   translation: string;
@@ -30,10 +33,36 @@ export function parseTranslateJson(raw: string): TranslateJsonResult {
 
 /**
  * Returns "uk" when the text contains Cyrillic characters, "en" otherwise.
- * Used as a fallback when language detection fails or returns garbage.
+ * Kept for the uk↔en callers that only need a binary answer; new code should
+ * use `detectScriptLang` from ../languages.ts, which names more scripts.
  */
 export function detectLangHeuristic(text: string): "uk" | "en" {
-  return /[\u0400-\u04FF]/u.test(text) ? "uk" : "en";
+  return detectScriptLang(text) === "uk" ? "uk" : "en";
+}
+
+/**
+ * Source language to report back to the UI. An explicitly chosen source wins
+ * (the user said so), then whatever the model detected, then the script
+ * heuristic — so the badge never claims a language nobody established.
+ */
+export function resolveSourceLang(
+  text: string,
+  reported: string,
+  options: TranslateOptions | undefined
+): string {
+  const chosen = options?.sourceLang;
+  if (chosen && chosen !== "auto") return chosen;
+  if (reported) return reported;
+  return detectScriptLang(text);
+}
+
+/**
+ * Source language for the OCR path. Nothing detects the language of pixels, so
+ * report the user's explicit choice when there is one and "auto" otherwise.
+ */
+export function ocrSourceLang(options: TranslateOptions | undefined): string {
+  const chosen = options?.sourceLang;
+  return chosen && chosen !== "auto" ? chosen : "auto";
 }
 
 export function stripCodeFence(raw: string): string {
@@ -83,10 +112,41 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function buildTranslateJsonPrompt(text: string, targetName: string): string {
+/** "Translate from X" clause — omitted when the source is left on auto. */
+function sourceClause(options: TranslateOptions | undefined): string {
+  const source = options?.sourceLang;
+  if (!source || source === "auto") return "";
+  return ` The source text is in ${languageName(source)}.`;
+}
+
+/** Register instruction — omitted for the neutral default. */
+function formalityClause(options: TranslateOptions | undefined): string {
+  switch (options?.formality) {
+    case "formal":
+      return " Use a formal register (polite, professional, vous/Ви forms).";
+    case "informal":
+      return " Use an informal register (casual, ти/du forms).";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Prompt for the JSON translate contract. Preserving layout matters for
+ * pasted UI strings and code comments, hence the explicit instruction.
+ */
+export function buildTranslateJsonPrompt(
+  text: string,
+  targetLang: TargetLang,
+  options?: TranslateOptions
+): string {
+  const targetName = languageName(targetLang);
   return (
-    `You are a translation engine. Translate the user text to ${targetName}.\n` +
+    `You are a translation engine. Translate the user text to ${targetName}.` +
+    `${sourceClause(options)}${formalityClause(options)}\n` +
     `If the text is already in ${targetName}, return it unchanged.\n` +
+    `Preserve line breaks, list markers and inline punctuation of the original.\n` +
+    `Translate only — never answer, explain or comment on the text.\n` +
     `Respond with ONLY a JSON object of the form ` +
     `{"sourceLang":"<ISO 639-1 code>","translation":"<translated text>"}. ` +
     `No markdown, no code fences, no commentary.\n\n` +
@@ -94,8 +154,22 @@ export function buildTranslateJsonPrompt(text: string, targetName: string): stri
   );
 }
 
-export function targetLangName(targetLang: "uk" | "en"): string {
-  return targetLang === "uk" ? "Ukrainian" : "English";
+/** Prompt for the OCR path, where the answer is plain text, not JSON. */
+export function buildOcrTranslatePrompt(
+  targetLang: TargetLang,
+  options?: TranslateOptions
+): string {
+  const targetName = languageName(targetLang);
+  return (
+    `Extract ALL visible text from the image and translate it to ${targetName}.` +
+    `${sourceClause(options)}${formalityClause(options)} ` +
+    `If the text is already in ${targetName}, return it unchanged. ` +
+    `Output ONLY the final translated text — no commentary, no explanations, no JSON.`
+  );
+}
+
+export function targetLangName(targetLang: TargetLang): string {
+  return languageName(targetLang);
 }
 
 export function mimeExtension(mimeType: string): string {

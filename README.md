@@ -19,10 +19,21 @@ All three surface into one Electron tray app; dictation and translator work full
 - Works with AirPods, built-in mic, USB mics — AVAudioRecorder handles the resample.
 
 ### Floating translator
-- Double ⌘C on any text → auto-detected translation (uk ↔ en) in a cursor-anchored window.
+- Two panes side by side — source on the left, translation on the right — and it translates
+  **while you type** (650 ms after the last keystroke; ⌘↵ fires it immediately).
+- 42 languages with auto-detect and swap (`⌘⇧S`). The pair is remembered and also decides
+  which way the hotkeys translate.
+- Register switch: Neutral / Formal / Informal.
+- **Insert** (`⌘⇧V`) pastes the translation into the app you came from; **Copy** puts it on
+  the clipboard. Insert restores your previous clipboard afterwards.
+- Pin (`⌘P`) keeps the window open when it loses focus, so you can type in another app and
+  translate here side by side. The window is resizable and remembers its size and place.
+- Double ⌘C on any text → translation in a cursor-anchored window. Direction comes from the
+  configured pair; text already in the target language is translated back the other way.
 - ⌘⌥T hotkey anywhere opens the translator with your current clipboard.
-- ⌘⇧2 captures a screen region, OCRs + translates it (Groq vision model).
-- History of the last 20 translations, ↑/↓ recall when the input is empty.
+- ⌘⇧2 captures a screen region, OCRs + translates it (Apple Vision locally, or a vision model).
+- History of the last 20 translations, ↑/↓ recall when the input is empty. An entry is stored
+  once the source text settles, so typing a sentence doesn't fill history with fragments.
 
 ### Task-running agent
 - Sessions with shell + filesystem + Playwright browser tools (strictly sandboxed).
@@ -187,7 +198,9 @@ desktop/        Electron app
   preload.cts
   backend.ts    utility-process host for the agent
   renderer/     index.html, app.js, translator.html, translator.js, crop-overlay.html
-  translator/   service, window, screenshot, clipboard monitor, pasteboard-watcher.swift
+  translator/   service, languages, window, insert, screenshot, clipboard monitor,
+                backends/ (claude-cli, codex-cli, claude-api, openai-api, apple-vision),
+                pasteboard-watcher.swift, send-keystroke.swift
   dictation/    service, hotkey-manager, whisper-backend, audio-recorder.swift
   settings-store.ts
 chrome-extension/
@@ -228,6 +241,9 @@ Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
 | "MARSHAL_API_KEY is not set" | fill it in `.env` |
 | 429 / rate-limit | built-in retry with exponential backoff; try again or lower `MARSHAL_TRANSLATOR_MAX_TOKENS` |
 | OCR result is garbage | rate-limited or vision model picked wrong text; retry with a tighter crop |
+| **Insert** says it could not paste | the translation stays on the clipboard — grant Accessibility to Electron (System Settings → Privacy & Security → Accessibility) and retry |
+| Window keeps hiding while you type elsewhere | it is unpinned — click the pin in the header or press `⌘P` |
+| Swap button is greyed out | the source is on *Detect language* and nothing has been detected yet — translate once, or pick a source language explicitly |
 
 ---
 

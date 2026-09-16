@@ -8,21 +8,17 @@
     <link rel="stylesheet" href="./translator.css" />
   </head>
   <body>
-    <!-- Header -->
+    <!-- Header: window chrome + global actions -->
     <div class="header">
       <span class="header-title">
         <span data-icon="languages" data-icon-size="14"></span>
         Translator
       </span>
 
-      <div class="header-center">
-        <div class="lang-toggle" role="tablist" aria-label="Target language">
-          <button class="lang-btn active" data-lang="uk" role="tab">UK</button>
-          <button class="lang-btn" data-lang="en" role="tab">EN</button>
-        </div>
-      </div>
-
       <div class="header-right">
+        <button class="icon-btn" id="btn-pin" title="Keep window open (⌘P)" aria-pressed="false">
+          <span data-icon="pin" data-icon-size="14"></span>
+        </button>
         <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">
           <span data-icon="rotate-ccw" data-icon-size="14"></span>
         </button>
@@ -39,68 +35,102 @@
       </div>
     </div>
 
+    <!-- Language bar: source ⇄ target, aligned with the panes below -->
+    <div class="lang-bar">
+      <button class="lang-select" id="src-lang" aria-haspopup="listbox" aria-expanded="false">
+        <span class="lang-select-value" id="src-lang-label">Detect language</span>
+        <span class="lang-select-detected" id="src-lang-detected"></span>
+        <span data-icon="chevron-down" data-icon-size="12"></span>
+      </button>
+
+      <button class="swap-btn" id="btn-swap" title="Swap languages (⌘⇧S)">
+        <span data-icon="arrow-left-right" data-icon-size="14"></span>
+      </button>
+
+      <button class="lang-select" id="tgt-lang" aria-haspopup="listbox" aria-expanded="false">
+        <span class="lang-select-value" id="tgt-lang-label">Ukrainian</span>
+        <span data-icon="chevron-down" data-icon-size="12"></span>
+      </button>
+
+      <button class="formality-btn" id="btn-formality" title="Register of the translation">
+        <span id="formality-label">Neutral</span>
+      </button>
+    </div>
+
+    <!-- Two panes: source on the left, translation on the right -->
+    <div class="panes">
+      <section class="pane pane-source">
+        <textarea
+          id="input-text"
+          class="input-textarea"
+          placeholder="Type or paste text…"
+          spellcheck="false"
+        ></textarea>
+        <div class="pane-footer">
+          <span class="char-count" id="char-count"></span>
+          <div class="pane-actions">
+            <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard">
+              <span data-icon="clipboard" data-icon-size="12"></span>
+              Paste
+            </button>
+            <button class="toolbar-btn" id="btn-clear" title="Clear">
+              <span data-icon="eraser" data-icon-size="12"></span>
+              Clear
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane pane-target">
+        <div class="result-body">
+          <div class="result-text" id="result-text"></div>
+
+          <div class="state-overlay" id="state-loading" style="display:none">
+            <div class="spinner"></div>
+            <span>Translating…</span>
+          </div>
+
+          <div class="state-overlay" id="state-empty">
+            <span>Start typing to translate</span>
+            <span class="state-hint">
+              <kbd>⌘C</kbd> <kbd>⌘C</kbd> double-copy · <kbd>⌘⌥T</kbd> copied text · <kbd>⌘⇧2</kbd> capture
+            </span>
+          </div>
+
+          <div class="error-msg" id="error-msg"></div>
+        </div>
+        <div class="pane-footer">
+          <span class="lang-badge" id="lang-badge"></span>
+          <div class="pane-actions">
+            <button class="toolbar-btn" id="btn-insert" title="Paste into the app you came from (⌘⇧V)" disabled>
+              <span data-icon="corner-down-left" data-icon-size="12"></span>
+              Insert
+            </button>
+            <button class="copy-btn" id="copy-btn" disabled>
+              <span data-icon="copy" data-icon-size="12"></span>
+              Copy
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Language picker, anchored to whichever selector opened it -->
+    <div class="lang-popover" id="lang-popover" role="listbox" hidden>
+      <div class="lang-search">
+        <span data-icon="search" data-icon-size="12"></span>
+        <input type="text" id="lang-filter" placeholder="Search language" spellcheck="false" />
+      </div>
+      <div class="lang-options" id="lang-options"></div>
+    </div>
+
     <!-- History dropdown -->
-    <div id="history-panel" class="history-panel" style="display:none">
+    <div id="history-panel" class="history-panel" hidden>
       <div class="history-header">
         <span class="history-title">Recent translations</span>
         <button class="history-clear" id="history-clear" title="Clear all history">Clear</button>
       </div>
       <div id="history-list" class="history-list"></div>
-    </div>
-
-    <!-- Input area -->
-    <div class="input-section">
-      <textarea
-        id="input-text"
-        class="input-textarea"
-        placeholder="Type or paste text…  ⌘↵ to translate"
-        spellcheck="false"
-      ></textarea>
-      <div class="input-toolbar">
-        <div class="toolbar-left">
-          <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard">
-            <span data-icon="clipboard" data-icon-size="12"></span>
-            Paste
-          </button>
-          <button class="toolbar-btn" id="btn-clear" title="Clear">
-            <span data-icon="eraser" data-icon-size="12"></span>
-            Clear
-          </button>
-        </div>
-        <button class="translate-btn" id="btn-translate" disabled>
-          <span data-icon="arrow-down" data-icon-size="12"></span>
-          Translate
-        </button>
-      </div>
-    </div>
-
-    <!-- Result area -->
-    <div class="result-section">
-      <div class="result-label" id="result-label">Translation</div>
-      <div class="result-text" id="result-text"></div>
-
-      <div class="state-overlay" id="state-loading" style="display:none">
-        <div class="spinner"></div>
-        <span>Translating…</span>
-      </div>
-
-      <div class="state-overlay" id="state-empty" style="display:flex">
-        <span>Enter text or capture a screen region</span>
-        <span class="state-hint">
-          <kbd>⌘C</kbd> <kbd>⌘C</kbd> double-copy · <kbd>⌘⌥T</kbd> copied text · <kbd>⌘⇧2</kbd> capture
-        </span>
-      </div>
-
-      <div class="error-msg" id="error-msg"></div>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-      <span class="lang-badge" id="lang-badge"></span>
-      <button class="copy-btn" id="copy-btn">
-        <span data-icon="copy" data-icon-size="12"></span>
-        Copy
-      </button>
     </div>
 
     <script src="./icons.js"></script>

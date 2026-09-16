@@ -19,6 +19,9 @@ export default defineConfig({
       include: [
         "desktop/settings-store.ts",
         "desktop/translator/translator-service.ts",
+        "desktop/translator/languages.ts",
+        "desktop/translator/insert-service.ts",
+        "desktop/translator/backends/shared.ts",
         "desktop/translator/translator-backend-factory.ts",
         "desktop/translator/clipboard-monitor.ts",
         "desktop/translator/history-store.ts",
