@@ -24,7 +24,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE="$ROOT_DIR/.env"
-DEFAULT_TARGET="$HOME/Library/Application Support/Marshal/.env"
+
+# Electron names `app.getPath("userData")` after the app's `productName`, or
+# its `name` when productName is absent — NOT after the bundle's CFBundleName.
+# Verified on the installed 0.2.2 build: CFBundleName is "Marshal" but the
+# directory is ".../local-chatgpt-agent". Derive it the same way instead of
+# hardcoding, so renaming the package cannot silently point this at a folder
+# the app never reads.
+APP_NAME="$(node -e 'const p=require("./package.json");process.stdout.write(p.productName||p.name)' 2>/dev/null || true)"
+if [[ -z "$APP_NAME" ]]; then
+  echo "[env] could not read the app name from package.json — run this from the project root" >&2
+  exit 1
+fi
+
+case "$(uname -s)" in
+  Darwin) DEFAULT_TARGET="$HOME/Library/Application Support/$APP_NAME/.env" ;;
+  *)      DEFAULT_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/$APP_NAME/.env" ;;
+esac
 TARGET="${MARSHAL_ENV_TARGET:-$DEFAULT_TARGET}"
 FORCE=0
 
@@ -39,6 +55,11 @@ if [[ ! -f "$SOURCE" ]]; then
   echo "[env] no .env at $SOURCE" >&2
   echo "[env] create it first:  cp .env.example .env" >&2
   exit 1
+fi
+
+if [[ ! -d "$(dirname "$TARGET")" ]]; then
+  echo "[env] note: $(dirname "$TARGET") does not exist yet — the app creates it on first run."
+  echo "[env] creating it now so the key is in place before you launch."
 fi
 
 if [[ -f "$TARGET" && $FORCE -eq 0 ]]; then

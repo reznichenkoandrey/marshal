@@ -107,11 +107,16 @@ right-click → **Open**.
 ### Giving the installed app your API key
 
 A packaged build resolves the project-root `.env` to a path *inside* `Marshal.app`, which does
-not exist — so the installed app reads a second `.env` from its own config directory:
+not exist — so the installed app reads a second `.env` from its own config directory. Electron
+names that directory after the package's `productName`, falling back to `name`, **not** after
+the bundle name — so on the current build it is:
 
 ```
-~/Library/Application Support/Marshal/.env
+~/Library/Application Support/local-chatgpt-agent/.env
 ```
+
+Don't hardcode that path: `npm run setup:env` derives it the same way Electron does, and
+Settings → Setup health prints whatever the running app actually resolved.
 
 ```bash
 npm run setup:env            # copy the project .env there
