@@ -7,7 +7,7 @@
 
 import { EventEmitter } from "node:events";
 
-import { isTranslatorAuthError } from "./backends/errors.ts";
+import { isBackendUnusableError, type BackendUnusableReason } from "./backends/errors.ts";
 import { createTranslatorBackend, resolveTranslatorBackendId, translatorBackendForBridge } from "./backends/factory.ts";
 import { detectScriptLang } from "./languages.ts";
 import type {
@@ -34,11 +34,15 @@ export type {
 
 export type TranslatorBackendChoice = TranslatorBackendId | "auto";
 
-/** Emitted as `"fallback"` when a rejected credential forces a backend swap. */
+/** Emitted as `"fallback"` when a backend cannot serve requests. */
 export interface TranslatorFallbackNotice {
   from: TranslatorBackendId;
   to: TranslatorBackendId;
   status: number;
+  /** Why it was unusable — the notice says different things for each. */
+  reason: BackendUnusableReason;
+  /** The model that was missing, when `reason` is "model". */
+  model?: string;
 }
 
 const DEFAULT_BRIDGE: TranslatorBridgeMode = "claude-cli";
@@ -160,7 +164,7 @@ export class TranslatorService extends EventEmitter {
     try {
       return await call(this.backend);
     } catch (err) {
-      if (this.choice !== "auto" || !isTranslatorAuthError(err)) throw err;
+      if (this.choice !== "auto" || !isBackendUnusableError(err)) throw err;
 
       const from = this.backend.id;
       this.rejectedBackend = from;
@@ -171,8 +175,15 @@ export class TranslatorService extends EventEmitter {
         throw err;
       }
 
-      const status = (err as { status?: number }).status ?? 401;
-      this.emit("fallback", { from, to: this.backend.id, status } satisfies TranslatorFallbackNotice);
+      const failure = err as { status?: number; reason?: BackendUnusableReason; model?: string };
+      const notice: TranslatorFallbackNotice = {
+        from,
+        to: this.backend.id,
+        status: failure.status ?? 401,
+        reason: failure.reason ?? "auth"
+      };
+      if (failure.model !== undefined) notice.model = failure.model;
+      this.emit("fallback", notice);
       return call(this.backend);
     }
   }

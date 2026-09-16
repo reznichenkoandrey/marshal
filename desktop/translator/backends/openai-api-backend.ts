@@ -1,4 +1,4 @@
-import { TranslatorAuthError, isAuthStatus } from "./errors.ts";
+import { TranslatorBackendUnusableError, isAuthStatus, isModelNotFound } from "./errors.ts";
 import type {
   TargetLang,
   TranslateOptions,
@@ -19,7 +19,13 @@ import {
 } from "./shared.ts";
 
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_TEXT_MODEL = "llama-3.3-70b-versatile";
+// Verified against a live account's GET /models on 2026-09-16: the previous
+// default (llama-3.3-70b-versatile) had been decommissioned and every
+// translation 404'd. Of what is actually served, this one was both the
+// fastest (266-311 ms vs 556-1631 ms for gpt-oss) and kept identifiers and
+// line breaks intact on technical text. Model line-ups change, which is why
+// a 404 now falls back instead of surfacing — see #162.
+const DEFAULT_TEXT_MODEL = "qwen/qwen3.8-27b";
 const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const DEFAULT_TEMPERATURE = 0.1;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -165,11 +171,21 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
       const status = response.status;
       const errorText = await response.text().catch(() => "Unknown error");
 
-      // A rejected key is terminal for this provider. Throw it typed and
-      // immediately so the service can fall back instead of burning the
-      // retry budget on a credential that will keep being refused (#160).
+      // A rejected key or a missing model is terminal for this provider.
+      // Throw typed and immediately so the service can fall back instead of
+      // burning the retry budget on something that will keep failing
+      // (#160, #162).
       if (isAuthStatus(status)) {
-        throw new TranslatorAuthError(this.id, status, errorText.slice(0, 200));
+        throw new TranslatorBackendUnusableError(this.id, status, "auth", errorText.slice(0, 200));
+      }
+      if (isModelNotFound(status, errorText)) {
+        throw new TranslatorBackendUnusableError(
+          this.id,
+          status,
+          "model",
+          errorText.slice(0, 200),
+          model
+        );
       }
 
       lastError = new Error(`OpenAI-compatible API error ${status}: ${errorText}`);

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { TranslatorAuthError, isAuthStatus } from "./errors.ts";
+import { TranslatorBackendUnusableError, isAuthStatus } from "./errors.ts";
 import type {
   TargetLang,
   TranslateOptions,
@@ -101,7 +101,12 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
     } catch (err) {
       if (err && typeof err === "object" && isAuthStatus((err as { status?: unknown }).status)) {
         const detail = err instanceof Error ? err.message : String(err);
-        throw new TranslatorAuthError(this.id, (err as { status: number }).status, detail.slice(0, 200));
+        throw new TranslatorBackendUnusableError(
+          this.id,
+          (err as { status: number }).status,
+          "auth",
+          detail.slice(0, 200)
+        );
       }
       throw err;
     }
