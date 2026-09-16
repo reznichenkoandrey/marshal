@@ -19,9 +19,10 @@ import { fileURLToPath } from "node:url";
 
 import { asarUnpacked } from "../../utils/asar-paths.ts";
 import { OpenAiApiTranslatorBackend } from "./openai-api-backend.ts";
-import { detectLangHeuristic, mimeExtension } from "./shared.ts";
+import { mimeExtension, ocrSourceLang, resolveSourceLang } from "./shared.ts";
 import type {
   TargetLang,
+  TranslateOptions,
   TranslationResult,
   TranslatorBackend,
   TranslatorBackendId
@@ -46,14 +47,15 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
     this.textBackend = new OpenAiApiTranslatorBackend("openai-api");
   }
 
-  translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-    return this.textBackend.translateText(text, targetLang);
+  translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
+    return this.textBackend.translateText(text, targetLang, options);
   }
 
   async translateImage(
     base64: string,
     mimeType: string,
-    targetLang: TargetLang
+    targetLang: TargetLang,
+    options?: TranslateOptions
   ): Promise<TranslationResult> {
     const extension = mimeExtension(mimeType);
     const dir = tmpdir();
@@ -63,12 +65,12 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
     try {
       const recognized = (await this.runOcr(file)).trim();
       if (!recognized) {
-        return { translation: "", sourceLang: "auto", targetLang };
+        return { translation: "", sourceLang: ocrSourceLang(options), targetLang };
       }
-      const result = await this.textBackend.translateText(recognized, targetLang);
+      const result = await this.textBackend.translateText(recognized, targetLang, options);
       return {
         translation: result.translation,
-        sourceLang: result.sourceLang || detectLangHeuristic(recognized),
+        sourceLang: resolveSourceLang(recognized, result.sourceLang, options),
         targetLang
       };
     } finally {

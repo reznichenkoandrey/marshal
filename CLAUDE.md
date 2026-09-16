@@ -52,7 +52,9 @@
 ## Архітектура на високому рівні
 - `desktop/main.ts` — Electron main process, IPC hub, global shortcuts
 - `desktop/backend-client.ts` — UtilityProcess клієнт до agent backend
-- `desktop/translator/` — floating translator (Groq API + Swift pasteboard watcher)
+- `desktop/translator/` — floating translator: two-pane window, 42-language registry
+  (`languages.ts` — single source of truth, renderer gets it over IPC), translate-as-you-type,
+  insert-into-app (`insert-service.ts`), 5 backends under `backends/`, Swift pasteboard watcher
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)

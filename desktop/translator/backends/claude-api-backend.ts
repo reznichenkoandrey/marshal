@@ -1,11 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import type { TargetLang, TranslationResult, TranslatorBackend, TranslatorBackendId } from "./types.ts";
+import type {
+  TargetLang,
+  TranslateOptions,
+  TranslationResult,
+  TranslatorBackend,
+  TranslatorBackendId
+} from "./types.ts";
 import {
+  buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
-  detectLangHeuristic,
+  ocrSourceLang,
   parseTranslateJson,
-  targetLangName
+  resolveSourceLang
 } from "./shared.ts";
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
@@ -34,8 +41,8 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
     this.model = process.env.MARSHAL_CLAUDE_MODEL ?? process.env.MARSHAL_MODEL ?? DEFAULT_MODEL;
   }
 
-  async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const prompt = buildTranslateJsonPrompt(text, targetLangName(targetLang));
+  async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
+    const prompt = buildTranslateJsonPrompt(text, targetLang, options);
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: MAX_TOKENS,
@@ -45,13 +52,17 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
     const parsed = parseTranslateJson(raw);
     return {
       translation: parsed.translation,
-      sourceLang: parsed.sourceLang || detectLangHeuristic(text),
+      sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
   }
 
-  async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const targetName = targetLangName(targetLang);
+  async translateImage(
+    base64: string,
+    mimeType: string,
+    targetLang: TargetLang,
+    options?: TranslateOptions
+  ): Promise<TranslationResult> {
     const mediaType = this.normalizeMediaType(mimeType);
     const response = await this.client.messages.create({
       model: this.model,
@@ -64,13 +75,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
               type: "image",
               source: { type: "base64", media_type: mediaType, data: base64 }
             },
-            {
-              type: "text",
-              text:
-                `Extract ALL visible text from this image and translate it to ${targetName}. ` +
-                `If it is already in ${targetName}, return it unchanged. ` +
-                `Output ONLY the final translated text — no commentary, no explanations, no JSON.`
-            }
+            { type: "text", text: buildOcrTranslatePrompt(targetLang, options) }
           ]
         }
       ]
@@ -78,7 +83,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
 
     return {
       translation: this.extractText(response).trim(),
-      sourceLang: "auto",
+      sourceLang: ocrSourceLang(options),
       targetLang
     };
   }

@@ -9,7 +9,12 @@ import {
   normalizeToggleTapCount
 } from "./dictation/gesture-options.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
-import type { TranslatorBackendChoice } from "./translator/translator-service.ts";
+import {
+  resolveLangCode,
+  resolveSourceLang as resolveSourceLangCode
+} from "./translator/languages.ts";
+import type { LangCode, SourceLang } from "./translator/languages.ts";
+import type { Formality, TranslatorBackendChoice } from "./translator/translator-service.ts";
 
 export type BridgeMode =
   | "claude-cli"
@@ -34,6 +39,15 @@ export type MarshalSettings = {
   claudeModel: string;
   codexModel: string;
   translatorBackend: TranslatorBackendChoice;
+  /**
+   * Language pair the translator window opens on, and the direction the
+   * ⌘⌥T / double-⌘C hotkeys translate in. `"auto"` on the source side lets
+   * the model detect it.
+   */
+  translatorSourceLang: SourceLang;
+  translatorTargetLang: LangCode;
+  /** Register requested from the model — DeepL's formal/informal switch. */
+  translatorFormality: Formality;
   /**
    * UI appearance preference. `"system"` follows the OS `prefers-color-scheme`
    * at paint time; explicit values force the theme regardless of OS setting.
@@ -114,6 +128,9 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   // translator and the main chat billed to the same account without asking the
   // user to duplicate their choice.
   translatorBackend: "auto",
+  translatorSourceLang: "auto",
+  translatorTargetLang: "uk",
+  translatorFormality: "default",
   appearance: "system",
   dictationEnabled: true,
   dictationHotkey: "RightCmd",
@@ -138,6 +155,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
 const VALID_DICTATION_LANGUAGES: readonly DictationLanguage[] = ["auto", "uk", "en"];
 const VALID_APPEARANCES: readonly Appearance[] = ["light", "dark", "system"];
+const VALID_FORMALITIES: readonly Formality[] = ["default", "formal", "informal"];
 const VALID_TRANSLATOR_BACKENDS: readonly TranslatorBackendChoice[] = [
   "auto",
   "claude-cli",
@@ -204,6 +222,9 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   }
 
   process.env.MARSHAL_TRANSLATOR_BACKEND = settings.translatorBackend;
+  process.env.MARSHAL_TRANSLATOR_SOURCE_LANG = settings.translatorSourceLang;
+  process.env.MARSHAL_TRANSLATOR_TARGET_LANG = settings.translatorTargetLang;
+  process.env.MARSHAL_TRANSLATOR_FORMALITY = settings.translatorFormality;
 
   process.env.MARSHAL_DICTATION_ENABLED = settings.dictationEnabled ? "1" : "0";
   process.env.MARSHAL_DICTATION_HOTKEY = settings.dictationHotkey;
@@ -259,6 +280,20 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     ? (translatorBackendCandidate as TranslatorBackendChoice)
     : DEFAULT_SETTINGS.translatorBackend;
 
+  const translatorSourceLang = resolveSourceLangCode(
+    input.translatorSourceLang,
+    DEFAULT_SETTINGS.translatorSourceLang
+  );
+  const translatorTargetLang = resolveLangCode(
+    input.translatorTargetLang,
+    DEFAULT_SETTINGS.translatorTargetLang
+  );
+  const translatorFormality = (VALID_FORMALITIES as readonly string[]).includes(
+    typeof input.translatorFormality === "string" ? input.translatorFormality : ""
+  )
+    ? (input.translatorFormality as Formality)
+    : DEFAULT_SETTINGS.translatorFormality;
+
   const appearanceCandidate = typeof input.appearance === "string"
     ? input.appearance.trim().toLowerCase()
     : DEFAULT_SETTINGS.appearance;
@@ -279,6 +314,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
     codexModel: typeof input.codexModel === "string" ? input.codexModel : DEFAULT_SETTINGS.codexModel,
     translatorBackend,
+    translatorSourceLang,
+    translatorTargetLang,
+    translatorFormality,
     appearance,
     dictationEnabled: typeof input.dictationEnabled === "boolean"
       ? input.dictationEnabled

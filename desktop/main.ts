@@ -34,8 +34,11 @@ import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } 
 import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
+import { insertTranslation } from "./translator/insert-service.ts";
+import { LANGUAGES, resolveLangCode, resolveSourceLang } from "./translator/languages.ts";
+import type { LangCode, SourceLang } from "./translator/languages.ts";
 import { LayoutSwitcher } from "./translator/layout-switcher.ts";
-import { TranslatorService } from "./translator/translator-service.ts";
+import { TranslatorService, type Formality } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
 import { shutdownUiohookForQuit } from "./uiohook-lifecycle.ts";
@@ -320,6 +323,11 @@ function registerIpcHandlers(): void {
     // the up-to-date provider before setBackend re-reads the choice.
     translatorService?.setBridgeMode(saved.bridgeMode);
     translatorService?.setBackend(saved.translatorBackend);
+    translatorService?.setLanguagePair(
+      saved.translatorSourceLang,
+      saved.translatorTargetLang,
+      saved.translatorFormality
+    );
     // Restart the agent backend so the new provider/model values reach the
     // reasoning bridge.
     await backendClient.restart();
@@ -327,34 +335,31 @@ function registerIpcHandlers(): void {
   });
 
   // Translator IPC handlers
-  handleIpc("marshal:translator-translate-text", async (_event, { text, targetLang }: { text: string; targetLang: "uk" | "en" }) => {
-    const { service, window } = ensureTranslator();
-    window.showLoading("text");
-    try {
-      const result = await service.translateText(text, targetLang);
-      window.showWithText(text, result.translation, result.sourceLang, result.targetLang);
-      pushHistory({
-        text,
-        translation: result.translation,
-        sourceLang: result.sourceLang,
-        targetLang: result.targetLang,
-        mode: "text",
-        timestamp: Date.now()
-      });
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      window.showError(message);
-      throw err instanceof Error ? err : new Error(message);
+  // Requests that originate in the translator window resolve through the
+  // returned promise — the renderer already owns its loading/result state and
+  // sequences overlapping translate-as-you-type calls itself. Broadcasting a
+  // `translator-result` event here would race with that. The main-initiated
+  // paths (hotkeys, OCR) still broadcast, see initTranslator().
+  handleIpc(
+    "marshal:translator-translate-text",
+    async (_event, payload: TranslateTextRequest) => {
+      const { service } = ensureTranslator();
+      const { text, targetLang, options } = normalizeTranslateRequest(payload);
+      return service.translateText(text, targetLang, options);
     }
-  });
+  );
 
-  handleIpc("marshal:translator-translate-image", async (_event, { base64, mimeType, targetLang }: { base64: string; mimeType: string; targetLang: "uk" | "en" }) => {
-    const { service, window } = ensureTranslator();
-    window.showLoading("image");
-    try {
-      const result = await service.translateImage(base64, mimeType, targetLang);
-      window.showImageResult(result.translation, result.targetLang);
+  handleIpc(
+    "marshal:translator-translate-image",
+    async (_event, payload: TranslateImageRequest) => {
+      const { service } = ensureTranslator();
+      const { targetLang, options } = normalizeTranslateRequest(payload);
+      const result = await service.translateImage(
+        payload.base64,
+        payload.mimeType || "image/png",
+        targetLang,
+        options
+      );
       pushHistory({
         text: "",
         translation: result.translation,
@@ -364,11 +369,71 @@ function registerIpcHandlers(): void {
         timestamp: Date.now()
       });
       return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      window.showError(message);
-      throw err instanceof Error ? err : new Error(message);
     }
+  );
+
+  // The language registry is defined once, in the main process, and handed to
+  // the renderer so the picker can never offer a language the prompts don't
+  // know about.
+  handleIpc("marshal:translator-languages", () => {
+    const settings = loadSettings();
+    return {
+      languages: LANGUAGES,
+      sourceLang: settings.translatorSourceLang,
+      targetLang: settings.translatorTargetLang,
+      formality: settings.translatorFormality,
+      pinned: translatorWindow?.isPinned() ?? false
+    };
+  });
+
+  // Persisted so the hotkey paths translate in the direction the user last
+  // picked in the window, and so the next open starts there.
+  handleIpc(
+    "marshal:translator-set-pair",
+    (_event, payload: { sourceLang?: unknown; targetLang?: unknown; formality?: unknown }) => {
+      const sourceLang = resolveSourceLang(payload?.sourceLang, "auto");
+      const targetLang = resolveLangCode(payload?.targetLang, "uk");
+      const formality = normalizeFormality(payload?.formality);
+      const saved = saveSettings({
+        translatorSourceLang: sourceLang,
+        translatorTargetLang: targetLang,
+        translatorFormality: formality
+      });
+      applySettingsToEnv(saved);
+      translatorService?.setLanguagePair(sourceLang, targetLang, formality);
+      return { sourceLang, targetLang, formality };
+    }
+  );
+
+  handleIpc("marshal:translator-pin", (_event, pinned: boolean) => {
+    if (!translatorWindow) {
+      throw new Error("Translator window is not initialized.");
+    }
+    return translatorWindow.setPinned(pinned === true);
+  });
+
+  // Insert the finished translation into the app the user came from. Hiding
+  // the window is what hands focus back, so it happens inside the service.
+  handleIpc("marshal:translator-insert", async (_event, text: string) => {
+    if (!translatorWindow) {
+      throw new Error("Translator window is not initialized.");
+    }
+    const window = translatorWindow;
+    return insertTranslation(typeof text === "string" ? text : "", {
+      hideWindow: () => window.hide()
+    });
+  });
+
+  handleIpc("marshal:translator-history-push", (_event, item: Partial<HistoryItem>) => {
+    pushHistory({
+      text: typeof item?.text === "string" ? item.text : "",
+      translation: typeof item?.translation === "string" ? item.translation : "",
+      sourceLang: typeof item?.sourceLang === "string" ? item.sourceLang : "",
+      targetLang: typeof item?.targetLang === "string" ? item.targetLang : "",
+      mode: item?.mode === "image" ? "image" : "text",
+      timestamp: Date.now()
+    });
+    return translatorHistory?.list() ?? [];
   });
 
   handleIpc("marshal:translator-history-list", () => translatorHistory?.list() ?? []);
@@ -755,6 +820,46 @@ function ensureTranslator(): { service: TranslatorService; window: TranslatorWin
     throw new Error("Translator is not initialized.");
   }
   return { service: translatorService, window: translatorWindow };
+}
+
+interface TranslateRequestBase {
+  sourceLang?: unknown;
+  targetLang?: unknown;
+  formality?: unknown;
+}
+
+interface TranslateTextRequest extends TranslateRequestBase {
+  text: string;
+}
+
+interface TranslateImageRequest extends TranslateRequestBase {
+  base64: string;
+  mimeType: string;
+}
+
+function normalizeFormality(raw: unknown): Formality {
+  return raw === "formal" || raw === "informal" ? raw : "default";
+}
+
+/**
+ * Coerces an IPC payload into a translate call. The renderer is trusted but
+ * the shapes still get normalized here — a stale renderer after an update
+ * must not be able to send an unknown language code into a prompt.
+ */
+function normalizeTranslateRequest(payload: TranslateTextRequest | TranslateImageRequest): {
+  text: string;
+  targetLang: LangCode;
+  options: { sourceLang: SourceLang; formality: Formality };
+} {
+  const settings = loadSettings();
+  return {
+    text: "text" in payload && typeof payload.text === "string" ? payload.text : "",
+    targetLang: resolveLangCode(payload?.targetLang, settings.translatorTargetLang),
+    options: {
+      sourceLang: resolveSourceLang(payload?.sourceLang, settings.translatorSourceLang),
+      formality: normalizeFormality(payload?.formality ?? settings.translatorFormality)
+    }
+  };
 }
 
 function pushHistory(item: HistoryItem): void {
@@ -1631,9 +1736,12 @@ function initTranslator(): void {
   const settings = loadSettings();
   translatorService = new TranslatorService({
     choice: settings.translatorBackend,
-    bridgeMode: settings.bridgeMode
+    bridgeMode: settings.bridgeMode,
+    sourceLang: settings.translatorSourceLang,
+    targetLang: settings.translatorTargetLang,
+    formality: settings.translatorFormality
   });
-  translatorWindow = new TranslatorWindow(preloadPath);
+  translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
 
@@ -1714,7 +1822,8 @@ function initTranslator(): void {
         if (!base64) return; // user cancelled
 
         translatorWindow.showLoading("image");
-        const result = await translatorService.translateImage(base64, "image/png", "uk");
+        const { targetLang } = translatorService.languagePair;
+        const result = await translatorService.translateImage(base64, "image/png", targetLang);
         translatorWindow.showImageResult(result.translation, result.targetLang);
         pushHistory({
           text: "",

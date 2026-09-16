@@ -4,13 +4,20 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { TargetLang, TranslationResult, TranslatorBackend, TranslatorBackendId } from "./types.ts";
+import type {
+  TargetLang,
+  TranslateOptions,
+  TranslationResult,
+  TranslatorBackend,
+  TranslatorBackendId
+} from "./types.ts";
 import {
+  buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
-  detectLangHeuristic,
   mimeExtension,
+  ocrSourceLang,
   parseTranslateJson,
-  targetLangName
+  resolveSourceLang
 } from "./shared.ts";
 
 const CODEX_BIN = process.env.MARSHAL_CODEX_BIN ?? "codex";
@@ -44,31 +51,32 @@ function sanitizeEnvForSubscription(source: NodeJS.ProcessEnv): NodeJS.ProcessEn
 export class CodexCliTranslatorBackend implements TranslatorBackend {
   readonly id: TranslatorBackendId = "codex-cli";
 
-  async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const prompt = buildTranslateJsonPrompt(text, targetLangName(targetLang));
+  async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
+    const prompt = buildTranslateJsonPrompt(text, targetLang, options);
     const raw = await this.runCodex([], prompt);
     const parsed = parseTranslateJson(raw);
     return {
       translation: parsed.translation,
-      sourceLang: parsed.sourceLang || detectLangHeuristic(text),
+      sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
   }
 
-  async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const targetName = targetLangName(targetLang);
+  async translateImage(
+    base64: string,
+    mimeType: string,
+    targetLang: TargetLang,
+    options?: TranslateOptions
+  ): Promise<TranslationResult> {
     const extension = mimeExtension(mimeType);
     const imageFile = join(tmpdir(), `marshal-translate-${randomUUID()}.${extension}`);
     await fs.writeFile(imageFile, Buffer.from(base64, "base64"));
 
-    const prompt =
-      `Extract ALL visible text from the attached image and translate it to ${targetName}. ` +
-      `If the text is already in ${targetName}, return it unchanged. ` +
-      `Output ONLY the final translated text — no commentary, no explanations, no JSON.`;
+    const prompt = buildOcrTranslatePrompt(targetLang, options);
 
     try {
       const raw = await this.runCodex(["-i", imageFile], prompt);
-      return { translation: raw.trim(), sourceLang: "auto", targetLang };
+      return { translation: raw.trim(), sourceLang: ocrSourceLang(options), targetLang };
     } finally {
       await fs.unlink(imageFile).catch(() => {});
     }

@@ -1,13 +1,32 @@
 // desktop/translator/translator-window.ts
 // Manages the floating translator BrowserWindow lifecycle.
+//
+// Two modes, mirroring how a desktop translator is actually used:
+//   • unpinned (default) — a glance tool. Opens next to the cursor at the
+//     remembered size and hides as soon as it loses focus.
+//   • pinned — a workbench. Stays where the user put it, keeps its own size,
+//     and survives clicking into another app so text can be typed there and
+//     translated here side by side.
 
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserWindow, screen } from "electron";
 
-const WINDOW_WIDTH = 460;
-const WINDOW_HEIGHT = 440;
+const DEFAULT_WIDTH = 760;
+const DEFAULT_HEIGHT = 470;
+const MIN_WIDTH = 520;
+const MIN_HEIGHT = 340;
 const CURSOR_OFFSET = 16; // px gap between cursor and window edge
+const STATE_FILE = "translator-window-state.json";
+
+interface TranslatorWindowState {
+  width: number;
+  height: number;
+  x: number | null;
+  y: number | null;
+  pinned: boolean;
+}
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -16,25 +35,29 @@ export class TranslatorWindow {
   private win: BrowserWindow | null = null;
   private readonly preloadPath: string;
   private readonly rendererDir: string;
+  private readonly statePath: string | null;
+  private state: TranslatorWindowState;
 
-  constructor(preloadPath: string) {
+  constructor(preloadPath: string, userDataDir?: string) {
     this.preloadPath = preloadPath;
     // translator-window.ts compiles to dist/desktop/translator/, so go up one level
     this.rendererDir = path.join(desktopDistDir, "..", "renderer");
+    this.statePath = userDataDir ? path.join(userDataDir, STATE_FILE) : null;
+    this.state = this.readState();
   }
 
-  /** Opens the window near the cursor in empty state (no content). */
+  /** Opens the window in empty state (no content). */
   show(): void {
     this.ensureWindow();
-    this.positionNearCursor();
+    this.place();
     this.win!.show();
     this.win!.focus();
   }
 
-  /** Opens the window near the cursor with prefilled text. Creates it if needed. */
+  /** Opens the window with prefilled text. Creates it if needed. */
   showWithText(text: string, translation: string, sourceLang: string, targetLang: string): void {
     this.ensureWindow();
-    this.positionNearCursor();
+    this.place();
     this.win!.show();
     this.win!.focus();
     this.win!.webContents.send("translator-result", { text, translation, sourceLang, targetLang, mode: "text" });
@@ -43,7 +66,7 @@ export class TranslatorWindow {
   /** Opens the window showing a translation-in-progress spinner. */
   showLoading(mode: "text" | "image" = "text"): void {
     this.ensureWindow();
-    this.positionNearCursor();
+    this.place();
     this.win!.show();
     this.win!.focus();
     this.win!.webContents.send("translator-loading", { mode });
@@ -63,6 +86,7 @@ export class TranslatorWindow {
 
   hide(): void {
     if (this.win && !this.win.isDestroyed()) {
+      this.captureBounds();
       this.win.hide();
     }
   }
@@ -71,18 +95,32 @@ export class TranslatorWindow {
     return !!(this.win && !this.win.isDestroyed() && this.win.isVisible());
   }
 
+  isPinned(): boolean {
+    return this.state.pinned;
+  }
+
+  /** Pinned windows keep their place and ignore blur. */
+  setPinned(pinned: boolean): boolean {
+    this.state.pinned = pinned;
+    if (pinned) this.captureBounds();
+    this.writeState();
+    return this.state.pinned;
+  }
+
   private ensureWindow(): void {
     if (this.win && !this.win.isDestroyed()) return;
 
     this.win = new BrowserWindow({
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT,
+      width: this.state.width,
+      height: this.state.height,
+      minWidth: MIN_WIDTH,
+      minHeight: MIN_HEIGHT,
       show: false,
       frame: false,
       transparent: false,
       alwaysOnTop: true,
       skipTaskbar: true,
-      resizable: false,
+      resizable: true,
       movable: true,
       backgroundColor: "#1e1e2e",
       webPreferences: {
@@ -94,14 +132,40 @@ export class TranslatorWindow {
 
     void this.win.loadFile(path.join(this.rendererDir, "translator.html"));
 
-    // Close on blur (click outside)
+    // Hide on blur (click outside) — unless the user pinned the window,
+    // in which case blur is the normal state while they work in another app.
     this.win.on("blur", () => {
-      this.win?.hide();
+      if (this.state.pinned) return;
+      this.hide();
     });
+
+    // Persist whatever the user dragged/resized to, so the next open matches.
+    this.win.on("resize", () => this.captureBoundsDebounced());
+    this.win.on("move", () => this.captureBoundsDebounced());
 
     this.win.on("closed", () => {
       this.win = null;
     });
+  }
+
+  /**
+   * Pinned: leave the window exactly where the user put it. Unpinned: follow
+   * the cursor, keeping the remembered size.
+   */
+  private place(): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    if (this.state.pinned) {
+      if (this.state.x !== null && this.state.y !== null) {
+        this.win.setBounds({
+          x: this.state.x,
+          y: this.state.y,
+          width: this.state.width,
+          height: this.state.height
+        });
+      }
+      return;
+    }
+    this.positionNearCursor();
   }
 
   private positionNearCursor(): void {
@@ -110,18 +174,79 @@ export class TranslatorWindow {
     const cursor = screen.getCursorScreenPoint();
     const display = screen.getDisplayNearestPoint(cursor);
     const { bounds } = display;
+    const { width, height } = this.state;
 
     let x = cursor.x + CURSOR_OFFSET;
     let y = cursor.y + CURSOR_OFFSET;
 
     // Clamp so the window doesn't go off-screen
-    if (x + WINDOW_WIDTH > bounds.x + bounds.width) {
-      x = cursor.x - WINDOW_WIDTH - CURSOR_OFFSET;
+    if (x + width > bounds.x + bounds.width) {
+      x = cursor.x - width - CURSOR_OFFSET;
     }
-    if (y + WINDOW_HEIGHT > bounds.y + bounds.height) {
-      y = cursor.y - WINDOW_HEIGHT - CURSOR_OFFSET;
+    if (y + height > bounds.y + bounds.height) {
+      y = cursor.y - height - CURSOR_OFFSET;
     }
+    x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - width));
+    y = Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - height));
 
-    this.win.setPosition(Math.round(x), Math.round(y));
+    this.win.setBounds({ x: Math.round(x), y: Math.round(y), width, height });
   }
+
+  private boundsTimer: NodeJS.Timeout | null = null;
+
+  /** Drag/resize fire continuously — write once the gesture settles. */
+  private captureBoundsDebounced(): void {
+    if (this.boundsTimer) clearTimeout(this.boundsTimer);
+    this.boundsTimer = setTimeout(() => {
+      this.boundsTimer = null;
+      this.captureBounds();
+      this.writeState();
+    }, 400);
+  }
+
+  private captureBounds(): void {
+    if (!this.win || this.win.isDestroyed() || !this.win.isVisible()) return;
+    const bounds = this.win.getBounds();
+    this.state.width = Math.max(MIN_WIDTH, bounds.width);
+    this.state.height = Math.max(MIN_HEIGHT, bounds.height);
+    this.state.x = bounds.x;
+    this.state.y = bounds.y;
+  }
+
+  private readState(): TranslatorWindowState {
+    const fallback: TranslatorWindowState = {
+      width: DEFAULT_WIDTH,
+      height: DEFAULT_HEIGHT,
+      x: null,
+      y: null,
+      pinned: false
+    };
+    if (!this.statePath) return fallback;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.statePath, "utf8")) as Partial<TranslatorWindowState>;
+      return {
+        width: clampSize(parsed.width, DEFAULT_WIDTH, MIN_WIDTH),
+        height: clampSize(parsed.height, DEFAULT_HEIGHT, MIN_HEIGHT),
+        x: Number.isFinite(parsed.x) ? (parsed.x as number) : null,
+        y: Number.isFinite(parsed.y) ? (parsed.y as number) : null,
+        pinned: parsed.pinned === true
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  private writeState(): void {
+    if (!this.statePath) return;
+    try {
+      fs.mkdirSync(path.dirname(this.statePath), { recursive: true });
+      fs.writeFileSync(this.statePath, JSON.stringify(this.state, null, 2), "utf8");
+    } catch (err) {
+      console.warn("[marshal] failed to persist translator window state:", err);
+    }
+  }
+}
+
+function clampSize(value: unknown, fallback: number, min: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min ? Math.round(value) : fallback;
 }

@@ -4,13 +4,20 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { TargetLang, TranslationResult, TranslatorBackend, TranslatorBackendId } from "./types.ts";
+import type {
+  TargetLang,
+  TranslateOptions,
+  TranslationResult,
+  TranslatorBackend,
+  TranslatorBackendId
+} from "./types.ts";
 import {
+  buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
-  detectLangHeuristic,
   mimeExtension,
+  ocrSourceLang,
   parseTranslateJson,
-  targetLangName
+  resolveSourceLang
 } from "./shared.ts";
 
 const CLAUDE_BIN = process.env.MARSHAL_CLAUDE_BIN ?? "claude";
@@ -51,8 +58,8 @@ type ClaudeJsonResult = {
 export class ClaudeCliTranslatorBackend implements TranslatorBackend {
   readonly id: TranslatorBackendId = "claude-cli";
 
-  async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const prompt = buildTranslateJsonPrompt(text, targetLangName(targetLang));
+  async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
+    const prompt = buildTranslateJsonPrompt(text, targetLang, options);
     const raw = await this.runClaude(
       ["-p", "--output-format", "json", "--model", DEFAULT_MODEL, "--tools", "", "--permission-mode", "bypassPermissions"],
       prompt
@@ -61,22 +68,23 @@ export class ClaudeCliTranslatorBackend implements TranslatorBackend {
     const parsed = parseTranslateJson(inner);
     return {
       translation: parsed.translation,
-      sourceLang: parsed.sourceLang || detectLangHeuristic(text),
+      sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
   }
 
-  async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
-    const targetName = targetLangName(targetLang);
+  async translateImage(
+    base64: string,
+    mimeType: string,
+    targetLang: TargetLang,
+    options?: TranslateOptions
+  ): Promise<TranslationResult> {
     const extension = mimeExtension(mimeType);
     const dir = tmpdir();
     const file = join(dir, `marshal-translate-${randomUUID()}.${extension}`);
     await fs.writeFile(file, Buffer.from(base64, "base64"));
 
-    const prompt =
-      `Read the image file at ${file}. Extract ALL visible text from it and translate to ${targetName}. ` +
-      `If the text is already in ${targetName}, return it unchanged. ` +
-      `Output ONLY the final translated text — no commentary, no explanations, no JSON.`;
+    const prompt = `Read the image file at ${file}. ${buildOcrTranslatePrompt(targetLang, options)}`;
 
     try {
       const raw = await this.runClaude(
@@ -91,7 +99,7 @@ export class ClaudeCliTranslatorBackend implements TranslatorBackend {
         prompt
       );
       const translation = this.extractInnerResult(raw).trim();
-      return { translation, sourceLang: "auto", targetLang };
+      return { translation, sourceLang: ocrSourceLang(options), targetLang };
     } finally {
       await fs.unlink(file).catch(() => {});
     }

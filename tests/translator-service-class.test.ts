@@ -1,24 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TranslatorService, resolveTranslatorChoice } from "../desktop/translator/translator-service.ts";
-import type { TranslatorBackend, TranslationResult, TargetLang } from "../desktop/translator/backends/types.ts";
+import type {
+  TargetLang,
+  TranslateOptions,
+  TranslationResult,
+  TranslatorBackend
+} from "../desktop/translator/backends/types.ts";
 
 // Stub backends. `createTranslatorBackend` is the real seam between the
 // service and the concrete backend implementations — replacing it with a
 // fake lets us assert on dispatch + bridge-mode follow without hitting any
 // network call.
 
-const calls: Array<{ id: string; method: string; args: unknown[] }> = [];
+// `opts` is recorded separately from `args` so the positional assertions in
+// the older tests keep their exact arity.
+const calls: Array<{ id: string; method: string; args: unknown[]; opts?: TranslateOptions }> = [];
 
 function buildFakeBackend(id: TranslatorBackend["id"]): TranslatorBackend {
   return {
     id,
-    async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
-      calls.push({ id, method: "translateText", args: [text, targetLang] });
+    async translateText(
+      text: string,
+      targetLang: TargetLang,
+      options?: TranslateOptions
+    ): Promise<TranslationResult> {
+      calls.push({ id, method: "translateText", args: [text, targetLang], opts: options });
       return { translation: `${id}:${text}`, sourceLang: "auto", targetLang };
     },
-    async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
-      calls.push({ id, method: "translateImage", args: [base64, mimeType, targetLang] });
+    async translateImage(
+      base64: string,
+      mimeType: string,
+      targetLang: TargetLang,
+      options?: TranslateOptions
+    ): Promise<TranslationResult> {
+      calls.push({ id, method: "translateImage", args: [base64, mimeType, targetLang], opts: options });
       return { translation: `${id}:image`, sourceLang: "auto", targetLang };
     }
   };
@@ -154,5 +170,66 @@ describe("resolveTranslatorChoice", () => {
     // When fallback is auto and the raw value is invalid, we expect the
     // resolver to surface a concrete backend rather than another `auto`.
     expect(resolveTranslatorChoice("nope", "auto")).toBe("claude-cli");
+  });
+});
+
+describe("TranslatorService language pair", () => {
+  it("defaults to auto → uk", () => {
+    const svc = new TranslatorService();
+    expect(svc.languagePair).toEqual({ sourceLang: "auto", targetLang: "uk", formality: "default" });
+  });
+
+  it("fills the configured source and formality into every call", async () => {
+    const svc = new TranslatorService({ sourceLang: "de", targetLang: "en", formality: "formal" });
+    await svc.translateText("Hallo", "en");
+    expect(calls.at(-1)?.opts).toEqual({ sourceLang: "de", formality: "formal" });
+  });
+
+  it("lets an explicit per-call option win over the configured pair", async () => {
+    const svc = new TranslatorService({ sourceLang: "de", formality: "formal" });
+    await svc.translateText("Hallo", "en", { sourceLang: "pl", formality: "informal" });
+    expect(calls.at(-1)?.opts).toEqual({ sourceLang: "pl", formality: "informal" });
+  });
+
+  it("threads the pair into image translation too", async () => {
+    const svc = new TranslatorService({ sourceLang: "ja", targetLang: "uk" });
+    await svc.translateImage("data==", "image/png", "uk");
+    expect(calls.at(-1)).toMatchObject({ method: "translateImage" });
+    expect(calls.at(-1)?.opts).toEqual({ sourceLang: "ja", formality: "default" });
+  });
+
+  it("setLanguagePair changes the direction autoTarget picks", () => {
+    const svc = new TranslatorService();
+    expect(svc.autoTarget("Hello")).toBe("uk");
+    svc.setLanguagePair("auto", "de");
+    expect(svc.autoTarget("Hello")).toBe("de");
+    expect(svc.languagePair.targetLang).toBe("de");
+  });
+});
+
+describe("TranslatorService.autoTarget", () => {
+  it("translates into the target when the text is not already in it", () => {
+    const svc = new TranslatorService({ sourceLang: "auto", targetLang: "uk" });
+    expect(svc.autoTarget("Hello world")).toBe("uk");
+    expect(svc.autoTarget("你好")).toBe("uk");
+  });
+
+  it("flips to the explicit source when the text is already in the target", () => {
+    const svc = new TranslatorService({ sourceLang: "de", targetLang: "uk" });
+    expect(svc.autoTarget("Привіт")).toBe("de");
+  });
+
+  it("flips within the native pair when the source is on auto", () => {
+    const svc = new TranslatorService({ sourceLang: "auto", targetLang: "uk" });
+    expect(svc.autoTarget("Привіт")).toBe("en");
+    const reversed = new TranslatorService({ sourceLang: "auto", targetLang: "en" });
+    expect(reversed.autoTarget("Hello")).toBe("uk");
+  });
+
+  it("translateAuto always leaves detection to the backend", async () => {
+    const svc = new TranslatorService({ sourceLang: "de", targetLang: "uk", formality: "informal" });
+    await svc.translateAuto("Hallo Welt");
+    expect(calls.at(-1)?.args).toEqual(["Hallo Welt", "uk"]);
+    expect(calls.at(-1)?.opts).toEqual({ sourceLang: "auto", formality: "informal" });
   });
 });

@@ -1,13 +1,20 @@
-import type { TargetLang, TranslationResult, TranslatorBackend, TranslatorBackendId } from "./types.ts";
+import type {
+  TargetLang,
+  TranslateOptions,
+  TranslationResult,
+  TranslatorBackend,
+  TranslatorBackendId
+} from "./types.ts";
 import {
+  buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
-  detectLangHeuristic,
+  ocrSourceLang,
   parseFloatEnv,
   parseIntEnv,
   parseRetryAfterMs,
   parseTranslateJson,
-  sleep,
-  targetLangName
+  resolveSourceLang,
+  sleep
 } from "./shared.ts";
 
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
@@ -65,39 +72,37 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
     this.maxRetries = parseIntEnv("MARSHAL_TRANSLATOR_MAX_RETRIES", DEFAULT_MAX_RETRIES);
   }
 
-  async translateText(text: string, targetLang: TargetLang): Promise<TranslationResult> {
+  async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
     this.requireKey();
-    const prompt = buildTranslateJsonPrompt(text, targetLangName(targetLang));
+    const prompt = buildTranslateJsonPrompt(text, targetLang, options);
     const raw = await this.chat(this.textModel, [{ role: "user", content: prompt }], { json: true });
     const result = parseTranslateJson(raw);
     return {
       translation: result.translation,
-      sourceLang: result.sourceLang || detectLangHeuristic(text),
+      sourceLang: resolveSourceLang(text, result.sourceLang, options),
       targetLang
     };
   }
 
-  async translateImage(base64: string, mimeType: string, targetLang: TargetLang): Promise<TranslationResult> {
+  async translateImage(
+    base64: string,
+    mimeType: string,
+    targetLang: TargetLang,
+    options?: TranslateOptions
+  ): Promise<TranslationResult> {
     this.requireKey();
-    const targetName = targetLangName(targetLang);
 
     const translation = await this.chat(this.visionModel, [
       {
         role: "user",
         content: [
-          {
-            type: "text",
-            text:
-              `Extract ALL visible text from this image. Translate the extracted text to ${targetName}. ` +
-              `If it is already in ${targetName}, return the original text unchanged. ` +
-              `Output ONLY the final text — no comments, no explanations, no phrases like "there is no text".`
-          },
+          { type: "text", text: buildOcrTranslatePrompt(targetLang, options) },
           { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
         ]
       }
     ]);
 
-    return { translation: translation.trim(), sourceLang: "auto", targetLang };
+    return { translation: translation.trim(), sourceLang: ocrSourceLang(options), targetLang };
   }
 
   private requireKey(): void {
