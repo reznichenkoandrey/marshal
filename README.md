@@ -182,6 +182,7 @@ MARSHAL_VISION_MODEL=llama-3.2-11b-vision-preview
 
 # Translator knobs
 MARSHAL_TRANSLATOR_MODEL=            # text model for the translator only; falls back to MARSHAL_MODEL
+                                     # default: qwen/qwen3.8-27b (measured 127-559 ms per sentence)
 MARSHAL_TRANSLATOR_TEMPERATURE=0.1
 MARSHAL_TRANSLATOR_MAX_TOKENS=4096
 MARSHAL_TRANSLATOR_MAX_RETRIES=3
@@ -297,7 +298,8 @@ Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
 | Symptom | Fix |
 |---|---|
 | "MARSHAL_API_KEY is not set" | fill it in `.env` — and for an **installed** build run `npm run setup:env`, because the project `.env` is unreachable from inside the .app |
-| Translation takes ~10 s per sentence | no `MARSHAL_API_KEY`, so the translator fell back to a CLI backend. Add a Groq key and run `npm run setup:env` |
+| Translation takes ~10 s per sentence | the translator is on a CLI backend. Either `MARSHAL_API_KEY` is missing (add a Groq key, `npm run setup:env`) or the API backend was dropped — the translator window says which, and why |
+| "has no model X" in the translator | provider line-ups change and `MARSHAL_MODEL` outlived its model. List what your account serves and pick one: `curl -s -H "Authorization: Bearer $MARSHAL_API_KEY" https://api.groq.com/openai/v1/models \| jq -r '.data[].id'`, then set `MARSHAL_TRANSLATOR_MODEL` |
 | 429 / rate-limit | built-in retry with exponential backoff; try again or lower `MARSHAL_TRANSLATOR_MAX_TOKENS` |
 | OCR result is garbage | rate-limited or vision model picked wrong text; retry with a tighter crop |
 | "Apple could not verify Marshal…" on first launch | expected — the build is not notarized. `npm run install:local` for your own builds, or right-click → **Open** once for a downloaded DMG |

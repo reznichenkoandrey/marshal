@@ -1619,6 +1619,26 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
  * progress/cancel row, because a 1.5 GB fetch is the one operation here the
  * user may well want to stop.
  */
+/**
+ * The two reasons a backend gets dropped need different advice: a refused key
+ * is fixed in .env, a missing model is fixed by naming one the account
+ * actually serves. Saying "check your key" for a 404 sends the user hunting
+ * in the wrong place (#162).
+ */
+function fallbackNoticeText(notice: TranslatorFallbackNotice): string {
+  const to = `Translating through ${backendLabel(notice.to)} instead, which is slower.`;
+  if (notice.reason === "model") {
+    return (
+      `${backendLabel(notice.from)} has no model "${notice.model ?? "?"}" (HTTP ${notice.status}). ` +
+      `${to} Set MARSHAL_TRANSLATOR_MODEL to a model your account serves and restart Marshal.`
+    );
+  }
+  return (
+    `${backendLabel(notice.from)} rejected the API key (HTTP ${notice.status}). ` +
+    `${to} Fix MARSHAL_API_KEY and restart Marshal, or pin a backend in Settings.`
+  );
+}
+
 /** Human-readable backend names for user-facing notices. */
 function backendLabel(id: string): string {
   switch (id) {
@@ -1887,13 +1907,9 @@ function initTranslator(): void {
   // now" (#160).
   translatorService.on("fallback", (notice: TranslatorFallbackNotice) => {
     console.warn(
-      `[marshal] translator: ${notice.from} rejected the credential (HTTP ${notice.status}); using ${notice.to}`
+      `[marshal] translator: ${notice.from} unusable (${notice.reason}, HTTP ${notice.status}); using ${notice.to}`
     );
-    translatorWindow?.showNotice(
-      `${backendLabel(notice.from)} rejected the API key (HTTP ${notice.status}). ` +
-      `Translating through ${backendLabel(notice.to)} instead, which is slower. ` +
-      "Fix MARSHAL_API_KEY and restart Marshal, or pin a backend in Settings."
-    );
+    translatorWindow?.showNotice(fallbackNoticeText(notice));
   });
 
   clipboardMonitor = new ClipboardMonitor();
