@@ -6,7 +6,10 @@ type ConversationMessage = {
 };
 
 const MAX_HISTORY = 50;
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+// Verified against a live account's GET /models on 2026-09-16: the previous
+// default had been decommissioned and every request 404'd. Provider line-ups
+// change — list what the account serves rather than trusting this line. See #162.
+const DEFAULT_MODEL = "openai/gpt-oss-120b";
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 
 /**
@@ -20,7 +23,7 @@ const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
  * Config via env vars:
  *  MARSHAL_API_KEY     — API key for the provider
  *  MARSHAL_API_BASE    — Base URL (default: Groq)
- *  MARSHAL_MODEL       — Model name (default: llama-3.3-70b-versatile)
+ *  MARSHAL_MODEL       — Model name (default: openai/gpt-oss-120b)
  */
 export class OpenAiApiBridge implements ReasoningBridge {
   private apiKey: string;

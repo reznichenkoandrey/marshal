@@ -177,7 +177,7 @@ MARSHAL_CLAUDE_MODEL=sonnet
 # Groq / OpenAI-compatible API (translator + optional agent bridge + optional Groq whisper)
 MARSHAL_API_KEY=
 MARSHAL_API_BASE=https://api.groq.com/openai/v1
-MARSHAL_MODEL=llama-3.3-70b-versatile
+MARSHAL_MODEL=openai/gpt-oss-120b    # agent bridge; list /models first, line-ups change
 MARSHAL_VISION_MODEL=llama-3.2-11b-vision-preview
 
 # Translator knobs
