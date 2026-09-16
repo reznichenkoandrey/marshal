@@ -676,12 +676,17 @@ async function runScrollingCapture(): Promise<void> {
     });
 
     // Open the stitched PNG in the annotation editor for cropping / markup.
+    // Read the real pixel size back out of the PNG — the editor sizes its
+    // window from these numbers, and hardcoded zeroes collapsed every
+    // scrolling capture to the 780×560 minimum (#134).
     const pngBytes = await fs.promises.readFile(result.outPath);
+    const stitched = nativeImage.createFromBuffer(pngBytes);
+    const stitchedSize = stitched.getSize();
     captureWindow.openEditor({
       capture: {
         base64: pngBytes.toString("base64"),
-        width: 0,
-        height: 0,
+        width: stitchedSize.width,
+        height: stitchedSize.height,
         kind: "area"
       }
     });
@@ -1262,15 +1267,36 @@ function initCapture(): void {
   // Hotkeys. Cmd+Shift+3/4/5/6 collide with macOS native screenshot shortcuts,
   // so we use Cmd+Option+3 / 4 / 5 / 6 to avoid the clash. Users can later
   // rebind via preferences (#72).
-  globalShortcut.register("CommandOrControl+Alt+3", () => {
-    void runCapture("area");
-  });
-  globalShortcut.register("CommandOrControl+Alt+4", () => {
-    void runCapture("fullscreen");
-  });
-  globalShortcut.register("CommandOrControl+Alt+6", () => {
-    void toggleVideoRecording("fullscreen");
-  });
+  // `globalShortcut.register` returns false when another app already owns the
+  // combination. Swallowing that produced the worst possible symptom: the key
+  // does nothing and nothing explains why. Log every failure and tell the user
+  // once, so a clash reads as a clash and not as a broken feature (#135).
+  const captureAccelerators: Array<{ accelerator: string; label: string; run: () => void }> = [
+    { accelerator: "CommandOrControl+Alt+3", label: "Capture area", run: () => void runCapture("area") },
+    { accelerator: "CommandOrControl+Alt+4", label: "Capture full screen", run: () => void runCapture("fullscreen") },
+    { accelerator: "CommandOrControl+Alt+6", label: "Record full screen", run: () => void toggleVideoRecording("fullscreen") }
+  ];
+
+  const unavailable: string[] = [];
+  for (const { accelerator, label, run } of captureAccelerators) {
+    const registered = globalShortcut.register(accelerator, run);
+    if (registered) {
+      console.log(`[marshal] capture: ${accelerator} registered (${label})`);
+    } else {
+      console.warn(`[marshal] capture: ${accelerator} could not register — already in use? (${label})`);
+      unavailable.push(`${accelerator} — ${label}`);
+    }
+  }
+
+  if (unavailable.length > 0 && Notification.isSupported()) {
+    new Notification({
+      title: "Marshal — Capture shortcuts unavailable",
+      body:
+        `${unavailable.join("\n")}\n` +
+        "Another app owns these keys. Capture still works from the tray menu.",
+      silent: true
+    }).show();
+  }
 }
 
 async function toggleVideoRecording(kind: "fullscreen" | "area"): Promise<void> {

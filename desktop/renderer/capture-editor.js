@@ -7,12 +7,22 @@
 //   state.base          → HTMLImageElement (captured PNG)
 //   state.shapes        → committed annotations (rendered every frame)
 //   state.draft         → in-progress shape while the pointer is down
-//   state.history       → undo stack of shape-array snapshots
-//   state.future        → redo stack
+//   history             → HistoryStack of shape-array snapshots (undo/redo)
 //
 // Canvas layers:
 //   #base-canvas        → static captured image (redrawn only after crop)
 //   #draw-canvas        → shapes + draft (redrawn on every model change)
+
+import {
+  canStartDraft,
+  counterFontString,
+  HistoryStack,
+  isNoOpShape,
+  normalizeShape,
+  textFontSize,
+  textFontString,
+  textLineHeight
+} from "./capture-shapes.js";
 
 const api = window.marshalCapture;
 
@@ -23,9 +33,10 @@ const state = {
   baseH: 0,
   shapes: [],
   draft: null,
-  history: [],
-  future: [],
   tool: "rect",
+  // Tool active before the user switched to crop, restored once the crop
+  // lands so crop behaves as an action rather than a mode (#133).
+  toolBeforeCrop: "rect",
   strokeColor: "#e5484d",
   strokeWidth: 4,
   zoom: 1,
@@ -125,10 +136,10 @@ function drawShape(ctx, s) {
       ctx.stroke();
       break;
     case "text":
-      ctx.font = `${Math.max(14, s.width * 6)}px var(--font-sans)`;
+      ctx.font = textFontString(s.width);
       ctx.textBaseline = "top";
       for (let i = 0; i < s.lines.length; i++) {
-        ctx.fillText(s.lines[i], s.x, s.y + i * Math.max(18, s.width * 7));
+        ctx.fillText(s.lines[i], s.x, s.y + i * textLineHeight(s.width));
       }
       break;
     case "counter":
@@ -165,7 +176,7 @@ function drawCounter(ctx, s) {
   ctx.fill();
 
   ctx.fillStyle = "#fff";
-  ctx.font = `700 ${Math.round(r * 1.1)}px -apple-system, "SF Pro Text", Inter, sans-serif`;
+  ctx.font = counterFontString(r);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(String(s.value), s.x, s.y + 1);
@@ -198,23 +209,23 @@ function drawBlur(ctx, s) {
 
 // ── History ─────────────────────────────────────────────────────────────────
 
+const history = new HistoryStack();
+
 function snapshot() {
-  state.history.push(JSON.stringify(state.shapes));
-  if (state.history.length > 50) state.history.shift();
-  state.future.length = 0;
+  history.snapshot(state.shapes);
 }
 
 function undo() {
-  if (state.history.length === 0) return;
-  state.future.push(JSON.stringify(state.shapes));
-  state.shapes = JSON.parse(state.history.pop());
+  const previous = history.undo(state.shapes);
+  if (!previous) return;
+  state.shapes = previous;
   renderDraw();
 }
 
 function redo() {
-  if (state.future.length === 0) return;
-  state.history.push(JSON.stringify(state.shapes));
-  state.shapes = JSON.parse(state.future.pop());
+  const next = history.redo(state.shapes);
+  if (!next) return;
+  state.shapes = next;
   renderDraw();
 }
 
@@ -261,6 +272,10 @@ els.draw.addEventListener("pointerdown", (e) => {
     els.draw.setPointerCapture(e.pointerId);
     return;
   }
+
+  // Guard: anything that is neither special-cased above nor drawable would
+  // commit an invisible shape. Bail out instead of writing garbage (#133).
+  if (!canStartDraft(state.tool)) return;
 
   pointerStart = toCanvas(e);
   pointerActive = true;
@@ -315,30 +330,23 @@ els.draw.addEventListener("pointerup", (e) => {
     return;
   }
 
-  // Normalize rect-like shapes so width/height are positive.
-  if (state.draft.type === "rect" || state.draft.type === "rect-fill" || state.draft.type === "ellipse" || state.draft.type === "blur") {
-    if (state.draft.w < 0) { state.draft.x += state.draft.w; state.draft.w = -state.draft.w; }
-    if (state.draft.h < 0) { state.draft.y += state.draft.h; state.draft.h = -state.draft.h; }
-  }
-
-  // Drop no-ops (single-point taps for region tools).
-  const isTinyRect =
-    (state.draft.type === "rect" || state.draft.type === "rect-fill" || state.draft.type === "ellipse" || state.draft.type === "blur") &&
-    (state.draft.w < 3 || state.draft.h < 3);
-  const isTinyLine =
-    (state.draft.type === "line" || state.draft.type === "arrow") &&
-    Math.hypot(state.draft.x2 - state.draft.x, state.draft.y2 - state.draft.y) < 4;
-  const isTinyPen = state.draft.type === "pen" && state.draft.points.length < 3;
-
-  if (!(isTinyRect || isTinyLine || isTinyPen)) {
+  // Normalize rect-like shapes so width/height are positive, then drop
+  // no-ops — single-point taps and twitches that would otherwise land an
+  // invisible shape on the undo stack.
+  const shape = normalizeShape(state.draft);
+  if (!isNoOpShape(shape)) {
     snapshot();
-    state.shapes.push(state.draft);
+    state.shapes.push(shape);
   }
   state.draft = null;
   renderDraw();
 });
 
 function applyCrop(rect) {
+  // Crop is a one-shot action, not a mode: hand the user back the tool they
+  // were drawing with. Previously this dropped them into the dead "select"
+  // tool, where nothing drew and every drag wrote an invisible shape (#133).
+  const toolBeforeCrop = state.toolBeforeCrop || "rect";
   const sx = Math.min(rect.x, rect.x + rect.w);
   const sy = Math.min(rect.y, rect.y + rect.h);
   const sw = Math.abs(rect.w);
@@ -365,13 +373,12 @@ function applyCrop(rect) {
     state.baseW = cropped.width;
     state.baseH = cropped.height;
     state.shapes = [];
-    state.history = [];
-    state.future = [];
+    history.reset();
     resizeCanvases();
     fitToWindow();
     renderBase();
     renderDraw();
-    setTool("select");
+    setTool(toolBeforeCrop);
   };
   img.src = cropped.toDataURL("image/png");
 }
@@ -388,7 +395,7 @@ function startTextInput(event) {
   els.textInput.style.left = `${screenX}px`;
   els.textInput.style.top = `${screenY}px`;
   els.textInput.style.color = state.strokeColor;
-  els.textInput.style.fontSize = `${Math.max(14, state.strokeWidth * 6) * state.zoom}px`;
+  els.textInput.style.fontSize = `${textFontSize(state.strokeWidth) * state.zoom}px`;
   els.textInput.classList.remove("hidden");
   els.textInput.focus();
 
@@ -427,6 +434,7 @@ function startTextInput(event) {
 // ── Tools ──────────────────────────────────────────────────────────────────
 
 function setTool(name) {
+  if (name === "crop" && state.tool !== "crop") state.toolBeforeCrop = state.tool;
   state.tool = name;
   for (const btn of document.querySelectorAll(".tool[data-tool]")) {
     btn.classList.toggle("active", btn.dataset.tool === name);
@@ -544,7 +552,7 @@ window.addEventListener("resize", () => {
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────
 
 const TOOL_KEYS = {
-  v: "select", c: "crop", r: "rect", o: "ellipse", l: "line",
+  c: "crop", r: "rect", o: "ellipse", l: "line",
   a: "arrow", t: "text", h: "rect-fill", n: "counter", p: "pen", b: "blur"
 };
 
