@@ -1,3 +1,4 @@
+import { TranslatorAuthError, isAuthStatus } from "./errors.ts";
 import type {
   TargetLang,
   TranslateOptions,
@@ -163,6 +164,14 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
 
       const status = response.status;
       const errorText = await response.text().catch(() => "Unknown error");
+
+      // A rejected key is terminal for this provider. Throw it typed and
+      // immediately so the service can fall back instead of burning the
+      // retry budget on a credential that will keep being refused (#160).
+      if (isAuthStatus(status)) {
+        throw new TranslatorAuthError(this.id, status, errorText.slice(0, 200));
+      }
+
       lastError = new Error(`OpenAI-compatible API error ${status}: ${errorText}`);
 
       const retryable = status === 429 || (status >= 500 && status < 600);
