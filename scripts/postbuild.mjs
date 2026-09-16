@@ -57,25 +57,23 @@ for (const filePath of sanitizedScripts) {
 await fs.rm(desktopRendererDistDir, { recursive: true, force: true });
 await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 
-// Stage whisper.cpp into dist/ so electron-builder ships it inside the
-// packaged DMG. Without this, voice dictation silently fails in production:
-// `whisper-backend.ts` resolves the binary relative to `process.cwd()` which
-// in a packaged build points outside the .app, so `fs.access` always fails.
+// Stage the whisper-cli binary into dist/ so electron-builder ships it inside
+// the packaged app: building it needs git + cmake, which an installed app
+// cannot assume. `whisper-backend.ts` resolves it relative to the compiled JS
+// file, which lands here in dev and in app.asar.unpacked when packaged.
 //
-// Both artifacts are produced by `npm run setup:dictation` (whisper-cli built
-// from source, model fetched from upstream). They're optional — if the user
-// hasn't run setup yet, we skip silently and the dev runtime falls back to
-// the `.whisper/` symlink in the project root.
+// The MODEL is deliberately NOT staged. It is 0.5–3 GB, which made the DMG
+// 1.5 GB for an app under 100 MB. It lives in the shared models directory
+// instead (see desktop/dictation/model-installer.ts) and is installed either
+// from the tray ("Download dictation model…") or by `npm run setup:dictation`.
+// Any model left over from a build that predates this is removed so the next
+// package does not quietly pick it back up.
 {
   const whisperBinSrc = path.join(root, ".whisper", "whisper.cpp", "build", "bin", "whisper-cli");
-  const whisperBinDst = path.join(root, "dist", "desktop", "dictation", "whisper-cli");
-  // Search the user's `.whisper/models/` for any of the supported models, in
-  // priority order. First match wins. Lets users upgrade ggml-small → turbo
-  // → large just by re-running setup:dictation with WHISPER_MODEL=... and
-  // rebuilding, with no postbuild edits. See #93.
-  const WHISPER_MODELS = ["ggml-large-v3-turbo.bin", "ggml-large-v3.bin", "ggml-small.bin"];
+  const dictationDistDir = path.join(root, "dist", "desktop", "dictation");
+  const whisperBinDst = path.join(dictationDistDir, "whisper-cli");
 
-  await fs.mkdir(path.dirname(whisperBinDst), { recursive: true });
+  await fs.mkdir(dictationDistDir, { recursive: true });
 
   try {
     await fs.access(whisperBinSrc);
@@ -86,22 +84,11 @@ await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
     console.warn("[postbuild] whisper-cli missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
   }
 
-  let copiedModel = false;
-  for (const modelName of WHISPER_MODELS) {
-    const src = path.join(root, ".whisper", "models", modelName);
-    const dst = path.join(root, "dist", "desktop", "dictation", modelName);
-    try {
-      await fs.access(src);
-      await fs.copyFile(src, dst);
-      console.log(`[postbuild] ${modelName} copied →`, dst);
-      copiedModel = true;
-      break;
-    } catch {
-      // Try next candidate.
-    }
-  }
-  if (!copiedModel) {
-    console.warn("[postbuild] no whisper model found in .whisper/models/ (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
+  const staged = await fs.readdir(dictationDistDir).catch(() => []);
+  for (const entry of staged) {
+    if (!entry.endsWith(".bin")) continue;
+    await fs.rm(path.join(dictationDistDir, entry), { force: true });
+    console.log(`[postbuild] removed bundled model ${entry} — models ship out of band now`);
   }
 }
 

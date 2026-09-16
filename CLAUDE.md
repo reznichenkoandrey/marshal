@@ -33,7 +33,12 @@
   3. Чому це потрібно: без stable cert `npm run build` підписує bundle ad-hoc → новий CDHash щоразу → macOS TCC вважає це новим app → знову запитує Microphone/Screen Recording/Accessibility. Зі stable cert + фіксованим bundle ID `com.marshal.desktop.dev` grants зберігаються назавжди (див. #84).
   4. Якщо TCC після переходу на stable cert все одно показує `com.github.Electron` зі старими grants: `tccutil reset All com.github.Electron && tccutil reset All com.marshal.desktop.dev`, після цього один раз `Allow` — і тиша.
 - Voice dictation:
-  1. `npm run setup:dictation` (whisper.cpp + `ggml-small`, ~465 MB, у `.whisper/`)
+  1. `npm run setup:dictation` — збирає `whisper-cli` у `.whisper/` і кладе модель
+     (`ggml-large-v3-turbo`, 1.5 ГБ) у `~/Library/Application Support/Marshal/models/`.
+     **Модель НЕ в репо і НЕ в бандлі** (див. #151): вона робила DMG 1.5 ГБ при застосунку
+     під 100 МБ. Одна копія на всі білди, переживає перевстановлення; override —
+     `MARSHAL_MODELS_DIR`. У packaged білді ставиться з tray → «Download Dictation Model…».
+     `WHISPER_MODEL=ggml-small` — 465 МБ замість 1.5 ГБ, гірше на коротких фразах.
   2. **macOS permissions для `npm run desktop` (dev mode):**
      - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription` + `CFBundleIdentifier=com.marshal.desktop.dev`), підписує bundle stable identity `Marshal Self-Signed` (якщо cert встановлений) і підписує всі Swift helpers (`audio-recorder`, `screen-recorder`, `scroll-capture`, `scroll-stitch`, `apple-vision-ocr`, `send-keystroke`) тією ж identity. Скрипти: `scripts/patch-electron-info-plist.sh` + `scripts/postbuild.mjs`.
      - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).

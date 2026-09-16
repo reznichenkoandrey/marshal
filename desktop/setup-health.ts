@@ -83,7 +83,7 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
       label: "Local Whisper",
       status: whisperStatus(input.dictationBackend, whisperBinExists, whisperModelExists),
       detail: whisperDetail(input.dictationBackend, whisperBinExists, whisperModelExists),
-      action: whisperBinExists && whisperModelExists ? undefined : "Run npm run setup:dictation"
+      action: whisperAction(whisperBinExists, whisperModelExists)
     }
     : disabledDictationItem("whisper-local", "Local Whisper"));
 
@@ -210,6 +210,17 @@ function whisperStatus(
 ): SetupHealthStatus {
   if (binExists && modelExists) return "ok";
   return backend === "groq" ? "warn" : "error";
+}
+
+/**
+ * The binary and the model have different remedies now that the model ships
+ * out of band: building whisper-cli needs the repo checkout, while the model
+ * is a download the installed app can do on its own.
+ */
+function whisperAction(binExists: boolean, modelExists: boolean): string | undefined {
+  if (binExists && modelExists) return undefined;
+  if (!binExists) return "Run npm run setup:dictation";
+  return "Menu bar -> Download Dictation Model...";
 }
 
 function whisperDetail(backend: DictationBackend, binExists: boolean, modelExists: boolean): string {

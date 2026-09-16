@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { asarUnpacked } from "../utils/asar-paths.ts";
+import { WHISPER_MODELS, modelPath } from "./model-installer.ts";
 
 export type TranscribeResult = {
   text: string;
@@ -266,9 +267,14 @@ export function parseDetectedLanguage(stderr: string): string | undefined {
 // finds the binary in the same relative spot as dev.
 //
 // Fallback chain (used when the bundled copy is missing):
-//   1. Bundled: `<dist>/desktop/dictation/{whisper-cli, ggml-small.bin}`
-//   2. Project-local: `<project_root>/.whisper/{bin/whisper-cli, models/ggml-small.bin}`
+//   1. Bundled: `<dist>/desktop/dictation/whisper-cli`
+//   2. Project-local: `<project_root>/.whisper/bin/whisper-cli`
 //      — used in dev before `npm run setup:dictation` ran the rebuild.
+//
+// The MODEL is resolved differently: it is never bundled (a 1.5 GB .app is
+// not worth shipping), so the shared models directory outside any app bundle
+// comes first — see model-installer.ts for why that directory and not
+// `app.getPath("userData")`.
 // asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
 // The whisper model file is also referenced through this path because
 // whisper-cli loads it with fopen() — that's an OS syscall, not an Electron
@@ -289,20 +295,34 @@ export function resolveDefaultBin(): string {
   ]);
 }
 
-export function resolveDefaultModel(): string {
-  // whisper-cli loads the model via its own fopen() call — that's also an
-  // OS-level path, so it needs the unpacked path too.
-  //
-  // Search order matches install priority: large-v3-turbo (new default,
-  // #93), large-v3 (manual upgrade path), small (back-compat for users who
-  // installed before #93 and haven't re-run setup:dictation). Each location
-  // is checked in both the packaged dist dir and the dev `.whisper/` tree.
+/**
+ * Every place a model may live, in the order they are tried. Model priority
+ * is the outer loop and location the inner one: a turbo model already on disk
+ * beats a freshly downloaded `small`, wherever each of them sits.
+ */
+export function whisperModelCandidates(): string[] {
   const candidates: string[] = [];
-  for (const name of ["ggml-large-v3-turbo.bin", "ggml-large-v3.bin", "ggml-small.bin"]) {
-    candidates.push(path.join(distDictationDirOnDisk, name));
-    candidates.push(path.join(process.cwd(), ".whisper", "models", name));
+  for (const model of WHISPER_MODELS) {
+    candidates.push(modelPath(model.name));
+    candidates.push(path.join(process.cwd(), ".whisper", "models", model.name));
+    candidates.push(path.join(distDictationDirOnDisk, model.name));
   }
-  return firstExisting(candidates);
+  return candidates;
+}
+
+export function resolveDefaultModel(): string {
+  // Search order per model name, in install priority (turbo, large-v3,
+  // small — see WHISPER_MODELS):
+  //   1. the shared models directory — where the in-app download and
+  //      `npm run setup:dictation` both put it,
+  //   2. the dev `.whisper/models/` tree — older checkouts that downloaded
+  //      before the model moved out of the bundle,
+  //   3. the packaged dist dir — builds up to 0.2.0 shipped the model inside
+  //      the .app, and an installed copy should keep working.
+  //
+  // whisper-cli loads the model via its own fopen() call, so (3) needs the
+  // asar-unpacked path, same as the binary.
+  return firstExisting(whisperModelCandidates());
 }
 
 export function resolveWhisperAssetPaths(): { bin: string; model: string } {

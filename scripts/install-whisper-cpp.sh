@@ -6,11 +6,22 @@
 # Targets:
 #   .whisper/whisper.cpp/       — vendor checkout (git-ignored)
 #   .whisper/bin/whisper-cli    — symlink to the built binary
-#   .whisper/models/<name>.bin  — ggml model weights
+#   <models dir>/<name>.bin     — ggml model weights, OUTSIDE the repo
+#
+# The model does not live in the repo any more. It is 0.5-3 GB, it was making
+# the packaged DMG 1.5 GB, and both the dev run and the installed app should
+# share one copy. That copy goes to the same directory the in-app download
+# uses (desktop/dictation/model-installer.ts):
+#
+#   ~/Library/Application Support/Marshal/models/
+#
+# `.whisper/models/<name>.bin` is kept as a symlink so anything still looking
+# in the old place keeps working.
 #
 # Env overrides:
-#   WHISPER_MODEL   — model name (default: ggml-large-v3-turbo)
-#   WHISPER_TAG     — whisper.cpp git tag (default: latest tagged release)
+#   WHISPER_MODEL      — model name (default: ggml-large-v3-turbo)
+#   WHISPER_TAG        — whisper.cpp git tag (default: latest tagged release)
+#   MARSHAL_MODELS_DIR — where the weights go (default: the path above)
 
 set -euo pipefail
 
@@ -40,11 +51,19 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WHISPER_DIR="$ROOT_DIR/.whisper"
 REPO_DIR="$WHISPER_DIR/whisper.cpp"
 BIN_DIR="$WHISPER_DIR/bin"
-MODEL_DIR="$WHISPER_DIR/models"
+LEGACY_MODEL_DIR="$WHISPER_DIR/models"
+MODEL_DIR="${MARSHAL_MODELS_DIR:-$HOME/Library/Application Support/Marshal/models}"
 MODEL="${WHISPER_MODEL:-ggml-large-v3-turbo}"
 MODEL_FILE="$MODEL_DIR/${MODEL}.bin"
 
-mkdir -p "$WHISPER_DIR" "$BIN_DIR" "$MODEL_DIR"
+mkdir -p "$WHISPER_DIR" "$BIN_DIR" "$MODEL_DIR" "$LEGACY_MODEL_DIR"
+
+# Move a model downloaded by an older run of this script instead of fetching
+# 1.5 GB again.
+if [[ -f "$LEGACY_MODEL_DIR/${MODEL}.bin" && ! -L "$LEGACY_MODEL_DIR/${MODEL}.bin" && ! -f "$MODEL_FILE" ]]; then
+  echo "[whisper] moving existing $MODEL out of the repo → $MODEL_DIR"
+  mv "$LEGACY_MODEL_DIR/${MODEL}.bin" "$MODEL_FILE"
+fi
 
 # ── Clone whisper.cpp if missing ──
 if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -83,6 +102,9 @@ if [[ ! -f "$MODEL_FILE" ]]; then
   echo "[whisper] ERROR — model download produced no file at $MODEL_FILE" >&2
   exit 1
 fi
+
+# Back-compat symlink: one copy on disk, still findable at the old path.
+ln -sfn "$MODEL_FILE" "$LEGACY_MODEL_DIR/${MODEL}.bin"
 
 echo "[whisper] ready:"
 echo "  bin:   $BIN_DIR/whisper-cli"

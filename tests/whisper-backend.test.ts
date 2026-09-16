@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { WHISPER_MODELS, modelPath } from "../desktop/dictation/model-installer.ts";
 import {
   DEFAULT_DICTATION_PROMPT,
   GroqWhisperBackend,
@@ -8,8 +13,11 @@ import {
   createWhisperBackend,
   parseDetectedLanguage,
   resolveBackendName,
+  resolveDefaultModel,
+  whisperModelCandidates,
   resolveDictationLanguage,
-  resolveDictationPrompt
+  resolveDictationPrompt,
+  resolveWhisperAssetPaths
 } from "../desktop/dictation/whisper-backend.ts";
 
 describe("parseDetectedLanguage", () => {
@@ -343,5 +351,71 @@ describe("WhisperCppBackend", () => {
   it("accepts a finite positive value for MARSHAL_WHISPER_THREADS", () => {
     process.env.MARSHAL_WHISPER_THREADS = "8";
     expect(() => new WhisperCppBackend()).not.toThrow();
+  });
+});
+
+// The model moved out of the app bundle: it is resolved from the shared
+// models directory, so the resolver must look there FIRST and must name that
+// directory when nothing is installed. Getting this order wrong would send
+// users hunting inside the .app for a file that is not there.
+describe("resolveDefaultModel", () => {
+  let tempModels = "";
+  const originalOverride = process.env.MARSHAL_MODELS_DIR;
+  const originalModel = process.env.MARSHAL_WHISPER_MODEL;
+
+  beforeEach(() => {
+    tempModels = fs.mkdtempSync(path.join(os.tmpdir(), "marshal-resolve-"));
+    process.env.MARSHAL_MODELS_DIR = tempModels;
+    delete process.env.MARSHAL_WHISPER_MODEL;
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempModels, { recursive: true, force: true });
+    if (originalOverride === undefined) delete process.env.MARSHAL_MODELS_DIR;
+    else process.env.MARSHAL_MODELS_DIR = originalOverride;
+    if (originalModel === undefined) delete process.env.MARSHAL_WHISPER_MODEL;
+    else process.env.MARSHAL_WHISPER_MODEL = originalModel;
+  });
+
+  it("picks the model from the shared directory", () => {
+    const installed = path.join(tempModels, "ggml-large-v3-turbo.bin");
+    fs.writeFileSync(installed, "weights");
+    expect(resolveDefaultModel()).toBe(installed);
+  });
+
+  it("prefers turbo over small when both are installed", () => {
+    fs.writeFileSync(path.join(tempModels, "ggml-small.bin"), "s");
+    const turbo = path.join(tempModels, "ggml-large-v3-turbo.bin");
+    fs.writeFileSync(turbo, "t");
+    expect(resolveDefaultModel()).toBe(turbo);
+  });
+
+  it("looks in the shared directory first, before the repo tree and the bundle", () => {
+    const candidates = whisperModelCandidates();
+    expect(candidates[0]).toBe(modelPath("ggml-large-v3-turbo.bin"));
+    // Model quality is the outer loop, location the inner one: a turbo copy
+    // already on disk should beat a freshly downloaded `small`.
+    const sharedSmall = candidates.indexOf(modelPath("ggml-small.bin"));
+    const repoTurbo = candidates.findIndex((c) => c.includes(path.join(".whisper", "models")));
+    expect(repoTurbo).toBeLessThan(sharedSmall);
+  });
+
+  it("offers each model in three locations, shared directory first", () => {
+    const candidates = whisperModelCandidates();
+    expect(candidates).toHaveLength(WHISPER_MODELS.length * 3);
+    for (let i = 0; i < WHISPER_MODELS.length; i++) {
+      const [shared, repo, bundled] = candidates.slice(i * 3, i * 3 + 3);
+      const name = WHISPER_MODELS[i].name;
+      expect(shared).toBe(path.join(tempModels, name));
+      expect(repo).toBe(path.join(process.cwd(), ".whisper", "models", name));
+      expect(bundled).not.toBe(shared);
+      expect(bundled.endsWith(name)).toBe(true);
+    }
+  });
+
+  it("MARSHAL_WHISPER_MODEL still wins outright", () => {
+    fs.writeFileSync(path.join(tempModels, "ggml-small.bin"), "s");
+    process.env.MARSHAL_WHISPER_MODEL = "/somewhere/else/custom.bin";
+    expect(resolveWhisperAssetPaths().model).toBe("/somewhere/else/custom.bin");
   });
 });

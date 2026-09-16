@@ -16,6 +16,11 @@ All three surface into one Electron tray app; dictation and translator work full
 - Hold **right Cmd** (default), speak, release → transcript inserted at the caret, clipboard fallback, OS notification with preview.
 - Backends: `whisper.cpp` (local, offline, free — runs with Metal on M-series Macs) or Groq `whisper-large-v3`.
 - Language: auto-detect, or pin to Ukrainian / English.
+- **The model is not shipped inside the app.** It is 1.5 GB, so it lives in
+  `~/Library/Application Support/Marshal/models/` and is downloaded once, either from the
+  menu bar (**Download Dictation Model…**) or by `npm run setup:dictation`. One copy is
+  shared by every build and survives app updates and reinstalls; set `MARSHAL_MODELS_DIR`
+  to put it elsewhere. An interrupted download resumes where it stopped.
 - Works with AirPods, built-in mic, USB mics — AVAudioRecorder handles the resample.
 
 ### Floating translator
@@ -64,7 +69,10 @@ git clone https://github.com/reznichenkoandrey/marshal.git
 cd marshal
 npm install
 cp .env.example .env  # edit the few keys you actually use
-npm run setup:dictation  # one-time: clones whisper.cpp, builds whisper-cli, downloads ggml-small (~465 MB)
+npm run setup:dictation  # one-time: clones whisper.cpp, builds whisper-cli, downloads the model
+                         # (ggml-large-v3-turbo, 1.5 GB) into
+                         # ~/Library/Application Support/Marshal/models/ — not into the repo.
+                         # WHISPER_MODEL=ggml-small trades accuracy for a 465 MB download.
 npm run desktop
 ```
 
@@ -77,6 +85,13 @@ npm run desktop
 3. **Screen Recording** — required only for the translator's OCR screen-capture feature. System Settings → Privacy & Security → Screen Recording → enable **Electron**.
 
 Packaged builds (`npm run desktop:pack`) carry the same keys via `package.json → build.mac.extendInfo` and survive notarisation; the manual patch is dev-only.
+
+### Installing the dictation model on a packaged build
+
+The DMG deliberately does not contain the model. After installing Marshal, open the menu-bar
+icon → **Download Dictation Model…**, confirm the size, and watch the percentage in the tray
+tooltip. Everything else works before the model lands; only local transcription waits for it.
+Settings → Setup health shows **Local Whisper** as `error` until then, with the remedy inline.
 
 ---
 
