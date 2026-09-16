@@ -11,9 +11,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow } from "electron";
 
 import type { CaptureResult } from "./capture-service.ts";
+import { activeDisplay } from "./display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -38,7 +39,10 @@ export class CaptureWindow {
       return;
     }
 
-    const display = screen.getPrimaryDisplay();
+    // Open where the user is working, and size against that display's own
+    // scale factor — a Retina built-in screen and an external monitor differ,
+    // and using the wrong one mis-sizes the window (#136).
+    const display = activeDisplay();
     const { width: maxW, height: maxH } = display.workAreaSize;
     const scale = display.scaleFactor || 1;
 

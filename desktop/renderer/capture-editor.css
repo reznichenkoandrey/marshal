@@ -298,3 +298,12 @@ body {
   pointer-events: none;
   transform: translate(-50%, 10px);
 }
+
+/* Marks the inline field as showing text larger than the final annotation,
+   which happens on a zoomed-out capture where an exact preview would be too
+   small to read (#140). The dotted border distinguishes it from the exact
+   preview's dashed one. */
+.text-input.preview-scaled {
+  border-style: dotted;
+  border-color: var(--accent);
+}

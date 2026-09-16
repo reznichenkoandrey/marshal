@@ -18,10 +18,11 @@ import {
   clampZoom,
   computeFitZoom,
   counterFontString,
+  editingFontSize,
   HistoryStack,
   isNoOpShape,
+  isEditingFontFloored,
   normalizeShape,
-  textFontSize,
   textFontString,
   textLineHeight,
   zoomedSize
@@ -399,7 +400,9 @@ function startTextInput(event) {
   els.textInput.style.left = `${screenX}px`;
   els.textInput.style.top = `${screenY}px`;
   els.textInput.style.color = state.strokeColor;
-  els.textInput.style.fontSize = `${textFontSize(state.strokeWidth) * state.zoom}px`;
+  // Kept readable rather than exactly to scale — see editingFontSize (#140).
+  els.textInput.style.fontSize = `${editingFontSize(state.strokeWidth, state.zoom)}px`;
+  els.textInput.classList.toggle("preview-scaled", isEditingFontFloored(state.strokeWidth, state.zoom));
   els.textInput.classList.remove("hidden");
   els.textInput.focus();
 

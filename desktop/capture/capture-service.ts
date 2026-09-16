@@ -2,14 +2,15 @@
 //
 // High-level entry points for the capture feature:
 //   - captureArea()       → user draws a rectangle, get back a cropped PNG
-//   - captureFullscreen() → snapshot of the primary display
+//   - captureFullscreen() → snapshot of the display under the pointer
 //
 // The service only produces PNG bytes. Opening the annotation editor is the
 // caller's responsibility (see desktop/main.ts wiring).
 
-import { nativeImage, screen, desktopCapturer, systemPreferences } from "electron";
+import { nativeImage, systemPreferences } from "electron";
 
 import { pickArea } from "./area-picker.ts";
+import { captureDisplay } from "./display-capture.ts";
 
 export interface CaptureResult {
   /** PNG bytes as base64 WITHOUT the `data:image/png;base64,` prefix. */
@@ -62,23 +63,14 @@ export class CaptureService {
       }
     }
 
-    const display = screen.getPrimaryDisplay();
-    const { width, height } = display.bounds;
-    const scaleFactor = display.scaleFactor;
+    // The display under the pointer, not whichever one macOS calls primary:
+    // on a multi-monitor setup the external screen was impossible to capture
+    // because this always grabbed the built-in one (#136).
+    const { image } = await captureDisplay();
 
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor)
-      }
-    });
-    const primary = sources[0];
-    if (!primary) throw new Error("No screen source available");
-
-    const size = primary.thumbnail.getSize();
+    const size = image.getSize();
     return {
-      base64: primary.thumbnail.toDataURL().replace(/^data:image\/\w+;base64,/u, ""),
+      base64: image.toDataURL().replace(/^data:image\/\w+;base64,/u, ""),
       width: size.width,
       height: size.height,
       kind: "fullscreen"

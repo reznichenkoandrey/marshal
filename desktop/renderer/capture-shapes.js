@@ -205,3 +205,36 @@ export function computeFitZoom(viewportWidth, viewportHeight, baseWidth, baseHei
 export function clampZoom(zoom) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
+
+// ── Text editing ────────────────────────────────────────────────────────────
+
+/**
+ * Smallest on-screen size for the inline text field, in CSS pixels.
+ *
+ * Below roughly this the user cannot read what they are typing.
+ */
+export const MIN_EDITING_FONT_SIZE = 13;
+
+/**
+ * Font size for the inline textarea while the user types.
+ *
+ * Normally this previews the annotation at its on-screen size, so what you
+ * type is what you get. On a zoomed-out capture that preview collapses: a
+ * fullscreen Retina capture fits at ~0.27, which rendered a 24px annotation
+ * in a 6.5px field — accurate to the output and impossible to read. The floor
+ * trades exactness for legibility while typing; the committed annotation is
+ * rasterized from the stroke width and is unaffected. See #140.
+ */
+export function editingFontSize(strokeWidth, zoom) {
+  return Math.max(MIN_EDITING_FONT_SIZE, textFontSize(strokeWidth) * zoom);
+}
+
+/**
+ * True when the field is showing text larger than the annotation will be.
+ *
+ * The caller uses this to mark the field as a rough preview rather than an
+ * exact one, so the size difference reads as deliberate.
+ */
+export function isEditingFontFloored(strokeWidth, zoom) {
+  return textFontSize(strokeWidth) * zoom < MIN_EDITING_FONT_SIZE;
+}

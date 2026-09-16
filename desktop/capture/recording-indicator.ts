@@ -8,7 +8,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow } from "electron";
+
+import { activeDisplay } from "./display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -27,7 +29,8 @@ export class RecordingIndicator {
       this.window.showInactive();
       return;
     }
-    const display = screen.getPrimaryDisplay();
+    // Follow the user to the display they are recording on (#136).
+    const display = activeDisplay();
     const { x, y, width } = display.bounds;
     const pillWidth = 230;
     const pillHeight = 44;

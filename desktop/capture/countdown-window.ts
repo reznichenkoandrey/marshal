@@ -7,7 +7,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow } from "electron";
+
+import { activeDisplay } from "./display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -16,7 +18,8 @@ const rendererDir = path.join(desktopDistDir, "..", "renderer");
 /** Show a 3-2-1 countdown on the primary display. Resolves once it's done. */
 export function runCountdown(preloadPath: string, seconds = 3): Promise<void> {
   return new Promise((resolve) => {
-    const display = screen.getPrimaryDisplay();
+    // Follow the user to the display they are capturing on (#136).
+    const display = activeDisplay();
     const { x, y, width, height } = display.bounds;
 
     const win = new BrowserWindow({

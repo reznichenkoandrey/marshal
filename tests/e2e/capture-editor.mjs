@@ -89,7 +89,13 @@ app.whenReady().then(async () => {
     await holder.loadURL("data:text/html,<body style='background:#202027'></body>");
     await sleep(800);
 
-    const display = screen.getPrimaryDisplay();
+    // #136: capture follows the pointer. On a single-display machine this is
+    // the same screen as before, so this run is a regression check; the
+    // multi-monitor path needs a second monitor to exercise.
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    report.checks.displayCount = screen.getAllDisplays().length;
+    report.checks.capturedDisplayId = display.id;
+    report.checks.capturedActiveDisplay = display.id === screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id;
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
       thumbnailSize: {
@@ -97,7 +103,11 @@ app.whenReady().then(async () => {
         height: Math.round(display.bounds.height * display.scaleFactor)
       }
     });
-    const shot = sources[0].thumbnail;
+    // Match the source to the display rather than trusting source order.
+    const matched = sources.find((s) => s.display_id === String(display.id)) ?? sources[0];
+    report.checks.sourceMatchedDisplay =
+      sources.find((s) => s.display_id === String(display.id)) !== undefined;
+    const shot = matched.thumbnail;
     const shotSize = shot.getSize();
     log("captured screen", shotSize);
     report.checks.captureSize = shotSize;
@@ -234,6 +244,11 @@ app.whenReady().then(async () => {
     report.checks.textInputOpened = textResult.opened;
     report.checks.textInputFontSize = textResult.fontSize;
 
+    // #140: on a zoomed-out capture an exactly-scaled preview collapsed to
+    // ~6.5px. The field is floored so the user can read what they type.
+    const editingPx = Number.parseFloat(textResult.fontSize);
+    report.checks.textInputReadable = Number.isFinite(editingPx) && editingPx >= 13;
+
     await sleep(300);
     const paintedText = await shapeCount();
     report.checks.textDrawn = paintedText > paintedArrow;
@@ -367,6 +382,7 @@ app.whenReady().then(async () => {
     // ── Verdict ──────────────────────────────────────────────────────────
     const mustPass = [
       "captureNonEmpty",
+      "capturedActiveDisplay",
       "canvasOnScreen",
       "canvasOnScreenAfterCrop",
       "selectToolRemoved",
@@ -376,6 +392,7 @@ app.whenReady().then(async () => {
       "fontAccepted",
       "fontHasNoCssVar",
       "glyphScalesWithWidth",
+      "textInputReadable",
       "textDrawn",
       "cropRestoresUsableTool",
       "drawableRightAfterCrop",

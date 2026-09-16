@@ -13,17 +13,21 @@
 // Contract:
 //   pickArea(opts) → Promise<PickResult | null>   (null = user cancelled)
 //
-// The function captures the primary display, opens a transparent full-screen
-// BrowserWindow that loads renderer/crop-overlay.html, and waits for the user
-// to drag a region or press Esc. Returned coordinates are in DIP (pre-scale)
-// CSS pixels — callers multiply by `display.scaleFactor` when slicing the
-// native PNG.
+// The function captures the display under the pointer, opens a transparent
+// full-screen BrowserWindow on that same display which loads
+// renderer/crop-overlay.html, and waits for the user to drag a region or press
+// Esc. Returned coordinates are in DIP (pre-scale) CSS pixels relative to that
+// display — callers multiply by the returned `scaleFactor` when slicing the
+// native PNG. Read it from the result, not from the primary display: scale
+// factors differ between a Retina laptop screen and an external monitor.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-import { BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences, type Display } from "electron";
+import { BrowserWindow, ipcMain, systemPreferences, type Display } from "electron";
+
+import { captureDisplay } from "./display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -54,8 +58,8 @@ export interface PickAreaOptions {
 }
 
 /**
- * Captures the primary display and prompts the user to draw a crop region.
- * Returns null if the user pressed Esc or the selection was too small.
+ * Captures the display under the pointer and prompts the user to draw a crop
+ * region. Returns null if the user pressed Esc or the selection was too small.
  *
  * Throws when Screen Recording permission is missing — callers should catch
  * and surface a user-facing prompt.
@@ -72,22 +76,12 @@ export async function pickArea(opts: PickAreaOptions): Promise<PickResult | null
     }
   }
 
-  const display = screen.getPrimaryDisplay();
-  const { width, height } = display.bounds;
-  const scaleFactor = display.scaleFactor;
+  // Capture the display the pointer is on, not whichever one macOS calls
+  // primary — otherwise the overlay opens on the built-in screen while the
+  // user is working on an external monitor (#136).
+  const { image, display, scaleFactor } = await captureDisplay();
 
-  const sources = await desktopCapturer.getSources({
-    types: ["screen"],
-    thumbnailSize: {
-      width: Math.round(width * scaleFactor),
-      height: Math.round(height * scaleFactor)
-    }
-  });
-
-  const primary = sources[0];
-  if (!primary) throw new Error("No screen source available");
-
-  const fullDataUrl = primary.thumbnail.toDataURL();
+  const fullDataUrl = image.toDataURL();
 
   const region = await openCropOverlay(fullDataUrl, display, opts.preloadPath);
   if (!region) return null;
