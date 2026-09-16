@@ -28,6 +28,7 @@
     "check": "npm run typecheck && npm run test",
     "setup:dictation": "bash scripts/install-whisper-cpp.sh",
     "setup:codesign-cert": "bash scripts/setup-codesign-cert.sh",
+    "install:local": "bash scripts/install-local.sh",
     "test:e2e:capture": "npm run build && electron tests/e2e/capture-editor.mjs"
   },
   "build": {
