@@ -15,13 +15,16 @@
 
 import {
   canStartDraft,
+  clampZoom,
+  computeFitZoom,
   counterFontString,
   HistoryStack,
   isNoOpShape,
   normalizeShape,
   textFontSize,
   textFontString,
-  textLineHeight
+  textLineHeight,
+  zoomedSize
 } from "./capture-shapes.js";
 
 const api = window.marshalCapture;
@@ -74,13 +77,14 @@ api.onImageLoaded((_event, payload) => {
   img.src = `data:image/png;base64,${payload.base64}`;
 });
 
+// Canvas element attributes stay in NATIVE image pixels — that is the backing
+// buffer every shape is drawn into and what gets exported. The presented size
+// is CSS-only and follows the zoom, applied in applyZoom(). See #139.
 function resizeCanvases() {
   els.base.width = state.baseW;
   els.base.height = state.baseH;
   els.draw.width = state.baseW;
   els.draw.height = state.baseH;
-  els.canvasWrap.style.width = `${state.baseW}px`;
-  els.canvasWrap.style.height = `${state.baseH}px`;
   applyZoom();
 }
 
@@ -517,28 +521,42 @@ document.getElementById("pin").addEventListener("click", () => {
 
 // ── Zoom ───────────────────────────────────────────────────────────────────
 
+// Zoom by changing the element's real layout size, not by transforming it.
+//
+// A CSS transform leaves the layout box at its original dimensions, so the
+// viewport's flex centering was positioning a 3600px-wide box inside a ~1068px
+// column and pushing its left edge to roughly -1266. `transform-origin: top
+// left` then shrank it around a corner that was already off-screen, and the
+// whole capture became invisible — every fullscreen capture on a Retina
+// display. Sizing in CSS pixels keeps centering, scrolling and hit-testing
+// honest. See #139.
 function applyZoom() {
-  els.canvasWrap.style.transform = `scale(${state.zoom})`;
+  const { width, height } = zoomedSize(state.baseW, state.baseH, state.zoom);
+
+  els.canvasWrap.style.width = `${width}px`;
+  els.canvasWrap.style.height = `${height}px`;
+  for (const canvas of [els.base, els.draw]) {
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+  }
+
   els.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
 }
 
 function fitToWindow() {
   const rect = els.viewport.getBoundingClientRect();
-  const pad = 32;
-  const availW = rect.width - pad;
-  const availH = rect.height - pad;
-  if (state.baseW <= 0 || state.baseH <= 0) return;
-  const scale = Math.min(availW / state.baseW, availH / state.baseH, 1);
-  state.zoom = Math.max(0.1, scale);
+  const fit = computeFitZoom(rect.width, rect.height, state.baseW, state.baseH);
+  if (fit === null) return;
+  state.zoom = fit;
   applyZoom();
 }
 
 document.getElementById("zoom-in").addEventListener("click", () => {
-  state.zoom = Math.min(4, state.zoom * 1.2);
+  state.zoom = clampZoom(state.zoom * 1.2);
   applyZoom();
 });
 document.getElementById("zoom-out").addEventListener("click", () => {
-  state.zoom = Math.max(0.1, state.zoom / 1.2);
+  state.zoom = clampZoom(state.zoom / 1.2);
   applyZoom();
 });
 document.getElementById("zoom-fit").addEventListener("click", fitToWindow);

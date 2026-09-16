@@ -160,3 +160,48 @@ export class HistoryStack {
     this.future.length = 0;
   }
 }
+
+// ── Zoom geometry ───────────────────────────────────────────────────────────
+//
+// The editor presents the capture at a CSS size derived from the zoom, while
+// the canvas element attributes stay in native image pixels. Sizing the layout
+// box (rather than applying a CSS transform to a full-size box) is what keeps
+// the capture inside the viewport: a transform leaves the layout box at image
+// size, and the viewport's flex centering then pushes a 3600px-wide box far
+// off-screen. See #139.
+
+/** Smallest zoom the UI allows. Below this the capture is unusable. */
+export const MIN_ZOOM = 0.1;
+/** Largest zoom the UI allows. */
+export const MAX_ZOOM = 4;
+/** Breathing room, in CSS pixels, left around the capture when fitting. */
+export const FIT_PADDING = 32;
+
+/** Presented CSS size of the capture at a given zoom. Always at least 1px. */
+export function zoomedSize(baseWidth, baseHeight, zoom) {
+  return {
+    width: Math.max(1, Math.round(baseWidth * zoom)),
+    height: Math.max(1, Math.round(baseHeight * zoom))
+  };
+}
+
+/**
+ * Zoom that fits the capture inside the viewport, never magnifying past 1:1.
+ * Returns null when the inputs cannot produce a meaningful fit, so callers
+ * can leave the current zoom alone rather than collapse the canvas.
+ */
+export function computeFitZoom(viewportWidth, viewportHeight, baseWidth, baseHeight, padding = FIT_PADDING) {
+  if (baseWidth <= 0 || baseHeight <= 0) return null;
+
+  const availableWidth = viewportWidth - padding;
+  const availableHeight = viewportHeight - padding;
+  if (availableWidth <= 0 || availableHeight <= 0) return null;
+
+  const fit = Math.min(availableWidth / baseWidth, availableHeight / baseHeight, 1);
+  return clampZoom(fit);
+}
+
+/** Keeps a zoom inside the range the toolbar and fit logic agree on. */
+export function clampZoom(zoom) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}

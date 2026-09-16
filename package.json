@@ -27,7 +27,8 @@
     "test:e2e": "npm run build && node tests/e2e/smoke.mjs",
     "check": "npm run typecheck && npm run test",
     "setup:dictation": "bash scripts/install-whisper-cpp.sh",
-    "setup:codesign-cert": "bash scripts/setup-codesign-cert.sh"
+    "setup:codesign-cert": "bash scripts/setup-codesign-cert.sh",
+    "test:e2e:capture": "npm run build && electron tests/e2e/capture-editor.mjs"
   },
   "build": {
     "appId": "com.marshal.desktop",
