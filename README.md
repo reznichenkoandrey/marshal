@@ -29,6 +29,12 @@ All three surface into one Electron tray app; dictation and translator work full
 - 42 languages with auto-detect and swap (`⌘⇧S`). The pair is remembered and also decides
   which way the hotkeys translate.
 - Register switch: Neutral / Formal / Informal.
+- **Glossary** (book icon): terms the translator must not rewrite. Either pin an exact
+  rendering per target language, or add the term with no translation and it is left in the
+  original language — which is what you want for identifiers and borrowed jargon. Measured
+  before and after on the same sentence: *"retried with **відступом**"* → *"retried with
+  **backoff**"*. Only terms that actually occur in the text are sent, so a long glossary
+  costs nothing per keystroke.
 - **Insert** (`⌘⇧V`) pastes the translation into the app you came from; **Copy** puts it on
   the clipboard. Insert restores your previous clipboard afterwards.
 - Pin (`⌘P`) keeps the window open when it loses focus, so you can type in another app and

@@ -116,8 +116,19 @@ const dom = {
   langOptions: document.getElementById("lang-options"),
   historyPanel: document.getElementById("history-panel"),
   historyList: document.getElementById("history-list"),
-  historyClear: document.getElementById("history-clear")
+  historyClear: document.getElementById("history-clear"),
+  glossaryBtn: document.getElementById("btn-glossary"),
+  glossaryPanel: document.getElementById("glossary-panel"),
+  glossaryForm: document.getElementById("glossary-form"),
+  glossaryTerm: document.getElementById("glossary-term"),
+  glossaryTranslation: document.getElementById("glossary-translation"),
+  glossaryList: document.getElementById("glossary-list"),
+  glossaryHint: document.getElementById("glossary-hint")
 };
+
+// Fixed terms. Cached so the panel renders instantly and so a re-translate
+// after an edit does not have to wait on IPC.
+let glossaryEntries = [];
 
 // ── Language helpers ──
 
@@ -135,6 +146,8 @@ function renderLanguageBar() {
   dom.btnSwap.disabled = sourceLang === "auto" && !detectedSourceLang;
   dom.formalityLabel.textContent = FORMALITY_LABELS[formality];
   dom.btnFormality.classList.toggle("active", formality !== "default");
+  // The panel shows renderings for the active target, so it follows the pair.
+  if (dom.glossaryPanel && !dom.glossaryPanel.hidden) renderGlossary();
 }
 
 async function persistPair() {
@@ -694,6 +707,11 @@ document.addEventListener("keydown", (e) => {
       dom.inputText.focus();
       return;
     }
+    if (!dom.glossaryPanel.hidden) {
+      dom.glossaryPanel.hidden = true;
+      dom.inputText.focus();
+      return;
+    }
     if (!dom.historyPanel.hidden) {
       dom.historyPanel.hidden = true;
       return;
@@ -788,6 +806,14 @@ document.addEventListener("click", (e) => {
     dom.historyPanel.hidden = true;
   }
   if (
+    !dom.glossaryPanel.hidden &&
+    !dom.glossaryPanel.contains(e.target) &&
+    e.target !== dom.glossaryBtn &&
+    !dom.glossaryBtn.contains(e.target)
+  ) {
+    dom.glossaryPanel.hidden = true;
+  }
+  if (
     popoverSide &&
     !dom.langPopover.contains(e.target) &&
     !dom.srcLang.contains(e.target) &&
@@ -866,6 +892,106 @@ function renderHistoryPanel() {
   });
 }
 
+// ── Glossary panel ──
+//
+// Lives next to the translation because that is where a bad term is noticed:
+// see "backoff" come back translated, open this, add it, and the re-translate
+// below applies it immediately.
+
+dom.glossaryBtn.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  if (!dom.glossaryPanel.hidden) {
+    dom.glossaryPanel.hidden = true;
+    return;
+  }
+  closeLangPopover();
+  dom.historyPanel.hidden = true;
+  await refreshGlossary();
+  renderGlossary();
+  dom.glossaryPanel.hidden = false;
+  dom.glossaryTerm.focus();
+});
+
+dom.glossaryForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const term = dom.glossaryTerm.value.trim();
+  if (!term) return;
+  const translation = dom.glossaryTranslation.value.trim();
+  try {
+    glossaryEntries = await api.addGlossaryEntry({ term, targetLang, translation });
+  } catch (err) {
+    showError(err?.message || "Could not save the term");
+    return;
+  }
+  dom.glossaryTerm.value = "";
+  dom.glossaryTranslation.value = "";
+  renderGlossary();
+  dom.glossaryTerm.focus();
+  // The whole point is to see the term fixed, so re-run the current text.
+  lastRequest = { text: "", sourceLang: "", targetLang: "", formality: "" };
+  translateNow();
+});
+
+async function refreshGlossary() {
+  try {
+    glossaryEntries = (await api.listGlossary()) || [];
+  } catch {
+    glossaryEntries = [];
+  }
+}
+
+function renderGlossary() {
+  dom.glossaryHint.textContent = `${languageName(targetLang)} column`;
+  dom.glossaryList.innerHTML = "";
+
+  if (glossaryEntries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "No fixed terms yet. Add one to stop it being translated.";
+    dom.glossaryList.appendChild(empty);
+    return;
+  }
+
+  glossaryEntries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "glossary-item";
+
+    const term = document.createElement("span");
+    term.className = "glossary-term";
+    term.textContent = entry.term;
+
+    const value = document.createElement("span");
+    value.className = "glossary-value";
+    const mapped = entry.translations?.[targetLang];
+    if (mapped) {
+      value.textContent = `→ ${mapped}`;
+    } else {
+      value.textContent = "kept as-is";
+      value.classList.add("kept");
+    }
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "glossary-remove";
+    remove.title = `Remove "${entry.term}"`;
+    remove.textContent = "✕";
+    remove.addEventListener("click", async () => {
+      try {
+        glossaryEntries = await api.removeGlossaryEntry(entry.term);
+      } catch (err) {
+        showError(err?.message || "Could not remove the term");
+        return;
+      }
+      renderGlossary();
+    });
+
+    row.appendChild(term);
+    row.appendChild(value);
+    row.appendChild(remove);
+    dom.glossaryList.appendChild(row);
+  });
+}
+
 // ── Init ──
 
 async function init() {
@@ -887,6 +1013,7 @@ async function init() {
   setResultActions(false);
   setState("empty");
   await refreshHistory();
+  await refreshGlossary();
   requestAnimationFrame(() => dom.inputText.focus());
 }
 

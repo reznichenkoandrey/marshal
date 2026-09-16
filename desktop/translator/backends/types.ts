@@ -1,3 +1,4 @@
+import type { GlossaryEntry } from "../glossary-store.ts";
 import type { LangCode, SourceLang } from "../languages.ts";
 
 export type { LangCode, SourceLang } from "../languages.ts";
@@ -20,6 +21,11 @@ export interface TranslateOptions {
   /** `auto` (or omitted) lets the model detect the source language. */
   sourceLang?: SourceLang;
   formality?: Formality;
+  /**
+   * Fixed terms for this call. Already filtered to the ones occurring in the
+   * text — see selectGlossaryEntries — so the prompt stays short.
+   */
+  glossary?: readonly GlossaryEntry[];
 }
 
 /**

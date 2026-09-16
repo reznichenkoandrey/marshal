@@ -9,6 +9,7 @@ import { EventEmitter } from "node:events";
 
 import { isBackendUnusableError, type BackendUnusableReason } from "./backends/errors.ts";
 import { createTranslatorBackend, resolveTranslatorBackendId, translatorBackendForBridge } from "./backends/factory.ts";
+import { selectGlossaryEntries, type GlossaryEntry } from "./glossary-store.ts";
 import { detectScriptLang } from "./languages.ts";
 import type {
   Formality,
@@ -68,6 +69,8 @@ export class TranslatorService extends EventEmitter {
    * fixed key would show up.
    */
   private rejectedBackend: TranslatorBackendId | null = null;
+  /** Fixed terms, whole list; only the ones in the text reach a prompt. */
+  private glossary: readonly GlossaryEntry[] = [];
   private choice: TranslatorBackendChoice;
   private bridgeMode: TranslatorBridgeMode;
   private sourceLang: SourceLang;
@@ -111,6 +114,11 @@ export class TranslatorService extends EventEmitter {
     }
   }
 
+  /** Replaces the glossary; main calls this on load and after every edit. */
+  setGlossary(entries: readonly GlossaryEntry[]): void {
+    this.glossary = entries;
+  }
+
   /** Called whenever the renderer changes the pair, so hotkeys follow the UI. */
   setLanguagePair(sourceLang: SourceLang, targetLang: TargetLang, formality: Formality = this.formality): void {
     this.sourceLang = sourceLang;
@@ -119,7 +127,7 @@ export class TranslatorService extends EventEmitter {
   }
 
   translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
-    const filled = this.withDefaults(options);
+    const filled = this.withDefaults(options, text);
     return this.run((backend) => backend.translateText(text, targetLang, filled));
   }
 
@@ -142,9 +150,8 @@ export class TranslatorService extends EventEmitter {
    */
   translateAuto(text: string): Promise<TranslationResult> {
     const targetLang = this.autoTarget(text);
-    return this.run((backend) =>
-      backend.translateText(text, targetLang, { sourceLang: "auto", formality: this.formality })
-    );
+    const options = this.withDefaults({ sourceLang: "auto" }, text);
+    return this.run((backend) => backend.translateText(text, targetLang, options));
   }
 
   /**
@@ -198,12 +205,22 @@ export class TranslatorService extends EventEmitter {
     return this.targetLang === first ? second : first;
   }
 
-  /** Fills in the configured source/formality for callers that omit them. */
-  private withDefaults(options: TranslateOptions | undefined): TranslateOptions {
-    return {
+  /**
+   * Fills in the configured source/formality, and the glossary terms that
+   * actually occur in `text`. With no text (the image path) the whole
+   * glossary would have to go in blind, which is exactly the prompt bloat
+   * the filtering exists to avoid — so images get no terms unless the caller
+   * passes them.
+   */
+  private withDefaults(options: TranslateOptions | undefined, text?: string): TranslateOptions {
+    const filled: TranslateOptions = {
       sourceLang: options?.sourceLang ?? this.sourceLang,
       formality: options?.formality ?? this.formality
     };
+    const glossary = options?.glossary
+      ?? (text !== undefined ? selectGlossaryEntries(text, this.glossary) : []);
+    if (glossary.length > 0) filled.glossary = glossary;
+    return filled;
   }
 
   private resolveBackendId(): TranslatorBackendId {

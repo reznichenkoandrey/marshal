@@ -52,6 +52,12 @@ const translatorApi = {
   setPinned: (pinned: boolean) => ipcRenderer.invoke("marshal:translator-pin", pinned),
   // Paste the translation into the app behind the translator.
   insertTranslation: (text: string) => ipcRenderer.invoke("marshal:translator-insert", text),
+  // Glossary — fixed terms the translator must not rewrite
+  listGlossary: () => ipcRenderer.invoke("marshal:translator-glossary-list"),
+  addGlossaryEntry: (entry: { term: string; targetLang?: string; translation?: string }) =>
+    ipcRenderer.invoke("marshal:translator-glossary-add", entry),
+  removeGlossaryEntry: (term: string) =>
+    ipcRenderer.invoke("marshal:translator-glossary-remove", term),
   // History — list/push/clear for recalling past translations
   listHistory: () => ipcRenderer.invoke("marshal:translator-history-list"),
   pushHistory: (item: Record<string, unknown>) =>
