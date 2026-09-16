@@ -1,6 +1,6 @@
 {
   "name": "local-chatgpt-agent",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -49,7 +49,7 @@
       "dist/desktop/dictation/mic-list",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
-      "dist/desktop/dictation/ggml-small.bin",
+      "dist/desktop/dictation/*.bin",
       "dist/desktop/capture/screen-recorder",
       "dist/desktop/capture/system-audio-recorder",
       "dist/desktop/capture/scroll-capture",
