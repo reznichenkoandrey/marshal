@@ -28,6 +28,7 @@ export default defineConfig({
         "desktop/translator/layout-switcher.ts",
         "desktop/dictation/hotkey-manager.ts",
         "desktop/dictation/whisper-backend.ts",
+        "desktop/dictation/model-installer.ts",
         "agent/bridge/factory.ts",
         "agent/tools/fs.ts",
         "agent/runtime/marshal.ts",

@@ -27,6 +27,14 @@ import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
+import {
+  DEFAULT_MODEL_NAME,
+  findInstalledModel,
+  findModelSpec,
+  formatBytes,
+  downloadModel,
+  modelsDir
+} from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingRecorder } from "./meeting/meeting-recorder.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
@@ -78,6 +86,10 @@ let lastRecordingPath: string | null = null;
 let clipboardMonitor: ClipboardMonitor | null = null;
 let layoutSwitcher: LayoutSwitcher | null = null;
 let translatorHistory: TranslatorHistoryStore | null = null;
+// In-flight whisper model download. The model is a 1.5 GB out-of-band asset
+// (see dictation/model-installer.ts), so the tray shows progress and offers
+// a cancel instead of blocking on a modal.
+let modelDownload: { name: string; percent: number; abort: AbortController } | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
 let isDictating = false;
@@ -1598,6 +1610,106 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
   return items;
 }
 
+/**
+ * Tray entry for the whisper model. While a download runs it turns into a
+ * progress/cancel row, because a 1.5 GB fetch is the one operation here the
+ * user may well want to stop.
+ */
+function buildModelMenuItem(): Electron.MenuItemConstructorOptions {
+  if (modelDownload) {
+    return {
+      label: `Cancel Model Download (${modelDownload.percent}%)`,
+      click: () => modelDownload?.abort.abort()
+    };
+  }
+  const installed = findInstalledModel();
+  if (installed) {
+    return {
+      label: `Dictation Model: ${installed.name.replace(/^ggml-|\.bin$/gu, "")}`,
+      enabled: false
+    };
+  }
+  return {
+    label: "Download Dictation Model…",
+    click: () => void runModelDownload()
+  };
+}
+
+/**
+ * Downloads the default whisper model into the shared models directory.
+ * Confirms first — this is a multi-gigabyte fetch — then reports progress
+ * through the tray tooltip and finishes with a dialog either way.
+ */
+async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void> {
+  if (modelDownload) return;
+
+  const spec = findModelSpec(name);
+  if (!spec) {
+    await dialog.showMessageBox({
+      type: "error",
+      title: "Unknown model",
+      message: `No whisper model named ${name}.`
+    });
+    return;
+  }
+
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "Download dictation model",
+    message: `Download ${spec.label} (${formatBytes(spec.bytes)})?`,
+    detail:
+      `Voice dictation needs this model. It is downloaded once into\n${modelsDir()}\n\n` +
+      "It lives outside the app, so app updates and reinstalls keep it, and " +
+      "an interrupted download resumes where it stopped.",
+    buttons: ["Download", "Cancel"],
+    defaultId: 0,
+    cancelId: 1
+  });
+  if (response !== 0) return;
+
+  const abort = new AbortController();
+  modelDownload = { name, percent: 0, abort };
+  void refreshTrayState();
+
+  try {
+    await downloadModel(name, {
+      signal: abort.signal,
+      onProgress: ({ ratio }) => {
+        if (!modelDownload) return;
+        const percent = ratio === null ? 0 : Math.min(100, Math.round(ratio * 100));
+        // Only repaint the tray on a whole-percent change — the progress
+        // callback fires per chunk, which is thousands of times per GB.
+        if (percent === modelDownload.percent) return;
+        modelDownload.percent = percent;
+        void refreshTrayState();
+      }
+    });
+    modelDownload = null;
+    // Pick the new model up without making the user restart the app.
+    restartDictation();
+    await dialog.showMessageBox({
+      type: "info",
+      title: "Dictation model ready",
+      message: `${spec.label} is installed.`,
+      detail: `Saved to ${modelsDir()}. Voice dictation is ready to use.`
+    });
+  } catch (err) {
+    const aborted = abort.signal.aborted;
+    modelDownload = null;
+    if (!aborted) {
+      await dialog.showMessageBox({
+        type: "error",
+        title: "Model download failed",
+        message: err instanceof Error ? err.message : String(err),
+        detail: "The partial download was kept — starting it again resumes from where it stopped."
+      });
+    }
+  } finally {
+    modelDownload = null;
+    void refreshTrayState();
+  }
+}
+
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
@@ -1624,6 +1736,7 @@ function buildTrayMenu(): Electron.Menu {
       click: () => void toggleMeetingRecording()
     },
     { label: "Capture", submenu: buildCaptureSubmenu() },
+    buildModelMenuItem(),
     { type: "separator" },
     {
       label: "Start at Login",
@@ -1941,6 +2054,7 @@ async function refreshTrayState(): Promise<void> {
     : "Marshal\nUnavailable";
 
   const status: string[] = [];
+  if (modelDownload) status.push(`⬇ Dictation model ${modelDownload.percent}%`);
   if (isDictating) status.push("● Recording dictation…");
   if (isRecording) status.push("● Recording screen…");
   if (isMeetingRecording) status.push("● Recording meeting…");
