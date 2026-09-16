@@ -15,13 +15,16 @@ import {
   clampZoom,
   computeFitZoom,
   counterFontString,
+  editingFontSize,
   DRAWABLE_TOOLS,
   HISTORY_LIMIT,
   HistoryStack,
   isNoOpShape,
   normalizeShape,
   FIT_PADDING,
+  isEditingFontFloored,
   MAX_ZOOM,
+  MIN_EDITING_FONT_SIZE,
   MIN_ZOOM,
   SPECIAL_TOOLS,
   textFontSize,
@@ -329,5 +332,48 @@ describe("zoom geometry", () => {
 
     for (let i = 0; i < 80; i++) zoom = clampZoom(zoom / 1.2);
     expect(zoom).toBe(MIN_ZOOM);
+  });
+});
+
+describe("inline text editing size", () => {
+  it("previews at the annotation's on-screen size when that is readable", () => {
+    // 24px annotation at 100% zoom needs no adjustment.
+    expect(editingFontSize(4, 1)).toBe(24);
+    expect(isEditingFontFloored(4, 1)).toBe(false);
+  });
+
+  it("keeps the field readable on a zoomed-out capture", () => {
+    // A Retina fullscreen capture fits at roughly 0.27. The exact preview
+    // would be ~6.5px, which is what #140 reported.
+    const exact = 24 * 0.27;
+    expect(exact).toBeLessThan(MIN_EDITING_FONT_SIZE);
+    expect(editingFontSize(4, 0.27)).toBe(MIN_EDITING_FONT_SIZE);
+    expect(isEditingFontFloored(4, 0.27)).toBe(true);
+  });
+
+  it("never returns a size below the floor, however far out the zoom is", () => {
+    for (const zoom of [0.5, 0.27, 0.1, 0.01]) {
+      expect(editingFontSize(2, zoom)).toBeGreaterThanOrEqual(MIN_EDITING_FONT_SIZE);
+    }
+  });
+
+  it("still grows with zoom above the floor", () => {
+    expect(editingFontSize(4, 2)).toBe(48);
+    expect(editingFontSize(8, 1.5)).toBe(72);
+    expect(isEditingFontFloored(4, 2)).toBe(false);
+  });
+
+  it("reports flooring exactly at the boundary", () => {
+    // At the boundary the exact preview equals the floor, so nothing is traded.
+    const boundaryZoom = MIN_EDITING_FONT_SIZE / textFontSize(4);
+    expect(isEditingFontFloored(4, boundaryZoom)).toBe(false);
+    expect(isEditingFontFloored(4, boundaryZoom - 0.01)).toBe(true);
+  });
+
+  it("does not change what gets rasterized", () => {
+    // The committed annotation is drawn from the stroke width alone; zoom
+    // must not leak into it.
+    expect(textFontString(4)).toBe(`${textFontSize(4)}px ${CANVAS_FONT_STACK}`);
+    expect(textFontSize(4)).toBe(24);
   });
 });
