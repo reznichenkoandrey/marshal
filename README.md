@@ -104,6 +104,25 @@ certificate, which only comes with a paid Apple Developer Program membership. An
 downloading the DMG from Releases still sees the dialog once and clears it with
 right-click → **Open**.
 
+### Giving the installed app your API key
+
+A packaged build resolves the project-root `.env` to a path *inside* `Marshal.app`, which does
+not exist — so the installed app reads a second `.env` from its own config directory:
+
+```
+~/Library/Application Support/Marshal/.env
+```
+
+```bash
+npm run setup:env            # copy the project .env there
+npm run setup:env -- --force # overwrite an existing one
+```
+
+This matters for speed, not just for cloud features. With no `MARSHAL_API_KEY` the translator
+falls back to a CLI backend at roughly **ten seconds** per translation, and translating while
+you type turns into lag. With the key present it uses Groq and answers in well under a second.
+Settings → Setup health names the exact path when the key is missing.
+
 ### Installing the dictation model on a packaged build
 
 The DMG deliberately does not contain the model. After installing Marshal, open the menu-bar
@@ -157,6 +176,7 @@ MARSHAL_MODEL=llama-3.3-70b-versatile
 MARSHAL_VISION_MODEL=llama-3.2-11b-vision-preview
 
 # Translator knobs
+MARSHAL_TRANSLATOR_MODEL=            # text model for the translator only; falls back to MARSHAL_MODEL
 MARSHAL_TRANSLATOR_TEMPERATURE=0.1
 MARSHAL_TRANSLATOR_MAX_TOKENS=4096
 MARSHAL_TRANSLATOR_MAX_RETRIES=3
@@ -271,7 +291,8 @@ Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
 
 | Symptom | Fix |
 |---|---|
-| "MARSHAL_API_KEY is not set" | fill it in `.env` |
+| "MARSHAL_API_KEY is not set" | fill it in `.env` — and for an **installed** build run `npm run setup:env`, because the project `.env` is unreachable from inside the .app |
+| Translation takes ~10 s per sentence | no `MARSHAL_API_KEY`, so the translator fell back to a CLI backend. Add a Groq key and run `npm run setup:env` |
 | 429 / rate-limit | built-in retry with exponential backoff; try again or lower `MARSHAL_TRANSLATOR_MAX_TOKENS` |
 | OCR result is garbage | rate-limited or vision model picked wrong text; retry with a tighter crop |
 | "Apple could not verify Marshal…" on first launch | expected — the build is not notarized. `npm run install:local` for your own builds, or right-click → **Open** once for a downloaded DMG |

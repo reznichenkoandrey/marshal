@@ -1820,6 +1820,7 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
     screenStatus: isDarwin ? systemPreferences.getMediaAccessStatus("screen") : undefined,
     accessibilityTrusted: isDarwin ? systemPreferences.isTrustedAccessibilityClient(false) : undefined,
     apiKeyPresent: Boolean(process.env.MARSHAL_API_KEY?.trim()),
+    envFilePath: path.join(app.getPath("userData"), ".env"),
     whisperBinPath: whisper.bin,
     whisperModelPath: whisper.model,
     codesignIdentityPresent: isDarwin ? await hasMarshalCodesignIdentity() : undefined,
