@@ -45,6 +45,12 @@
      - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo` + stable identity `099164E16AE88B2052B842BE1036FB10411B7239`.
   3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`)
+- **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
+  руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
+  блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,
+  знімає атрибут і перевіряє підпис — діалогу немає взагалі (#153). Нотаризація прибрала б
+  його і для сторонніх, але потребує `Developer ID Application`, тобто платного Apple
+  Developer Program — поки не купуємо.
 
 ---
 

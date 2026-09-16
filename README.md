@@ -86,6 +86,24 @@ npm run desktop
 
 Packaged builds (`npm run desktop:pack`) carry the same keys via `package.json → build.mac.extendInfo` and survive notarisation; the manual patch is dev-only.
 
+### Installing a build on your own machine
+
+```bash
+npm run desktop:dist     # build the DMG
+npm run install:local    # install it and drop the Gatekeeper flag
+```
+
+Builds are signed with a self-signed identity and are **not notarized**, so macOS attaches
+`com.apple.quarantine` to the image and blocks the first launch with "Apple could not
+verify…". `install:local` quits a running Marshal, copies the app out of the image into
+`/Applications`, removes that attribute and verifies the signature — after it the app opens
+normally, with no right-click → Open dance, on every future build.
+
+Removing notarization from the equation entirely needs a `Developer ID Application`
+certificate, which only comes with a paid Apple Developer Program membership. Anyone
+downloading the DMG from Releases still sees the dialog once and clears it with
+right-click → **Open**.
+
 ### Installing the dictation model on a packaged build
 
 The DMG deliberately does not contain the model. After installing Marshal, open the menu-bar
@@ -256,6 +274,7 @@ Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
 | "MARSHAL_API_KEY is not set" | fill it in `.env` |
 | 429 / rate-limit | built-in retry with exponential backoff; try again or lower `MARSHAL_TRANSLATOR_MAX_TOKENS` |
 | OCR result is garbage | rate-limited or vision model picked wrong text; retry with a tighter crop |
+| "Apple could not verify Marshal…" on first launch | expected — the build is not notarized. `npm run install:local` for your own builds, or right-click → **Open** once for a downloaded DMG |
 | **Insert** says it could not paste | the translation stays on the clipboard — grant Accessibility to Electron (System Settings → Privacy & Security → Accessibility) and retry |
 | Window keeps hiding while you type elsewhere | it is unpinned — click the pin in the header or press `⌘P` |
 | Swap button is greyed out | the source is on *Detect language* and nothing has been detected yet — translate once, or pick a source language explicitly |
