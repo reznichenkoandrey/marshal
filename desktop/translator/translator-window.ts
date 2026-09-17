@@ -13,6 +13,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserWindow, screen } from "electron";
 
+import { shouldHideOnBlur } from "./window-policy.ts";
+
 const DEFAULT_WIDTH = 760;
 const DEFAULT_HEIGHT = 470;
 const MIN_WIDTH = 520;
@@ -37,6 +39,11 @@ export class TranslatorWindow {
   private readonly rendererDir: string;
   private readonly statePath: string | null;
   private state: TranslatorWindowState;
+  /**
+   * Whether the source field holds text. The renderer owns the field, so it
+   * reports the empty↔non-empty transitions; main cannot see them.
+   */
+  private hasContent = false;
 
   constructor(preloadPath: string, userDataDir?: string) {
     this.preloadPath = preloadPath;
@@ -109,6 +116,20 @@ export class TranslatorWindow {
     return this.state.pinned;
   }
 
+  isFocused(): boolean {
+    return !!(this.win && !this.win.isDestroyed() && this.win.isFocused());
+  }
+
+  /** Called by the renderer whenever the source field empties or fills. */
+  setHasContent(hasContent: boolean): void {
+    this.hasContent = hasContent;
+  }
+
+  /** True when there is a translation in progress worth protecting. */
+  hasUnfinishedContent(): boolean {
+    return this.hasContent;
+  }
+
   /** Pinned windows keep their place and ignore blur. */
   setPinned(pinned: boolean): boolean {
     this.state.pinned = pinned;
@@ -142,11 +163,12 @@ export class TranslatorWindow {
 
     void this.win.loadFile(path.join(this.rendererDir, "translator.html"));
 
-    // Hide on blur (click outside) — unless the user pinned the window,
-    // in which case blur is the normal state while they work in another app.
+    // Hide on blur — but blur is not the same as "dismiss": see
+    // shouldHideOnBlur in window-policy.ts (#166).
     this.win.on("blur", () => {
-      if (this.state.pinned) return;
-      this.hide();
+      if (shouldHideOnBlur({ pinned: this.state.pinned, hasContent: this.hasContent })) {
+        this.hide();
+      }
     });
 
     // Persist whatever the user dragged/resized to, so the next open matches.

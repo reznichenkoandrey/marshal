@@ -84,9 +84,12 @@ export class ClipboardMonitor extends EventEmitter {
       }
     }
 
+    // The hotkey reports itself and lets main decide what it means — the
+    // window's own state (visible, focused, half-typed text) is not knowable
+    // from here, and deciding without it is what made the key do nothing on
+    // an empty clipboard and clobber text on a full one (#166).
     globalShortcut.register(DEDICATED_HOTKEY, () => {
-      const text = clipboard.readText().trim();
-      if (text) this.safeEmit(text);
+      this.emit("hotkey", clipboard.readText());
     });
 
     if (this.debug) {
@@ -122,6 +125,16 @@ export class ClipboardMonitor extends EventEmitter {
       const text = clipboard.readText().trim();
       if (text) this.safeEmit(text);
     }, POST_COPY_READ_DELAY_MS);
+  }
+
+  /**
+   * Run the clipboard-translate path for `text`. Public so the hotkey handler
+   * in main can decide whether this is what the key should do at all (#166),
+   * while the debounce below still applies.
+   */
+  emitTranslate(text: string): void {
+    const trimmed = text.trim();
+    if (trimmed) this.safeEmit(trimmed);
   }
 
   /** Emit with debounce so rapid keystrokes can't stack duplicate translations. */

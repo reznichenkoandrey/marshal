@@ -21,6 +21,7 @@ export default defineConfig({
         "desktop/translator/translator-service.ts",
         "desktop/translator/languages.ts",
         "desktop/translator/glossary-store.ts",
+        "desktop/translator/window-policy.ts",
         "desktop/translator/backends/errors.ts",
         "desktop/translator/insert-service.ts",
         "desktop/translator/backends/shared.ts",

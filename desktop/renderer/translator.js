@@ -346,10 +346,21 @@ dom.closeBtn.addEventListener("click", () => api.close());
 
 // ── Input ──
 
+// Mirrors whether the source field holds text, so the window knows not to
+// hide a translation in progress. Only the transitions are reported — this
+// runs on every keystroke, and the main process only cares about empty vs not.
+let reportedHasContent = null;
+
 function updateCharCount() {
   const length = dom.inputText.value.length;
   dom.charCount.textContent = length === 0 ? "" : `${length} / ${MAX_CHARS}`;
   dom.charCount.classList.toggle("over", length > MAX_CHARS);
+
+  const hasContent = dom.inputText.value.trim().length > 0;
+  if (hasContent !== reportedHasContent) {
+    reportedHasContent = hasContent;
+    void api.setHasContent?.(hasContent);
+  }
 }
 
 dom.inputText.addEventListener("input", () => {
