@@ -273,6 +273,12 @@ body {
   transition: background var(--dur-fast);
 }
 
+/* Toggled-on state for the stay-on-top button. */
+.ghost[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.ghost[aria-pressed="true"]:hover { background: var(--accent-soft-hover); }
 .ghost:hover { background: var(--bg-hover); }
 .ghost:active { background: var(--bg-pressed); }
 

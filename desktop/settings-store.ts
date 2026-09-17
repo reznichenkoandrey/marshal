@@ -88,6 +88,12 @@ export type MarshalSettings = {
    */
   captureDefaultFolder: string;
   /**
+   * Keep the capture editor above other windows. On by default: Marshal is an
+   * LSUIElement app, so a normal window that slips behind another one has no
+   * Dock icon or app-switcher entry to bring it back (#168).
+   */
+  captureEditorAlwaysOnTop: boolean;
+  /**
    * Launch Marshal automatically when the user logs into macOS. Applied via
    * `app.setLoginItemSettings({ openAtLogin })` — survives reboots and is
    * managed by macOS, not by a launchd plist we have to maintain ourselves.
@@ -145,6 +151,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
   dictationMicrophone: "",
   captureDefaultFolder: "",
+  captureEditorAlwaysOnTop: true,
   launchAtLogin: false,
   launchAtLoginLastError: "",
   checkForUpdatesAutomatic: true,
@@ -335,6 +342,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationMicrophone: typeof input.dictationMicrophone === "string"
       ? input.dictationMicrophone.trim()
       : DEFAULT_SETTINGS.dictationMicrophone,
+    captureEditorAlwaysOnTop: typeof input.captureEditorAlwaysOnTop === "boolean"
+      ? input.captureEditorAlwaysOnTop
+      : DEFAULT_SETTINGS.captureEditorAlwaysOnTop,
     captureDefaultFolder: typeof input.captureDefaultFolder === "string"
       ? input.captureDefaultFolder
       : DEFAULT_SETTINGS.captureDefaultFolder,

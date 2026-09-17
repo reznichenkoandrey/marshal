@@ -522,6 +522,40 @@ document.getElementById("pin").addEventListener("click", () => {
   api.pin(composeForExport()).catch(() => {});
 });
 
+// ── Keep above other windows ───────────────────────────────────────────────
+//
+// Distinct from "Pin on screen" next to it: that detaches the image into its
+// own floating window, this decides whether the editor itself stays above
+// other apps. On by default because Marshal has no Dock icon — a window that
+// slips behind another one cannot be raised by any OS affordance (#168).
+
+const stayOnTopBtn = document.getElementById("stay-on-top");
+
+function renderStayOnTop(enabled) {
+  stayOnTopBtn.setAttribute("aria-pressed", enabled ? "true" : "false");
+  stayOnTopBtn.title = enabled
+    ? "Keep above other windows — on"
+    : "Keep above other windows — off (use the menu bar to bring it back)";
+}
+
+stayOnTopBtn.addEventListener("click", async () => {
+  const next = stayOnTopBtn.getAttribute("aria-pressed") !== "true";
+  renderStayOnTop(next);
+  try {
+    renderStayOnTop(await api.setAlwaysOnTop(next));
+  } catch {
+    renderStayOnTop(!next);
+  }
+});
+
+void (async () => {
+  try {
+    renderStayOnTop((await api.getAlwaysOnTop()) !== false);
+  } catch {
+    renderStayOnTop(true);
+  }
+})();
+
 // ── Zoom ───────────────────────────────────────────────────────────────────
 
 // Zoom by changing the element's real layout size, not by transforming it.

@@ -11,7 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow } from "electron";
+import { BrowserWindow, app } from "electron";
 
 import type { CaptureResult } from "./capture-service.ts";
 import { activeDisplay } from "./display-capture.ts";
@@ -26,6 +26,8 @@ export interface OpenEditorOptions {
 
 export class CaptureWindow {
   private window: BrowserWindow | null = null;
+  /** Persisted preference; see setAlwaysOnTop and #168. */
+  private alwaysOnTop = true;
   private readonly preloadPath: string;
 
   constructor(preloadPath: string) {
@@ -61,6 +63,12 @@ export class CaptureWindow {
       minWidth: 640,
       minHeight: 420,
       show: false,
+      // Marshal is LSUIElement: no Dock icon, no entry in the app switcher.
+      // A normal window that ends up behind another one therefore cannot be
+      // raised by any OS affordance — it is not hidden, it is unreachable.
+      // The translator and the pinned-screenshot window already float for
+      // this reason; this one was the exception. See #168.
+      alwaysOnTop: this.alwaysOnTop,
       frame: false,
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 12, y: 10 },
@@ -90,6 +98,36 @@ export class CaptureWindow {
       this.window.close();
     }
     this.window = null;
+  }
+
+  isOpen(): boolean {
+    return !!(this.window && !this.window.isDestroyed());
+  }
+
+  /** Floating level, so it clears full-screen apps rather than just siblings. */
+  setAlwaysOnTop(alwaysOnTop: boolean): boolean {
+    this.alwaysOnTop = alwaysOnTop;
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.setAlwaysOnTop(alwaysOnTop, "floating");
+    }
+    return this.alwaysOnTop;
+  }
+
+  isAlwaysOnTop(): boolean {
+    return this.alwaysOnTop;
+  }
+
+  /**
+   * Bring the editor back when the user turned floating off and lost it.
+   * `focus()` alone is not enough for an agent app — the process itself has to
+   * come forward first.
+   */
+  raise(): void {
+    if (!this.window || this.window.isDestroyed()) return;
+    app.focus({ steal: true });
+    if (this.window.isMinimized()) this.window.restore();
+    this.window.show();
+    this.window.focus();
   }
 
   private send(capture: CaptureResult): void {
