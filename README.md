@@ -39,6 +39,13 @@ All three surface into one Electron tray app; dictation and translator work full
   the clipboard. Insert restores your previous clipboard afterwards.
 - Pin (`⌘P`) keeps the window open when it loses focus, so you can type in another app and
   translate here side by side. The window is resizable and remembers its size and place.
+- **Unpinned, it still will not throw away work.** An empty window hides as soon as focus
+  goes elsewhere; one with text in it stays, because a notification or an app launching is
+  not a decision to discard a half-typed sentence. `Esc`, the close button and Clear are the
+  explicit ways out.
+- `⌘⌥T` resolves to what you must have meant: in front → hide it; open but behind something →
+  raise it; hidden with text waiting → bring that back untouched; hidden and empty →
+  translate the clipboard.
 - Double ⌘C on any text → translation in a cursor-anchored window. Direction comes from the
   configured pair; text already in the target language is translated back the other way.
 - ⌘⌥T hotkey anywhere opens the translator with your current clipboard.

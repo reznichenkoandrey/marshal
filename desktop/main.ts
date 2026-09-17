@@ -57,6 +57,7 @@ import {
   type TranslatorFallbackNotice
 } from "./translator/translator-service.ts";
 import { TranslatorWindow } from "./translator/translator-window.ts";
+import { decideHotkeyAction } from "./translator/window-policy.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
 import { shutdownUiohookForQuit } from "./uiohook-lifecycle.ts";
 import { getSharedLocalBridgeServer } from "../agent/bridge/local-bridge-server.ts";
@@ -426,6 +427,14 @@ function registerIpcHandlers(): void {
       return { sourceLang, targetLang, formality };
     }
   );
+
+  // The renderer owns the source field, so it tells the window when there is
+  // work in progress. Without this the window cannot tell a half-typed
+  // sentence from an empty glance, and hides either way (#166).
+  handleIpc("marshal:translator-content", (_event, hasContent: boolean) => {
+    translatorWindow?.setHasContent(hasContent === true);
+    return hasContent === true;
+  });
 
   handleIpc("marshal:translator-pin", (_event, pinned: boolean) => {
     if (!translatorWindow) {
@@ -1944,6 +1953,28 @@ function initTranslator(): void {
   });
 
   clipboardMonitor = new ClipboardMonitor();
+
+  // ⌘⌥T. What it should do depends on the window, which the monitor cannot
+  // see — so the decision lives here. See decideHotkeyAction (#166).
+  clipboardMonitor.on("hotkey", (clipboardText: string) => {
+    if (!translatorWindow) return;
+    const action = decideHotkeyAction({
+      visible: translatorWindow.isVisible(),
+      focused: translatorWindow.isFocused(),
+      hasContent: translatorWindow.hasUnfinishedContent(),
+      clipboardText: typeof clipboardText === "string" ? clipboardText : ""
+    });
+
+    if (action === "hide") {
+      translatorWindow.hide();
+      return;
+    }
+    if (action === "show") {
+      translatorWindow.show();
+      return;
+    }
+    clipboardMonitor?.emitTranslate(clipboardText.trim());
+  });
   clipboardMonitor.on("translate", (text: string) => {
     if (!translatorWindow || !translatorService) return;
 

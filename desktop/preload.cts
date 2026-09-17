@@ -48,6 +48,10 @@ const translatorApi = {
   getLanguages: () => ipcRenderer.invoke("marshal:translator-languages"),
   setPair: (options: TranslateRequestOptions) =>
     ipcRenderer.invoke("marshal:translator-set-pair", options),
+  // Lets the window know a translation is in progress, so a stray focus
+  // change cannot throw it away.
+  setHasContent: (hasContent: boolean) =>
+    ipcRenderer.invoke("marshal:translator-content", hasContent),
   // Pinned windows survive blur so the user can type in another app.
   setPinned: (pinned: boolean) => ipcRenderer.invoke("marshal:translator-pin", pinned),
   // Paste the translation into the app behind the translator.
