@@ -431,6 +431,19 @@ function registerIpcHandlers(): void {
   // The renderer owns the source field, so it tells the window when there is
   // work in progress. Without this the window cannot tell a half-typed
   // sentence from an empty glance, and hides either way (#166).
+  // The editor floats by default because an LSUIElement app cannot raise a
+  // window that slipped behind another one (#168). Toggleable, because
+  // floating is wrong when you need to read from the window underneath.
+  handleIpc("marshal:capture-always-on-top", (_event, alwaysOnTop: boolean) => {
+    const next = alwaysOnTop === true;
+    saveSettings({ captureEditorAlwaysOnTop: next });
+    return captureWindow?.setAlwaysOnTop(next) ?? next;
+  });
+
+  handleIpc("marshal:capture-always-on-top-get", () =>
+    captureWindow?.isAlwaysOnTop() ?? loadSettings().captureEditorAlwaysOnTop
+  );
+
   handleIpc("marshal:translator-content", (_event, hasContent: boolean) => {
     translatorWindow?.setHasContent(hasContent === true);
     return hasContent === true;
@@ -1398,6 +1411,7 @@ async function stopMeetingRecording(): Promise<void> {
 function initCapture(): void {
   captureService = new CaptureService(preloadPath);
   captureWindow = new CaptureWindow(preloadPath);
+  captureWindow.setAlwaysOnTop(loadSettings().captureEditorAlwaysOnTop);
   captureHistoryWindow = new CaptureHistoryWindow(
     preloadPath,
     () => loadSettings().captureDefaultFolder
@@ -1818,6 +1832,13 @@ function buildTrayMenu(): Electron.Menu {
     },
     { label: "Capture", submenu: buildCaptureSubmenu() },
     buildModelMenuItem(),
+    // Last resort when the editor is open with floating turned off: an agent
+    // app has no Dock icon to click (#168).
+    {
+      label: "Bring Capture Editor to Front",
+      enabled: captureWindow?.isOpen() ?? false,
+      click: () => captureWindow?.raise()
+    },
     { type: "separator" },
     {
       label: "Start at Login",

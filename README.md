@@ -53,6 +53,13 @@ All three surface into one Electron tray app; dictation and translator work full
 - History of the last 20 translations, ↑/↓ recall when the input is empty. An entry is stored
   once the source text settles, so typing a sentence doesn't fill history with fragments.
 
+### Screen capture
+- The annotation editor **stays above other windows** by default, and the arrow button in its
+  status bar turns that off when you need to read from the window underneath. It is on by
+  default for a reason: Marshal is a menu-bar app with no Dock icon, so a normal window that
+  slips behind another one has no OS affordance left to raise it.
+- Turned it off and lost the window? Menu bar → **Bring Capture Editor to Front**.
+
 ### Task-running agent
 - Sessions with shell + filesystem + Playwright browser tools (strictly sandboxed).
 - Reasoning bridges: `claude-cli` (subscription, default), `codex-cli`, Anthropic API, OpenAI-compatible (Groq/OpenRouter), Claude web, ChatGPT web, Chrome extension.

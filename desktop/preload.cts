@@ -242,6 +242,11 @@ const captureApi = {
   copy: (base64Png: string) => ipcRenderer.invoke("marshal:capture-copy", { base64: base64Png }),
   pin: (base64Png: string) => ipcRenderer.invoke("marshal:capture-pin", { base64: base64Png }),
   close: () => ipcRenderer.invoke("marshal:capture-close"),
+  // Window-level "keep above other windows" — distinct from `pin` above,
+  // which detaches the image into its own floating window.
+  getAlwaysOnTop: () => ipcRenderer.invoke("marshal:capture-always-on-top-get"),
+  setAlwaysOnTop: (alwaysOnTop: boolean) =>
+    ipcRenderer.invoke("marshal:capture-always-on-top", alwaysOnTop),
   // Recording indicator ↔ main.
   recordingToggle: (paused: boolean) => ipcRenderer.invoke("marshal:recording-toggle", { paused }),
   recordingStop: () => ipcRenderer.invoke("marshal:recording-stop"),

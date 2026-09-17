@@ -113,12 +113,27 @@ describe("saveSettings", () => {
       dictationPrompt: "React, Magento, PR",
       dictationMicrophone: "",
       captureDefaultFolder: "",
+      captureEditorAlwaysOnTop: true,
       launchAtLogin: false,
       launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
       lastDismissedVersion: "",
       lastSeenVersion: ""
     });
+  });
+
+  // #168: turning floating off is a deliberate choice — it has to survive a
+  // restart, or the editor starts floating again every launch.
+  it("keeps captureEditorAlwaysOnTop switched off once the user switches it off", () => {
+    expect(loadSettings().captureEditorAlwaysOnTop).toBe(true);
+    expect(saveSettings({ captureEditorAlwaysOnTop: false }).captureEditorAlwaysOnTop).toBe(false);
+    expect(loadSettings().captureEditorAlwaysOnTop).toBe(false);
+    expect(saveSettings({ captureEditorAlwaysOnTop: true }).captureEditorAlwaysOnTop).toBe(true);
+  });
+
+  it("ignores a non-boolean captureEditorAlwaysOnTop instead of trusting it", () => {
+    const saved = saveSettings({ captureEditorAlwaysOnTop: "yes" as unknown as boolean });
+    expect(saved.captureEditorAlwaysOnTop).toBe(true);
   });
 
   it("round-trips checkForUpdatesAutomatic and version markers", () => {
