@@ -74,7 +74,7 @@ export class UpdateInstaller {
     this.scratchRoot = init.scratchRoot ?? path.join(os.tmpdir(), "marshal-update");
     this.fetchImpl = init.fetchImpl ?? globalThis.fetch;
     this.spawnImpl = init.spawnImpl ?? spawn;
-    this.parentPid = init.parentPid ?? process.pid;
+    this.parentPid = assertParentPid(init.parentPid ?? process.pid);
   }
 
   onProgress(listener: ProgressListener): () => void {
@@ -298,6 +298,24 @@ export async function sha512Base64(filePath: string): Promise<string> {
  * runtime so we don't have to ship a separate `.sh` asset through the
  * electron-builder asar.
  */
+/**
+ * The pid is interpolated into a shell script, where a non-numeric value is
+ * not an error but a silently skipped wait loop — the bundle then gets
+ * swapped underneath a running app. Caught for real: a NaN produced a swap
+ * log whose `start` and `done` were the same second. Fail here, before the
+ * download, rather than in the one place that cannot report anything (#170).
+ */
+function assertParentPid(pid: number): number {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(
+      `UpdateInstaller needs a positive integer parentPid, got ${String(pid)}. ` +
+      "The post-quit script waits on this pid before replacing the bundle; " +
+      "an invalid one would skip that wait silently."
+    );
+  }
+  return pid;
+}
+
 export function buildSwapScript(): string {
   // The script is small and self-contained on purpose: it runs after Marshal
   // has quit, so it cannot lean on any Node/Electron helpers. Arguments:
@@ -325,6 +343,20 @@ echo "  install dir: $INSTALL_DIR"
 echo "  app name   : $APP_NAME"
 
 INSTALL_APP="$INSTALL_DIR/$APP_NAME"
+
+# Guard our own arguments first. A non-numeric pid makes \`kill -0\` fail, the
+# wait loop below exit immediately, and the swap proceed under a still-running
+# app — silently, because the error is sent to /dev/null (#170).
+case "$PARENT_PID" in
+  ''|*[!0-9]*)
+    echo "ERROR: PARENT_PID is not a positive integer ('$PARENT_PID') — refusing to swap"
+    exit 5
+    ;;
+esac
+if [ "$PARENT_PID" -le 0 ]; then
+  echo "ERROR: PARENT_PID must be greater than zero ('$PARENT_PID') — refusing to swap"
+  exit 5
+fi
 
 if [ ! -d "$STAGING_APP" ]; then
   echo "ERROR: staging app missing — aborting"

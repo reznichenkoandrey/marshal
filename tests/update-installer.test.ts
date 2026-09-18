@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 
 import {
   UpdateInstaller,
@@ -76,6 +78,81 @@ describe("buildSwapScript", () => {
   it("strips com.apple.quarantine before swapping", () => {
     const script = buildSwapScript();
     expect(script).toContain("xattr -dr com.apple.quarantine");
+  });
+});
+
+// #170: the pid is interpolated into a shell script, where a bad value is not
+// an error but a skipped wait loop — and the bundle then gets replaced under a
+// running app. Both ends are guarded: the constructor, so it fails before the
+// 131 MB download, and the script, so it fails even if something bypasses it.
+describe("parentPid validation", () => {
+  it("rejects values that would silently skip the wait loop", () => {
+    for (const pid of [Number.NaN, 0, -1, 1.5, Number.POSITIVE_INFINITY]) {
+      expect(() => new UpdateInstaller({ parentPid: pid })).toThrow(/positive integer parentPid/u);
+    }
+  });
+
+  it("accepts a real pid and defaults to this process", () => {
+    expect(() => new UpdateInstaller({ parentPid: 1234 })).not.toThrow();
+    expect(() => new UpdateInstaller()).not.toThrow();
+  });
+});
+
+describe("swap script refuses a bad PARENT_PID", () => {
+  let dir = "";
+
+  beforeEach(() => {
+    dir = fsSync.mkdtempSync(path.join(os.tmpdir(), "marshal-swap-"));
+    fsSync.mkdirSync(path.join(dir, "installdir", "Marshal.app"), { recursive: true });
+    fsSync.writeFileSync(path.join(dir, "installdir", "Marshal.app", "VERSION"), "OLD");
+    fsSync.mkdirSync(path.join(dir, "staging", "Marshal.app"), { recursive: true });
+    fsSync.writeFileSync(path.join(dir, "staging", "Marshal.app", "VERSION"), "NEW");
+    // The generated script ends by launching the installed bundle; that must
+    // not happen in a test run.
+    const script = buildSwapScript().replace('/usr/bin/open "$INSTALL_APP"', "true");
+    fsSync.writeFileSync(path.join(dir, "swap.sh"), script, { mode: 0o755 });
+  });
+
+  afterEach(() => {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const run = (pid: string): number => {
+    const result = spawnSync(
+      "bash",
+      [
+        path.join(dir, "swap.sh"),
+        pid,
+        path.join(dir, "staging", "Marshal.app"),
+        path.join(dir, "installdir"),
+        "Marshal.app",
+        path.join(dir, "swap.log")
+      ],
+      { encoding: "utf8" }
+    );
+    return result.status ?? -1;
+  };
+
+  const installedVersion = (): string =>
+    fsSync.readFileSync(path.join(dir, "installdir", "Marshal.app", "VERSION"), "utf8");
+
+  it("exits 5 and leaves the installed bundle untouched", () => {
+    for (const pid of ["NaN", "", "abc", "-1", "12x"]) {
+      expect(run(pid)).toBe(5);
+      expect(installedVersion()).toBe("OLD");
+    }
+  });
+
+  it("says why, in the log, instead of failing silently", () => {
+    run("NaN");
+    expect(fsSync.readFileSync(path.join(dir, "swap.log"), "utf8")).toMatch(/PARENT_PID is not a positive integer/u);
+  });
+
+  it("still swaps for a valid pid — the guard is not just refusing everything", () => {
+    // pid 1 (launchd) is alive, so the wait loop would spin; a pid that is
+    // certainly dead lets the script proceed immediately.
+    expect(run("2147483647")).toBe(0);
+    expect(installedVersion()).toBe("NEW");
   });
 });
 
