@@ -990,6 +990,18 @@ async function initExtensionBridge(): Promise<void> {
 function initUpdater(): void {
   updateChecker = new UpdateChecker({ currentVersion: app.getVersion() });
 
+  // Sweep staging dirs from earlier updates. The post-quit script frees its
+  // own archive but cannot delete the directory it runs from, and a run that
+  // dies earlier leaves the whole thing — three updates measured 407 MB (#172).
+  // Deliberately after the swap, in the version that just landed: it cleans up
+  // after its predecessor, including builds that predate this.
+  void new UpdateInstaller()
+    .sweepStale()
+    .then((removed) => {
+      if (removed > 0) console.log(`[marshal] swept ${removed} stale update staging dir(s)`);
+    })
+    .catch(() => undefined);
+
   // First check fires 60 s after boot so we don't compete with cold-start work
   // (backend fork, Swift helpers, translator init). Subsequent checks run on
   // a 6-hour interval; both honour the "automatic" pref so a user who

@@ -43,7 +43,7 @@ describe("sha512Base64", () => {
 });
 
 describe("buildSwapScript", () => {
-  it("emits a bash script with shebang and uses all five positional args", () => {
+  it("emits a bash script with shebang and uses all six positional args", () => {
     const script = buildSwapScript();
     expect(script.startsWith("#!/bin/bash")).toBe(true);
     // All five expected positional parameters must appear at least once.
@@ -275,5 +275,111 @@ describe("UpdateInstaller.prepare — happy path", () => {
     ).rejects.toThrow(/SHA-512 mismatch/);
 
     expect(phases.at(-1)).toBe("error");
+  });
+});
+
+// #172: every successful update left its 131 MB archive in the temp dir
+// forever — three runs measured 407 MB. The script frees what it can; the
+// directory it runs from is swept by the next launch.
+describe("staging cleanup after a successful swap", () => {
+  let dir = "";
+
+  beforeEach(() => {
+    dir = fsSync.mkdtempSync(path.join(os.tmpdir(), "marshal-clean-"));
+    fsSync.mkdirSync(path.join(dir, "installdir"), { recursive: true });
+    fsSync.mkdirSync(path.join(dir, "staging", "extracted", "Marshal.app"), { recursive: true });
+    fsSync.writeFileSync(path.join(dir, "staging", "extracted", "Marshal.app", "VERSION"), "NEW");
+    // Stand in for the 131 MB download.
+    fsSync.writeFileSync(path.join(dir, "staging", "marshal.zip"), "x".repeat(4096));
+    const script = buildSwapScript().replace('/usr/bin/open "$INSTALL_APP"', "true");
+    fsSync.writeFileSync(path.join(dir, "staging", "swap.sh"), script, { mode: 0o755 });
+  });
+
+  afterEach(() => {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const run = (): number =>
+    spawnSync(
+      "bash",
+      [
+        path.join(dir, "staging", "swap.sh"),
+        "2147483647",
+        path.join(dir, "staging", "extracted", "Marshal.app"),
+        path.join(dir, "installdir"),
+        "Marshal.app",
+        path.join(dir, "staging", "swap.log"),
+        path.join(dir, "staging")
+      ],
+      { encoding: "utf8" }
+    ).status ?? -1;
+
+  it("deletes the downloaded archive and the emptied extract dir", () => {
+    expect(run()).toBe(0);
+    expect(fsSync.existsSync(path.join(dir, "installdir", "Marshal.app"))).toBe(true);
+    expect(fsSync.existsSync(path.join(dir, "staging", "marshal.zip"))).toBe(false);
+    expect(fsSync.existsSync(path.join(dir, "staging", "extracted"))).toBe(false);
+  });
+
+  it("keeps the script it is running from, and the log", () => {
+    // Removing the directory here would pull the file out from under the bash
+    // still reading it — the sweep at next launch handles the remainder.
+    run();
+    expect(fsSync.existsSync(path.join(dir, "staging", "swap.sh"))).toBe(true);
+    expect(fsSync.readFileSync(path.join(dir, "staging", "swap.log"), "utf8"))
+      .toMatch(/freed the downloaded archive/u);
+  });
+
+  it("does not clean up when the swap failed", () => {
+    fsSync.chmodSync(path.join(dir, "installdir"), 0o555);
+    try {
+      expect(run()).toBe(2);
+      expect(fsSync.existsSync(path.join(dir, "staging", "marshal.zip"))).toBe(true);
+    } finally {
+      fsSync.chmodSync(path.join(dir, "installdir"), 0o755);
+    }
+  });
+});
+
+describe("UpdateInstaller.sweepStale", () => {
+  let root = "";
+
+  beforeEach(() => {
+    root = fsSync.mkdtempSync(path.join(os.tmpdir(), "marshal-sweep-"));
+  });
+
+  afterEach(() => {
+    fsSync.rmSync(root, { recursive: true, force: true });
+  });
+
+  const stage = (name: string, ageMs: number): string => {
+    const dir = path.join(root, name);
+    fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(path.join(dir, "marshal.zip"), "payload");
+    const when = new Date(Date.now() - ageMs);
+    fsSync.utimesSync(dir, when, when);
+    return dir;
+  };
+
+  it("removes directories older than the cutoff and keeps fresh ones", async () => {
+    const old = stage("v0.2.5-aaa", 48 * 60 * 60 * 1000);
+    const fresh = stage("v0.2.8-bbb", 60 * 1000);
+
+    const removed = await new UpdateInstaller({ scratchRoot: root }).sweepStale();
+
+    expect(removed).toBe(1);
+    expect(fsSync.existsSync(old)).toBe(false);
+    expect(fsSync.existsSync(fresh)).toBe(true);
+  });
+
+  it("honours an explicit max age", async () => {
+    stage("v0.2.8-bbb", 5 * 60 * 1000);
+    const removed = await new UpdateInstaller({ scratchRoot: root }).sweepStale(60 * 1000);
+    expect(removed).toBe(1);
+  });
+
+  it("is a no-op when nothing was ever staged", async () => {
+    const missing = path.join(root, "never-created");
+    await expect(new UpdateInstaller({ scratchRoot: missing }).sweepStale()).resolves.toBe(0);
   });
 });
