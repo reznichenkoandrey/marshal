@@ -68,17 +68,30 @@ vi.mock("../desktop/translator/backends/factory.ts", async (importOriginal) => {
 const { TranslatorService } = await import("../desktop/translator/translator-service.ts");
 
 const originalKey = process.env.MARSHAL_API_KEY;
+const originalPlatform = process.platform;
+
+// Every expectation below is about the macOS resolution: `auto` with a key
+// picks `apple-vision`, and the keyless fallback of `claude-cli` is
+// `claude-cli` itself. On Linux `auto` resolves to `openai-api` instead, which
+// is a different (and separately tested) mapping — so pin the platform rather
+// than let the CI runner decide which branch of the factory is under test
+// (#183).
+function pinPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", { value: platform, configurable: true, writable: true });
+}
 
 beforeEach(() => {
   rejecting.clear();
   rejectReason.clear();
   calls.length = 0;
   process.env.MARSHAL_API_KEY = "gsk_present";
+  pinPlatform("darwin");
 });
 
 afterEach(() => {
   if (originalKey === undefined) delete process.env.MARSHAL_API_KEY;
   else process.env.MARSHAL_API_KEY = originalKey;
+  pinPlatform(originalPlatform);
 });
 
 describe("isAuthStatus / isModelNotFound / isBackendUnusableError", () => {
