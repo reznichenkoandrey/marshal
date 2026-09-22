@@ -15,6 +15,8 @@ export interface SummaryInput {
   ocrContext: string;
   /** Language name/code the summary should be written in; empty = follow the transcript. */
   outputLanguage: string;
+  /** The transcript ends with a question addressed to the user. */
+  endsWithQuestion?: boolean;
 }
 
 export interface SummaryMessages {
@@ -34,6 +36,9 @@ export function buildSummaryMessages(input: SummaryInput): SummaryMessages {
     parts.push("Screen context (OCR of the user's workspace, may be partial):\n" + ocr);
   }
   parts.push("Live transcript (oldest first, most recent last):\n" + input.transcript.trim());
+  if (input.endsWithQuestion) {
+    parts.push("The transcript ends with a question addressed to the user: make the bullet points the answer to it.");
+  }
   const language = input.outputLanguage.trim();
   parts.push(
     language.length > 0

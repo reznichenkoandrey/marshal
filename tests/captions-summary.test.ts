@@ -20,6 +20,13 @@ describe("buildSummaryMessages", () => {
     expect(messages.user).toContain("same language as the transcript");
   });
 
+  it("tells the model to answer when the transcript ends with a question (#187)", () => {
+    const asked = buildSummaryMessages({ transcript: "How do you roll back?", ocrContext: "", outputLanguage: "", endsWithQuestion: true });
+    expect(asked.user).toContain("make the bullet points the answer");
+    const stated = buildSummaryMessages({ transcript: "We roll back with canaries.", ocrContext: "", outputLanguage: "" });
+    expect(stated.user).not.toContain("answer to it");
+  });
+
   it("omits the OCR block when there is no screen context and honours the output language", () => {
     const messages = buildSummaryMessages({ transcript: "hello", ocrContext: "  ", outputLanguage: "Ukrainian" });
     expect(messages.user).not.toContain("Screen context");

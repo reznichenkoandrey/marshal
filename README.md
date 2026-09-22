@@ -69,6 +69,9 @@ share your screen with never see.
   frames are speech and a configurable pause (default 900 ms) cuts the utterance, so a
   sentence is transcribed the moment it ends and typing or music does not
   produce phantom captions.
+  Fillers ("um", "you know", "ну", "типу") are stripped, half-sentences wait for
+  their other half, and a question triggers the summary immediately with the
+  model told to answer it.
 - **Screen context on demand.** `⌃⇧S` OCRs a screen region (first press picks
   the region, later presses are silent) with Apple Vision and hands the text to
   the summarizer as context. The overlay hides itself during the capture.
