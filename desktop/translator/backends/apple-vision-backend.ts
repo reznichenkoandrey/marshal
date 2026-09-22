@@ -79,71 +79,80 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
   }
 
   private runOcr(imagePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let child;
-      try {
-        child = spawn(OCR_BIN, [imagePath], { stdio: ["ignore", "pipe", "pipe"] });
-      } catch (err) {
-        reject(this.spawnError(err));
+    return runAppleVisionOcr(imagePath);
+  }
+}
+
+/**
+ * Runs the Vision OCR helper on an image file and returns the recognized
+ * text. Shared with the live captions overlay, which needs OCR without a
+ * translation attached.
+ */
+export function runAppleVisionOcr(imagePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(OCR_BIN, [imagePath], { stdio: ["ignore", "pipe", "pipe"] });
+    } catch (err) {
+      reject(appleVisionSpawnError(err));
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let stdoutBytes = 0;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error(`apple-vision-ocr timed out after ${OCR_TIMEOUT_MS}ms`));
+    }, OCR_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > OCR_MAX_STDOUT_BYTES) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+        reject(new Error(`apple-vision-ocr stdout exceeded ${OCR_MAX_STDOUT_BYTES} bytes`));
         return;
       }
-
-      let stdout = "";
-      let stderr = "";
-      let stdoutBytes = 0;
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill("SIGKILL");
-        reject(new Error(`apple-vision-ocr timed out after ${OCR_TIMEOUT_MS}ms`));
-      }, OCR_TIMEOUT_MS);
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        stdoutBytes += chunk.length;
-        if (stdoutBytes > OCR_MAX_STDOUT_BYTES) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          child.kill("SIGKILL");
-          reject(new Error(`apple-vision-ocr stdout exceeded ${OCR_MAX_STDOUT_BYTES} bytes`));
-          return;
-        }
-        stdout += chunk.toString("utf8");
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString("utf8");
-      });
-
-      child.on("error", (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(this.spawnError(err));
-      });
-
-      child.on("close", (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (code === 0) {
-          resolve(stdout);
-        } else {
-          reject(new Error(
-            `apple-vision-ocr exited with code ${code}: ${stderr.slice(0, 500) || "(no stderr)"}`
-          ));
-        }
-      });
+      stdout += chunk.toString("utf8");
     });
-  }
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
 
-  private spawnError(err: unknown): Error {
-    const message = err instanceof Error ? err.message : String(err);
-    return new Error(
-      `Failed to launch apple-vision-ocr at ${OCR_BIN}: ${message}. ` +
-      "Rebuild Marshal (npm run build) so the Swift helper is compiled. " +
-      "macOS only — on other platforms switch translator backend to a cloud provider."
-    );
-  }
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(appleVisionSpawnError(err));
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(
+          `apple-vision-ocr exited with code ${code}: ${stderr.slice(0, 500) || "(no stderr)"}`
+        ));
+      }
+    });
+  });
+}
+
+function appleVisionSpawnError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Failed to launch apple-vision-ocr at ${OCR_BIN}: ${message}. ` +
+    "Rebuild Marshal (npm run build) so the Swift helper is compiled. " +
+    "macOS only — on other platforms switch translator backend to a cloud provider."
+  );
 }

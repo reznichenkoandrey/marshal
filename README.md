@@ -53,6 +53,34 @@ All three surface into one Electron tray app; dictation and translator work full
 - History of the last 20 translations, ↑/↓ recall when the input is empty. An entry is stored
   once the source text settles, so typing a sentence doesn't fill history with fragments.
 
+### Live captions overlay
+
+Subtitles and a two-to-three-bullet AI summary of whatever the Mac is playing —
+the other side of a call, a webinar — on a floating overlay that the people you
+share your screen with never see.
+
+- **Invisible to screen sharing.** The overlay window has content protection on
+  (`NSWindow.sharingType = .none`), so Zoom, Meet, OBS and QuickTime capture the
+  wallpaper where it sits. It is also click-through: every click lands on the
+  app underneath and focus never moves.
+- **System audio, not the microphone.** A ScreenCaptureKit tap streams what the
+  speakers play into the same whisper backend dictation uses (Groq with local
+  whisper.cpp fallback); an energy-based segmenter cuts at pauses so a sentence
+  is transcribed the moment it ends.
+- **Screen context on demand.** `⌃⇧S` OCRs a screen region (first press picks
+  the region, later presses are silent) with Apple Vision and hands the text to
+  the summarizer as context. The overlay hides itself during the capture.
+- **Streamed summary.** Transcript + context go to an OpenAI-compatible model
+  (Groq by default, Ollama works with a local base) or the Anthropic API with a
+  strict "accessibility summarizer" prompt; tokens render as they arrive. With
+  no provider configured the overlay still shows raw captions.
+- **Move it by holding Left Control**, or via tray → Live Captions → Move
+  Overlay. Position is remembered.
+
+Needs Screen Recording (same grant as screen capture). `⌘⌥⇧C` toggles it; the
+tray has the same entry. Configuration lives under `MARSHAL_CAPTIONS_*` in
+[`.env.example`](.env.example).
+
 ### Screen capture
 - The annotation editor **stays above other windows** by default, and the arrow button in its
   status bar turns that off when you need to read from the window underneath. It is on by
@@ -168,6 +196,9 @@ Settings → Setup health shows **Local Whisper** as `error` until then, with th
 | **⌘⇧2** | Capture screen region → OCR + translate |
 | **double ⌘C** within 600 ms | Auto-translate just-copied text |
 | **⌘⌥L** | Layout switch — fix text typed on the wrong keyboard layout (Punto-Switcher-style, UKR ↔ ENG) |
+| **⌘⌥⇧C** | Live captions overlay on/off (system audio → subtitles + AI summary) |
+| **⌃⇧S** | Live captions: OCR a screen region into the summary context (first press picks the region) |
+| **Left Control (hold)** | Live captions: move the overlay — it is click-through otherwise |
 
 All shortcuts configurable via `.env` (`MARSHAL_DICTATION_HOTKEY`, etc.) or the Settings modal.
 
@@ -312,6 +343,17 @@ Debug logs:
 MARSHAL_DICTATION_DEBUG=1 npm run desktop
 ```
 Traces every hotkey event, recorder lifecycle, WAV size, transcription length.
+
+### Live captions
+
+| Symptom | Cause / fix |
+|---|---|
+| "system-audio-tap did not become ready" | Screen Recording is not granted to this build. System Settings → Privacy & Security → Screen Recording → enable Marshal, restart. After a self-signed rebuild the grant can be stale — toggle it off and on |
+| Overlay shows captions but no bullets, hint says "captions only" | No summarizer credentials. Set `MARSHAL_API_KEY` (Groq) or `ANTHROPIC_API_KEY`, or point `MARSHAL_CAPTIONS_API_BASE` at a local Ollama |
+| Captions lag 3–5 s behind speech | Local whisper.cpp path. Set `MARSHAL_API_KEY` so `hybrid` uses Groq, or a smaller `MARSHAL_WHISPER_MODEL` |
+| "Thank you." / "[BLANK_AUDIO]" style lines | Whisper on near-silence. Known fillers are dropped (`isLikelyHallucination`); add new ones to `desktop/captions/transcript-buffer.ts` |
+| Holding Left Control does not make the overlay draggable | The `ptt-monitor` helper needs Accessibility; use tray → Live Captions → Move Overlay, or set `MARSHAL_CAPTIONS_DRAG_MODIFIER` to another modifier |
+| The overlay is visible in a screen share | Only content-protected windows are excluded; a screenshot tool that reads the frame buffer directly (rare) can still see it. `desktopCapturer` in Electron itself respects the flag |
 
 ### Translator
 

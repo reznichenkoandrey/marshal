@@ -4,7 +4,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { BrowserWindow, desktopCapturer, ipcMain, screen, Display, systemPreferences } from "electron";
+import { BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences } from "electron";
+import type { Display, NativeImage } from "electron";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -33,43 +34,17 @@ export class ScreenshotService {
    * Returns the cropped region as base64 PNG, or null if cancelled.
    */
   async captureWithCrop(): Promise<string | null> {
-    // Check Screen Recording permission before attempting capture.
-    // On macOS, without permission desktopCapturer returns black thumbnails silently.
-    if (process.platform === "darwin") {
-      const status = systemPreferences.getMediaAccessStatus("screen");
-      if (status !== "granted") {
-        throw new Error(
-          "Screen Recording permission required.\n" +
-          "Open System Settings → Privacy & Security → Screen Recording\n" +
-          "and enable Marshal, then restart the app."
-        );
-      }
-    }
-
+    this.assertScreenRecordingGranted();
     const display = screen.getPrimaryDisplay();
-    const { width, height } = display.bounds;
+    const thumbnail = await this.captureDisplay(display);
     const scaleFactor = display.scaleFactor;
 
-    // Capture full screen at native resolution
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor)
-      }
-    });
-
-    const primary = sources[0];
-    if (!primary) throw new Error("No screen source available");
-
-    const fullBase64 = primary.thumbnail.toDataURL();
-
     // Open crop overlay and wait for region selection
-    const region = await this.openCropOverlay(fullBase64, display);
+    const region = await this.openCropOverlay(thumbnail.toDataURL(), display);
     if (!region) return null;
 
     // Crop the nativeImage
-    const cropped = primary.thumbnail.crop({
+    const cropped = thumbnail.crop({
       x: Math.round(region.x * scaleFactor),
       y: Math.round(region.y * scaleFactor),
       width: Math.round(region.width * scaleFactor),
@@ -79,6 +54,48 @@ export class ScreenshotService {
     // Return base64 without the data URL prefix
     const dataUrl = cropped.toDataURL();
     return dataUrl.replace(/^data:image\/\w+;base64,/u, "");
+  }
+
+  /**
+   * Same crop overlay, but the result is the chosen rectangle (DIP, primary
+   * display) rather than its pixels. Live captions remember it and capture
+   * it again later without showing any UI.
+   */
+  async pickRegion(): Promise<CropRegion | null> {
+    this.assertScreenRecordingGranted();
+    const display = screen.getPrimaryDisplay();
+    const thumbnail = await this.captureDisplay(display);
+    return this.openCropOverlay(thumbnail.toDataURL(), display);
+  }
+
+  private assertScreenRecordingGranted(): void {
+    // Check Screen Recording permission before attempting capture.
+    // On macOS, without permission desktopCapturer returns black thumbnails silently.
+    if (process.platform !== "darwin") return;
+    const status = systemPreferences.getMediaAccessStatus("screen");
+    if (status !== "granted") {
+      throw new Error(
+        "Screen Recording permission required.\n" +
+        "Open System Settings → Privacy & Security → Screen Recording\n" +
+        "and enable Marshal, then restart the app."
+      );
+    }
+  }
+
+  /** Full-resolution capture of one display. */
+  private async captureDisplay(display: Display): Promise<NativeImage> {
+    const { width, height } = display.bounds;
+    const scaleFactor = display.scaleFactor;
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: Math.round(width * scaleFactor),
+        height: Math.round(height * scaleFactor)
+      }
+    });
+    const source = sources.find((item) => item.display_id === String(display.id)) ?? sources[0];
+    if (!source) throw new Error("No screen source available");
+    return source.thumbnail;
   }
 
   private openCropOverlay(screenshotDataUrl: string, display: Display): Promise<CropRegion | null> {

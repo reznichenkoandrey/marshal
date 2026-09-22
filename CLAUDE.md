@@ -78,6 +78,19 @@
   556–1631 мс у gpt-oss, ідентифікатори й переноси зберігає). Набір моделей у Groq **змінюється**:
   `llama-3.3-70b-versatile` зник і 404-ив кожен переклад (#162). Що є на акаунті —
   `GET /v1/models`, не вгадувати. 404 `model_not_found` тепер падає на CLI, як і 401 (#160).
+- **Live captions (`desktop/captions/`) — оверлей, якого не видно у screen share.** Це не
+  «красивий» always-on-top, а `setContentProtection(true)` (`NSWindow.sharingType = .none`) плюс
+  `setIgnoreMouseEvents(true)`: Zoom/Meet/OBS бачать шпалери, кліки проходять наскрізь. Мишу
+  вікно приймає лише поки утримується `MARSHAL_CAPTIONS_DRAG_MODIFIER` (дефолт `LeftControl`,
+  через `ptt-monitor`) або увімкнено tray → Move Overlay. Аудіо — окремий Swift helper
+  `system-audio-tap` (ScreenCaptureKit → 16 kHz mono PCM у stdout), **не** meeting-recorder:
+  той пише один M4A до стопу, а субтитрам потрібен потік. Нарізка на фрази — `segmenter.ts`
+  (energy VAD, чистий і тестований); whisper — той самий `WhisperBackend`, що в диктовці;
+  summary — стрімінг (`summarizer.ts`, OpenAI-compatible SSE або Anthropic SDK), рендер
+  markdown → HTML робиться в main (`renderSummaryHtml`), renderer лише малює. Промпт
+  summarizer'а — дослівно зі спеки (#176), не «покращувати». OCR-регіон обирається один раз
+  crop-оверлеєм і зберігається в `captions-overlay-state.json`; під час знімка оверлей
+  ховається, щоб не зняти сам себе.
 - **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
   руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
   блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,
