@@ -1,11 +1,13 @@
 // desktop/translator/screenshot-service.ts
-// Captures the full screen via desktopCapturer, then shows a crop overlay.
+// Captures the full screen (see capture/display-capture.ts), then shows a crop overlay.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences } from "electron";
-import type { Display, NativeImage } from "electron";
+import { BrowserWindow, ipcMain, screen, systemPreferences } from "electron";
+import type { Display } from "electron";
+
+import { captureDisplay } from "../capture/display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -36,8 +38,7 @@ export class ScreenshotService {
   async captureWithCrop(): Promise<string | null> {
     this.assertScreenRecordingGranted();
     const display = screen.getPrimaryDisplay();
-    const thumbnail = await this.captureDisplay(display);
-    const scaleFactor = display.scaleFactor;
+    const { image: thumbnail, scaleFactor } = await captureDisplay(display);
 
     // Open crop overlay and wait for region selection
     const region = await this.openCropOverlay(thumbnail.toDataURL(), display);
@@ -64,13 +65,13 @@ export class ScreenshotService {
   async pickRegion(): Promise<CropRegion | null> {
     this.assertScreenRecordingGranted();
     const display = screen.getPrimaryDisplay();
-    const thumbnail = await this.captureDisplay(display);
-    return this.openCropOverlay(thumbnail.toDataURL(), display);
+    const { image } = await captureDisplay(display);
+    return this.openCropOverlay(image.toDataURL(), display);
   }
 
   private assertScreenRecordingGranted(): void {
     // Check Screen Recording permission before attempting capture.
-    // On macOS, without permission desktopCapturer returns black thumbnails silently.
+    // On macOS, without permission the capture silently comes back blank.
     if (process.platform !== "darwin") return;
     const status = systemPreferences.getMediaAccessStatus("screen");
     if (status !== "granted") {
@@ -80,22 +81,6 @@ export class ScreenshotService {
         "and enable Marshal, then restart the app."
       );
     }
-  }
-
-  /** Full-resolution capture of one display. */
-  private async captureDisplay(display: Display): Promise<NativeImage> {
-    const { width, height } = display.bounds;
-    const scaleFactor = display.scaleFactor;
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor)
-      }
-    });
-    const source = sources.find((item) => item.display_id === String(display.id)) ?? sources[0];
-    if (!source) throw new Error("No screen source available");
-    return source.thumbnail;
   }
 
   private openCropOverlay(screenshotDataUrl: string, display: Display): Promise<CropRegion | null> {
