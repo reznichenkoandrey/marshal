@@ -41,10 +41,12 @@ import {
   MIN_CAPTIONS_SILENCE_MS
 } from "./captions-defaults.ts";
 import { SileroVad } from "./silero-vad.ts";
-import { TranscriptBuffer } from "./transcript-buffer.ts";
+import { TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
 const SUMMARY_DEBOUNCE_MS = 600;
+/** A held half-sentence is shown on its own if nothing completes it within this long. */
+const FRAGMENT_HOLD_MS = 4_000;
 /** Segments waiting for whisper beyond this are dropped, oldest first. */
 const MAX_TRANSCRIBE_BACKLOG = 2;
 
@@ -92,6 +94,8 @@ export class LiveCaptionsService extends EventEmitter {
   private transcribeQueue: SpeechSegment[] = [];
   private transcribing = false;
   private summaryTimer: NodeJS.Timeout | null = null;
+  private fragmentTimer: NodeJS.Timeout | null = null;
+  private lastTurnWasQuestion = false;
   private summaryAbort: AbortController | null = null;
   private summaryText = "";
   private summaryStreaming = false;
@@ -308,10 +312,7 @@ export class LiveCaptionsService extends EventEmitter {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
       const result = await this.whisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
       if (this.state !== "running") return;
-      if (this.buffer.pushTranscript(result.text)) {
-        this.pushUpdate();
-        this.scheduleSummary(SUMMARY_DEBOUNCE_MS);
-      }
+      this.applyTranscript(this.buffer.pushTranscript(result.text));
       if (!this.summaryStreaming) this.setStatus("listening");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -319,6 +320,34 @@ export class LiveCaptionsService extends EventEmitter {
       this.setStatus("listening", `transcription failed: ${message.split("\n")[0].slice(0, 120)}`);
     } finally {
       await fs.unlink(wavPath).catch(() => undefined);
+    }
+  }
+
+  /**
+   * A stored line updates the overlay and schedules the summary: at once when
+   * the line is a question (the user is waiting for the answer), after the
+   * debounce otherwise. A held fragment starts a timer that stores it alone
+   * if no continuation arrives.
+   */
+  private applyTranscript(result: TranscriptPushResult): void {
+    this.clearFragmentTimer();
+    if (result.held) {
+      this.fragmentTimer = setTimeout(() => {
+        this.fragmentTimer = null;
+        this.applyTranscript(this.buffer.flushFragment());
+      }, FRAGMENT_HOLD_MS);
+      return;
+    }
+    if (!result.accepted) return;
+    this.lastTurnWasQuestion = result.question;
+    this.pushUpdate();
+    this.scheduleSummary(result.question ? 0 : SUMMARY_DEBOUNCE_MS);
+  }
+
+  private clearFragmentTimer(): void {
+    if (this.fragmentTimer) {
+      clearTimeout(this.fragmentTimer);
+      this.fragmentTimer = null;
     }
   }
 
@@ -342,7 +371,8 @@ export class LiveCaptionsService extends EventEmitter {
     const input = {
       transcript: this.buffer.transcriptText(),
       ocrContext: this.buffer.ocrText(),
-      outputLanguage: process.env.MARSHAL_CAPTIONS_OUTPUT_LANGUAGE ?? ""
+      outputLanguage: process.env.MARSHAL_CAPTIONS_OUTPUT_LANGUAGE ?? "",
+      endsWithQuestion: this.lastTurnWasQuestion
     };
     let streamed = "";
     this.summaryStreaming = true;
@@ -440,6 +470,8 @@ export class LiveCaptionsService extends EventEmitter {
     this.summaryAbort?.abort();
     this.summaryAbort = null;
     this.summaryStreaming = false;
+    this.clearFragmentTimer();
+    this.lastTurnWasQuestion = false;
     this.transcribeQueue = [];
     this.tap.removeAllListeners("pcm");
     this.tap.stop();

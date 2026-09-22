@@ -20,6 +20,19 @@ export interface OcrSnapshot {
   at: number;
 }
 
+import { isFragment, isQuestion, joinFragment, stripFillers } from "./transcript-normalize.ts";
+
+export interface TranscriptPushResult {
+  /** A line was added (possibly the held fragment joined with this one). */
+  accepted: boolean;
+  /** The text as stored, after filler removal and fragment joining. */
+  text: string;
+  /** The stored line reads as a question — summarise now, not after the debounce. */
+  question: boolean;
+  /** Nothing stored: the input is being held as a half-sentence for the next segment. */
+  held: boolean;
+}
+
 export interface TranscriptBufferOptions {
   /** Characters of transcript kept for the summarizer prompt. */
   maxTranscriptChars: number;
@@ -31,6 +44,8 @@ export interface TranscriptBufferOptions {
   maxOcrChars: number;
   /** OCR older than this is dropped from the prompt (ms). */
   ocrTtlMs: number;
+  /** Utterances shorter than this many words are held as fragments. */
+  fragmentMinWords: number;
 }
 
 export const DEFAULT_TRANSCRIPT_BUFFER_OPTIONS: TranscriptBufferOptions = {
@@ -38,7 +53,8 @@ export const DEFAULT_TRANSCRIPT_BUFFER_OPTIONS: TranscriptBufferOptions = {
   maxDisplayLines: 3,
   maxOcrSnapshots: 2,
   maxOcrChars: 1_500,
-  ocrTtlMs: 3 * 60 * 1000
+  ocrTtlMs: 3 * 60 * 1000,
+  fragmentMinWords: 4
 };
 
 const HALLUCINATION_PATTERNS: RegExp[] = [
@@ -63,18 +79,53 @@ export class TranscriptBuffer {
   private readonly options: TranscriptBufferOptions;
   private lines: TranscriptLine[] = [];
   private ocr: OcrSnapshot[] = [];
+  /** A half-sentence waiting for its other half. */
+  private fragment: string | null = null;
 
   constructor(options: Partial<TranscriptBufferOptions> = {}) {
     this.options = { ...DEFAULT_TRANSCRIPT_BUFFER_OPTIONS, ...options };
   }
 
-  /** Returns false when the line was rejected (empty or a hallucination). */
-  pushTranscript(text: string, at = Date.now()): boolean {
+  /**
+   * Adds a transcribed utterance. Hallucinations are dropped, fillers are
+   * stripped, and a half-sentence is held back until the next utterance
+   * completes it (or `flushFragment` gives up on it).
+   */
+  pushTranscript(text: string, at = Date.now()): TranscriptPushResult {
+    const rejected: TranscriptPushResult = { accepted: false, text: "", question: false, held: false };
     const cleaned = text.trim().replace(/\s+/gu, " ");
-    if (isLikelyHallucination(cleaned)) return false;
-    this.lines.push({ text: cleaned, at });
+    if (isLikelyHallucination(cleaned)) return rejected;
+    const stripped = stripFillers(cleaned);
+    if (stripped.length === 0) return rejected;
+
+    const joined = this.fragment ? joinFragment(this.fragment, stripped) : stripped;
+    this.fragment = null;
+    if (isFragment(joined, this.options.fragmentMinWords)) {
+      this.fragment = joined;
+      return { accepted: false, text: joined, question: false, held: true };
+    }
+    this.lines.push({ text: joined, at });
     this.trimTranscript();
-    return true;
+    return { accepted: true, text: joined, question: isQuestion(joined), held: false };
+  }
+
+  /** The half-sentence currently held, if any. */
+  heldFragment(): string | null {
+    return this.fragment;
+  }
+
+  /**
+   * Stores the held fragment on its own. The service calls this when no
+   * continuation arrived in time — a short answer ("Redis.") is still worth
+   * a caption, just not worth waiting for.
+   */
+  flushFragment(at = Date.now()): TranscriptPushResult {
+    const fragment = this.fragment;
+    this.fragment = null;
+    if (!fragment) return { accepted: false, text: "", question: false, held: false };
+    this.lines.push({ text: fragment, at });
+    this.trimTranscript();
+    return { accepted: true, text: fragment, question: isQuestion(fragment), held: false };
   }
 
   pushOcr(text: string, at = Date.now()): boolean {
@@ -111,6 +162,7 @@ export class TranscriptBuffer {
   clear(): void {
     this.lines = [];
     this.ocr = [];
+    this.fragment = null;
   }
 
   private trimTranscript(): void {
