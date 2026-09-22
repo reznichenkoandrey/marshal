@@ -40,8 +40,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 
 | Requirement | Status | Where / what is missing |
 |---|---|---|
-| Local context grounding (reference files → system prompt) | ⬜ | Nothing yet. Planned: a folder of Markdown/text files in userData, concatenated (size-capped) into the system prompt; a Settings picker; optional embeddings later — #188 |
-| V2 system prompt (first person, code snippets) | ⬜ | V1 prompt is the spec's V1 text verbatim. V2 wording only makes sense once reference context exists, otherwise "first person" is fabrication — #188 |
+| Local context grounding (reference files → system prompt) | ✅ | `context-store.ts`: `<userData>/captions-context/` (Settings → Live captions → Reference files → Open folder…), `.md`/`.txt` concatenated under headers within 12k chars, re-read when a file changes; Anthropic path puts the block in a cached system block. Embeddings deliberately not — a CV plus a README fits (#188) |
+| V2 system prompt (first person, code snippets) | ✅ | The spec's V2 prompt verbatim, used only when reference files exist (without them "first person" is fabrication); fenced code renders as `<pre><code>` on the overlay (#188) |
 | Request queue: queue or interrupt an in-flight generation | 🟡 | In-flight summary is aborted and restarted with the newer transcript (`AbortController`). The "queue" option and a visible "…updating" state are missing — #189 |
 | Token streaming | ✅ | OpenAI-compatible SSE or Anthropic SDK; deltas render as they arrive |
 | Total response latency < 1 s | 🟡 | Measured 1.3–2.0 s from end of speech to the updated summary on Groq: ~650 ms silence wait + ~550 ms whisper + ~450 ms first token. Under 1 s needs streaming STT or a shorter silence window — #189 |

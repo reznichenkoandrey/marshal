@@ -163,6 +163,12 @@ const desktopApi = {
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
   getCaptionsDefaults: () => ipcRenderer.invoke("marshal:get-captions-defaults") as Promise<{ prompt: string }>,
+  getCaptionsContextInfo: () => ipcRenderer.invoke("marshal:captions-context-info") as Promise<{
+    dir: string;
+    files: Array<{ name: string; chars: number; included: number }>;
+    truncated: number;
+  }>,
+  openCaptionsContextFolder: () => ipcRenderer.invoke("marshal:captions-context-open") as Promise<{ ok: boolean; error?: string }>,
   listMicrophones: () => ipcRenderer.invoke("marshal:dictation-list-mics") as Promise<{
     ok: boolean;
     devices: Array<{ id: string; name: string; isDefault: boolean; manufacturer: string; transportType: string }>;

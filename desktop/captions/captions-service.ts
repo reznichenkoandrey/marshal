@@ -40,6 +40,7 @@ import {
   MAX_CAPTIONS_SILENCE_MS,
   MIN_CAPTIONS_SILENCE_MS
 } from "./captions-defaults.ts";
+import { CONTEXT_DIR_NAME, ReferenceContextCache, type ReferenceContext } from "./context-store.ts";
 import { SileroVad } from "./silero-vad.ts";
 import { TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
@@ -74,6 +75,8 @@ export class LiveCaptionsService extends EventEmitter {
   private summarizer: SummaryStreamer | null;
   private readonly pickRegion: () => Promise<OcrRegion | null>;
   private readonly buffer = new TranscriptBuffer();
+  private readonly referenceContext: ReferenceContextCache;
+  private lastReference: ReferenceContext = { text: "", files: [], truncated: 0 };
   private language: string | undefined;
   private prompt = DEFAULT_CAPTIONS_PROMPT;
   private providerHint = "";
@@ -109,6 +112,9 @@ export class LiveCaptionsService extends EventEmitter {
     this.whisper = options.whisper ?? createWhisperBackend("whisper-cpp");
     this.summarizer = options.summarizer ?? null;
     this.pickRegion = options.pickRegion;
+    this.referenceContext = new ReferenceContextCache(
+      process.env.MARSHAL_CAPTIONS_CONTEXT_DIR?.trim() || path.join(options.userDataDir, CONTEXT_DIR_NAME)
+    );
     this.configureFromEnv();
 
     this.tap.on("error", (err: Error) => {
@@ -214,6 +220,7 @@ export class LiveCaptionsService extends EventEmitter {
         throw err;
       }
       this.startDragHotkey();
+      this.lastReference = await this.referenceContext.get().catch(() => this.lastReference);
       this.setState("running");
       this.setStatus("listening", this.idleHint());
     } catch (err) {
@@ -368,11 +375,15 @@ export class LiveCaptionsService extends EventEmitter {
     const controller = new AbortController();
     this.summaryAbort = controller;
 
+    // Re-checked before every summary: an edited CV applies at once, and the
+    // check is a readdir plus stats, not a re-read.
+    this.lastReference = await this.referenceContext.get().catch(() => this.lastReference);
     const input = {
       transcript: this.buffer.transcriptText(),
       ocrContext: this.buffer.ocrText(),
       outputLanguage: process.env.MARSHAL_CAPTIONS_OUTPUT_LANGUAGE ?? "",
-      endsWithQuestion: this.lastTurnWasQuestion
+      endsWithQuestion: this.lastTurnWasQuestion,
+      referenceContext: this.lastReference.text
     };
     let streamed = "";
     this.summaryStreaming = true;
@@ -439,9 +450,22 @@ export class LiveCaptionsService extends EventEmitter {
     );
   }
 
-  /** What the overlay shows while waiting for speech: provider, detector, pause. */
+  /** What the overlay shows while waiting for speech: provider, detector, pause, reference files. */
   private idleHint(): string {
-    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms`;
+    const files = this.lastReference.files.filter((file) => file.included > 0).length;
+    const context = files > 0 ? ` · ctx: ${files} file${files === 1 ? "" : "s"}` : "";
+    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${context}`;
+  }
+
+  /** Where the user drops reference files; created on demand by the Settings button. */
+  get referenceContextDir(): string {
+    return this.referenceContext.directory;
+  }
+
+  /** Current reference files, for Settings. */
+  async describeReferenceContext(): Promise<ReferenceContext> {
+    this.lastReference = await this.referenceContext.get();
+    return this.lastReference;
   }
 
   private setStatus(status: OverlayStatus, hint?: string): void {

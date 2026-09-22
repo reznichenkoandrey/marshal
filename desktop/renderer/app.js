@@ -125,6 +125,9 @@ const dom = {
   settingsCaptionsLanguage: document.getElementById("settings-captions-language"),
   settingsCaptionsPrompt: document.getElementById("settings-captions-prompt"),
   settingsCaptionsVad: document.getElementById("settings-captions-vad"),
+  settingsCaptionsContextDir: document.getElementById("settings-captions-context-dir"),
+  settingsCaptionsContextOpen: document.getElementById("settings-captions-context-open"),
+  settingsCaptionsContextInfo: document.getElementById("settings-captions-context-info"),
   settingsCaptionsSilenceMs: document.getElementById("settings-captions-silence-ms"),
   settingsCaptionsPromptReset: document.getElementById("settings-captions-prompt-reset"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
@@ -880,6 +883,17 @@ function bindEvents() {
     }
   });
 
+  dom.settingsCaptionsContextOpen?.addEventListener("click", async () => {
+    if (!api?.openCaptionsContextFolder) return;
+    try {
+      const result = await api.openCaptionsContextFolder();
+      if (!result.ok) showSettingsStatus(`Could not open the folder: ${result.error ?? "unknown error"}`, "error");
+      else void refreshCaptionsContextInfo();
+    } catch (err) {
+      console.error("openCaptionsContextFolder failed", err);
+    }
+  });
+
   dom.settingsCaptionsPromptReset?.addEventListener("click", async (e) => {
     e.preventDefault();
     if (!dom.settingsCaptionsPrompt || !api?.getCaptionsDefaults) return;
@@ -1025,6 +1039,7 @@ async function openSettings() {
     for (const [key, value] of Object.entries(captionsFields)) {
       if (dom[key]) dom[key].value = value;
     }
+    void refreshCaptionsContextInfo();
     if (dom.settingsCaptureFolder) {
       dom.settingsCaptureFolder.value = current.captureDefaultFolder ?? "";
     }
@@ -1110,6 +1125,26 @@ function showSettingsStatus(message, kind) {
 function clearSettingsStatus() {
   dom.settingsStatus.classList.add("hidden");
   dom.settingsStatus.textContent = "";
+}
+
+async function refreshCaptionsContextInfo() {
+  if (!api?.getCaptionsContextInfo || !dom.settingsCaptionsContextDir) return;
+  try {
+    const info = await api.getCaptionsContextInfo();
+    dom.settingsCaptionsContextDir.value = info.dir || "(live captions unavailable)";
+    const used = info.files.filter((file) => file.included > 0);
+    if (dom.settingsCaptionsContextInfo) {
+      const summary = used.length === 0
+        ? "No reference files yet."
+        : `${used.length} file${used.length === 1 ? "" : "s"} in the prompt: ${used.map((file) => file.name).join(", ")}` +
+          (info.truncated > 0 ? ` (${info.truncated} characters over the budget were cut).` : ".");
+      dom.settingsCaptionsContextInfo.textContent =
+        `${summary} Drop Markdown or text files in this folder — CV, project notes, stack description — ` +
+        "and the summary answers as you, from your experience. Up to ~12k characters; re-read when a file changes.";
+    }
+  } catch (err) {
+    console.error("getCaptionsContextInfo failed", err);
+  }
 }
 
 async function saveSettingsFromForm() {

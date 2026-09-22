@@ -13,7 +13,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { OpenAiSseParser } from "./sse.ts";
-import { buildSummaryMessages, type SummaryInput } from "./summary-prompt.ts";
+import { buildSummaryMessages, type SummaryInput, type SummaryMessages } from "./summary-prompt.ts";
 
 export type SummaryProviderId = "openai-api" | "claude-api" | "off";
 
@@ -150,6 +150,19 @@ export class OpenAiCompatibleSummaryStreamer implements SummaryStreamer {
   }
 }
 
+/**
+ * Anthropic system blocks: the instructions, then the reference block with a
+ * cache breakpoint — it is identical on every request until a file changes,
+ * so it is served from cache instead of re-billed each summary.
+ */
+export function buildAnthropicSystem(messages: SummaryMessages): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: messages.systemInstructions }];
+  if (messages.referenceContext.length > 0) {
+    blocks.push({ type: "text", text: messages.referenceContext, cache_control: { type: "ephemeral" } });
+  }
+  return blocks;
+}
+
 export class AnthropicSummaryStreamer implements SummaryStreamer {
   readonly id: SummaryProviderId = "claude-api";
   private readonly client: Anthropic;
@@ -166,7 +179,7 @@ export class AnthropicSummaryStreamer implements SummaryStreamer {
       {
         model: this.model,
         max_tokens: MAX_TOKENS,
-        system: messages.system,
+        system: buildAnthropicSystem(messages),
         messages: [{ role: "user", content: messages.user }]
       },
       { signal }
