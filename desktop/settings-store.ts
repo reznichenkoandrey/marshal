@@ -19,9 +19,11 @@ import {
   MIN_CAPTIONS_SILENCE_MS,
   VALID_CAPTIONS_PROVIDERS,
   VALID_CAPTIONS_STT,
+  VALID_CAPTIONS_TURN_POLICIES,
   VALID_CAPTIONS_VAD,
   type CaptionsProviderChoice,
   type CaptionsSttChoice,
+  type CaptionsTurnPolicy,
   type CaptionsVadChoice
 } from "./captions/captions-defaults.ts";
 import {
@@ -119,6 +121,14 @@ export type MarshalSettings = {
   captionsVad: CaptionsVadChoice;
   /** Trailing silence (ms) that ends an utterance and triggers the summary. */
   captionsSilenceMs: number;
+  /** What a new transcript does to a summary that is still streaming. */
+  captionsTurnPolicy: CaptionsTurnPolicy;
+  /**
+   * Transcribe an utterance speculatively at a 300 ms pause so the text is
+   * ready when the real silence threshold closes it. Extra whisper calls on
+   * mid-sentence pauses — fine on Groq, noticeable CPU on local whisper.cpp.
+   */
+  captionsSpeculativeStt: boolean;
   /**
    * Directory where "quick save" stores captured PNGs. Empty string → use
    * ~/Desktop.
@@ -198,6 +208,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   captionsOcrHotkey: DEFAULT_CAPTIONS_OCR_HOTKEY,
   captionsVad: "silero",
   captionsSilenceMs: DEFAULT_CAPTIONS_SILENCE_MS,
+  captionsTurnPolicy: "interrupt",
+  captionsSpeculativeStt: true,
   captureDefaultFolder: "",
   captureEditorAlwaysOnTop: true,
   launchAtLogin: false,
@@ -314,6 +326,10 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
     "MARSHAL_CAPTIONS_SILENCE_MS",
     typeof settings.captionsSilenceMs === "number" ? String(settings.captionsSilenceMs) : ""
   );
+  setOrDelete("MARSHAL_CAPTIONS_TURN_POLICY", settings.captionsTurnPolicy);
+  if (typeof settings.captionsSpeculativeStt === "boolean") {
+    process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT = settings.captionsSpeculativeStt ? "1" : "0";
+  }
   // Forwarded to the backend utility process so the local bridge server can
   // persist captures (e.g. /capture/fullpage from the Chrome extension) into
   // the same folder the rest of the capture pipeline uses.
@@ -415,6 +431,12 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
   const captionsVad = (VALID_CAPTIONS_VAD as readonly string[]).includes(captionsVadCandidate)
     ? (captionsVadCandidate as CaptionsVadChoice)
     : DEFAULT_SETTINGS.captionsVad;
+  const turnPolicyCandidate = typeof input.captionsTurnPolicy === "string"
+    ? input.captionsTurnPolicy.trim().toLowerCase()
+    : DEFAULT_SETTINGS.captionsTurnPolicy;
+  const captionsTurnPolicy = (VALID_CAPTIONS_TURN_POLICIES as readonly string[]).includes(turnPolicyCandidate)
+    ? (turnPolicyCandidate as CaptionsTurnPolicy)
+    : DEFAULT_SETTINGS.captionsTurnPolicy;
 
   return {
     bridgeMode,
@@ -460,6 +482,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       MIN_CAPTIONS_SILENCE_MS,
       MAX_CAPTIONS_SILENCE_MS
     ),
+    captionsTurnPolicy,
+    captionsSpeculativeStt: typeof input.captionsSpeculativeStt === "boolean"
+      ? input.captionsSpeculativeStt
+      : DEFAULT_SETTINGS.captionsSpeculativeStt,
     captureEditorAlwaysOnTop: typeof input.captureEditorAlwaysOnTop === "boolean"
       ? input.captureEditorAlwaysOnTop
       : DEFAULT_SETTINGS.captureEditorAlwaysOnTop,

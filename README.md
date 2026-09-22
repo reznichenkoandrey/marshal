@@ -72,6 +72,10 @@ share your screen with never see.
   Fillers ("um", "you know", "ну", "типу") are stripped, half-sentences wait for
   their other half, and a question triggers the summary immediately with the
   model told to answer it.
+  Utterances are transcribed speculatively at a 300 ms pause so the text is
+  ready the moment the sentence ends; new speech during a streaming summary
+  either restarts it or queues one follow-up (Settings), with the stale
+  bullets marked "updating…" meanwhile.
 - **Screen context on demand.** `⌃⇧S` OCRs a screen region (first press picks
   the region, later presses are silent) with Apple Vision and hands the text to
   the summarizer as context. The overlay hides itself during the capture.

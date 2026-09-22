@@ -42,9 +42,9 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 |---|---|---|
 | Local context grounding (reference files → system prompt) | ✅ | `context-store.ts`: `<userData>/captions-context/` (Settings → Live captions → Reference files → Open folder…), `.md`/`.txt` concatenated under headers within 12k chars, re-read when a file changes; Anthropic path puts the block in a cached system block. Embeddings deliberately not — a CV plus a README fits (#188) |
 | V2 system prompt (first person, code snippets) | ✅ | The spec's V2 prompt verbatim, used only when reference files exist (without them "first person" is fabrication); fenced code renders as `<pre><code>` on the overlay (#188) |
-| Request queue: queue or interrupt an in-flight generation | 🟡 | In-flight summary is aborted and restarted with the newer transcript (`AbortController`). The "queue" option and a visible "…updating" state are missing — #189 |
+| Request queue: queue or interrupt an in-flight generation | ✅ | `summary-policy.ts` — Settings → "New speech while a summary is streaming": **interrupt** (abort, restart with the fuller transcript) or **queue** (let it finish, then one coalesced follow-up). The overlay dims the stale bullets and shows "updating…" until the replacement's first token (#189) |
 | Token streaming | ✅ | OpenAI-compatible SSE or Anthropic SDK; deltas render as they arrive |
-| Total response latency < 1 s | 🟡 | Measured 1.3–2.0 s from end of speech to the updated summary on Groq: ~650 ms silence wait + ~550 ms whisper + ~450 ms first token. Under 1 s needs streaming STT or a shorter silence window — #189 |
+| Total response latency < 1 s | ✅ (from turn end) | Speculative STT: at a 300 ms pause the utterance is transcribed while the real 900 ms pause is still being waited out; if no speech follows, the text is reused at the cut and whisper's ~550 ms leaves the critical path. From turn end to first summary token that leaves ~300 ms (Groq). Measured from end of speech the silence threshold itself still adds 900 ms by design — lower it in Settings for fast speakers (#189) |
 
 ## Testing notes
 

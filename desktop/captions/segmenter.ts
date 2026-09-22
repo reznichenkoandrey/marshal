@@ -29,6 +29,14 @@ export interface SegmenterOptions {
   /** Hard cap: a segment is emitted even if the speaker never pauses. */
   maxSegmentMs: number;
   /**
+   * Emit a provisional copy of the utterance after this much trailing
+   * silence — before `silenceEndMs` closes it — so transcription can start
+   * while the pause is still being waited out. 0 disables. The final segment
+   * carries the same `utteranceId` and, if no speech followed, the same
+   * `speechMs`, which is how a consumer knows the provisional result stands.
+   */
+  provisionalSilenceMs: number;
+  /**
    * Per-frame speech decision. When set (the WebRTC VAD), a frame counts as
    * speech only if the classifier says so AND its energy clears the absolute
    * floor — the model catches typing and music that the energy gate lets
@@ -46,15 +54,21 @@ export const DEFAULT_SEGMENTER_OPTIONS: SegmenterOptions = {
   prerollMs: 240,
   silenceEndMs: 650,
   minSpeechMs: 450,
-  maxSegmentMs: 9_000
+  maxSegmentMs: 9_000,
+  provisionalSilenceMs: 0
 };
 
 export interface SpeechSegment {
   samples: Int16Array;
   /** Speech duration inside the segment, excluding pre-roll and tail. */
   speechMs: number;
-  /** Why the segment was cut. */
-  reason: "silence" | "max-length" | "flush";
+  /**
+   * Why the segment was cut. `provisional` is an early copy of an utterance
+   * that is still open — see `provisionalSilenceMs`.
+   */
+  reason: "silence" | "max-length" | "flush" | "provisional";
+  /** Counts utterances; a provisional and its final segment share one. */
+  utteranceId: number;
 }
 
 export type SegmentListener = (segment: SpeechSegment) => void;
@@ -75,7 +89,10 @@ export class SpeechSegmenter {
   private readonly prerollFrames: number;
   private readonly silenceEndFrames: number;
   private readonly maxSegmentFrames: number;
+  private readonly provisionalFrames: number;
   private readonly listener: SegmentListener;
+  private utteranceId = 0;
+  private provisionalSent = false;
 
   private pending = new Int16Array(0);
   private preroll: Int16Array[] = [];
@@ -93,6 +110,9 @@ export class SpeechSegmenter {
     this.prerollFrames = Math.ceil(this.options.prerollMs / this.options.frameMs);
     this.silenceEndFrames = Math.ceil(this.options.silenceEndMs / this.options.frameMs);
     this.maxSegmentFrames = Math.ceil(this.options.maxSegmentMs / this.options.frameMs);
+    this.provisionalFrames = this.options.provisionalSilenceMs > 0
+      ? Math.ceil(this.options.provisionalSilenceMs / this.options.frameMs)
+      : 0;
     this.noiseFloor = this.options.minSpeechRms / this.options.noiseFloorRatio;
   }
 
@@ -165,6 +185,8 @@ export class SpeechSegmenter {
     if (!this.inSpeech) {
       if (isSpeech) {
         this.inSpeech = true;
+        this.utteranceId += 1;
+        this.provisionalSent = false;
         this.active = [...this.preroll, frame.slice()];
         this.preroll = [];
         this.speechFrames = 1;
@@ -180,8 +202,21 @@ export class SpeechSegmenter {
     if (isSpeech) {
       this.speechFrames += 1;
       this.trailingSilenceFrames = 0;
+      // Speech resumed after a provisional copy: the next pause may send another.
+      this.provisionalSent = false;
     } else {
       this.trailingSilenceFrames += 1;
+    }
+
+    if (
+      this.provisionalFrames > 0 &&
+      !this.provisionalSent &&
+      this.trailingSilenceFrames >= this.provisionalFrames &&
+      this.trailingSilenceFrames < this.silenceEndFrames &&
+      this.speechFrames * this.options.frameMs >= this.options.minSpeechMs
+    ) {
+      this.provisionalSent = true;
+      this.emit("provisional");
     }
 
     if (this.trailingSilenceFrames >= this.silenceEndFrames) {
@@ -216,7 +251,7 @@ export class SpeechSegmenter {
       samples.set(frame, offset);
       offset += frame.length;
     }
-    this.listener({ samples, speechMs: this.speechFrames * this.options.frameMs, reason });
+    this.listener({ samples, speechMs: this.speechFrames * this.options.frameMs, reason, utteranceId: this.utteranceId });
   }
 
   private resetSpeechState(): void {
