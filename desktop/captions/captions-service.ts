@@ -211,7 +211,7 @@ export class LiveCaptionsService extends EventEmitter {
       }
       this.startDragHotkey();
       this.setState("running");
-      this.setStatus("listening", `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms`);
+      this.setStatus("listening", this.idleHint());
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.teardown();
@@ -363,7 +363,7 @@ export class LiveCaptionsService extends EventEmitter {
       if (!controller.signal.aborted) {
         this.summaryText = streamed;
         this.summaryStreaming = false;
-        this.setStatus("listening", this.providerHint);
+        this.setStatus("listening", this.idleHint());
       }
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -407,6 +407,11 @@ export class LiveCaptionsService extends EventEmitter {
     this.window.setInteractive(
       shouldAcceptMouse({ modifierHeld: this.modifierHeld, moveModeToggled: this.moveModeToggled })
     );
+  }
+
+  /** What the overlay shows while waiting for speech: provider, detector, pause. */
+  private idleHint(): string {
+    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms`;
   }
 
   private setStatus(status: OverlayStatus, hint?: string): void {
