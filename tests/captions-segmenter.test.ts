@@ -89,6 +89,26 @@ describe("SpeechSegmenter", () => {
     expect(segments).toHaveLength(1);
   });
 
+  it("lets an injected classifier veto frames the energy gate would take", () => {
+    const { segments, segmenter } = collect();
+    // Override the constructor's listener with a classifier-driven one.
+    const vetoed: SpeechSegment[] = [];
+    const strict = new SpeechSegmenter((segment) => vetoed.push(segment), { classifyFrame: () => false });
+    const permissive = new SpeechSegmenter((segment) => segments.push(segment), { classifyFrame: () => true });
+    for (const target of [strict, permissive]) {
+      target.pushSamples(silence(300));
+      target.pushSamples(tone(1_200, 6000));
+      target.pushSamples(silence(900));
+    }
+    expect(vetoed).toHaveLength(0);
+    expect(segments).toHaveLength(1);
+    // The absolute floor still applies with a classifier: near-silence is never speech.
+    const quiet = new SpeechSegmenter((segment) => vetoed.push(segment), { classifyFrame: () => true });
+    quiet.pushSamples(silence(2_000, 50));
+    expect(vetoed).toHaveLength(0);
+    void segmenter;
+  });
+
   it("flushes speech in progress on stop", () => {
     const { segments, segmenter } = collect();
     segmenter.pushSamples(tone(1_000, 6000));

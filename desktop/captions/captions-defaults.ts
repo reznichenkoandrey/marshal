@@ -27,3 +27,12 @@ export const VALID_CAPTIONS_PROVIDERS: readonly CaptionsProviderChoice[] = ["aut
 /** Speech-to-text for captions; `auto` follows the dictation backend. */
 export type CaptionsSttChoice = "auto" | "whisper-cpp" | "groq" | "hybrid";
 export const VALID_CAPTIONS_STT: readonly CaptionsSttChoice[] = ["auto", "whisper-cpp", "groq", "hybrid"];
+
+/** Trailing silence that closes an utterance. The spec suggests 1.2–1.5 s; 900 ms is the middle ground between cutting slow speakers and adding latency. */
+export const DEFAULT_CAPTIONS_SILENCE_MS = 900;
+export const MIN_CAPTIONS_SILENCE_MS = 400;
+export const MAX_CAPTIONS_SILENCE_MS = 2_000;
+
+/** Per-frame speech detector: Silero VAD (ONNX on WASM) or the adaptive energy gate. */
+export type CaptionsVadChoice = "silero" | "energy";
+export const VALID_CAPTIONS_VAD: readonly CaptionsVadChoice[] = ["silero", "energy"];

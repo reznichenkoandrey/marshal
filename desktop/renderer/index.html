@@ -330,6 +330,29 @@
             </div>
 
             <div class="field">
+              <label for="settings-captions-vad">Speech detection</label>
+              <select id="settings-captions-vad" name="captionsVad">
+                <option value="silero">Silero VAD (default) — neural model; ignores typing, music beds, notification sounds</option>
+                <option value="energy">Energy gate — loudness against an adaptive noise floor</option>
+              </select>
+              <p class="field-hint">
+                Decides which frames are speech. Energy is the fallback Marshal uses automatically
+                if the Silero model fails to load.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-silence-ms">End of utterance after silence</label>
+              <input id="settings-captions-silence-ms" name="captionsSilenceMs" type="number"
+                min="400" max="2000" step="50" inputmode="numeric" />
+              <p class="field-hint">
+                Milliseconds of silence that close a sentence and trigger the summary. <code>900</code>
+                is the default; raise towards <code>1200–1500</code> for slow speakers, lower for
+                fast ones — every 100 ms here is 100 ms of caption latency.
+              </p>
+            </div>
+
+            <div class="field">
               <label for="settings-captions-language">Spoken language</label>
               <select id="settings-captions-language" name="captionsLanguage">
                 <option value="auto">Auto-detect (default)</option>

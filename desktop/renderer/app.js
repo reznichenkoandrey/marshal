@@ -124,6 +124,8 @@ const dom = {
   settingsCaptionsSttBackend: document.getElementById("settings-captions-stt-backend"),
   settingsCaptionsLanguage: document.getElementById("settings-captions-language"),
   settingsCaptionsPrompt: document.getElementById("settings-captions-prompt"),
+  settingsCaptionsVad: document.getElementById("settings-captions-vad"),
+  settingsCaptionsSilenceMs: document.getElementById("settings-captions-silence-ms"),
   settingsCaptionsPromptReset: document.getElementById("settings-captions-prompt-reset"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
@@ -1016,7 +1018,9 @@ async function openSettings() {
       settingsCaptionsOutputLanguage: current.captionsOutputLanguage ?? "",
       settingsCaptionsSttBackend: current.captionsSttBackend ?? "auto",
       settingsCaptionsLanguage: current.captionsLanguage ?? "auto",
-      settingsCaptionsPrompt: current.captionsPrompt ?? ""
+      settingsCaptionsPrompt: current.captionsPrompt ?? "",
+      settingsCaptionsVad: current.captionsVad ?? "silero",
+      settingsCaptionsSilenceMs: String(current.captionsSilenceMs ?? 900)
     };
     for (const [key, value] of Object.entries(captionsFields)) {
       if (dom[key]) dom[key].value = value;
@@ -1133,6 +1137,8 @@ async function saveSettingsFromForm() {
     captionsSttBackend: dom.settingsCaptionsSttBackend?.value ?? "auto",
     captionsLanguage: dom.settingsCaptionsLanguage?.value ?? "auto",
     captionsPrompt: dom.settingsCaptionsPrompt?.value ?? "",
+    captionsVad: dom.settingsCaptionsVad?.value ?? "silero",
+    captionsSilenceMs: Number.parseInt(dom.settingsCaptionsSilenceMs?.value ?? "900", 10),
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true

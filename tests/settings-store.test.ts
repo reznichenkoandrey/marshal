@@ -125,6 +125,8 @@ describe("saveSettings", () => {
       captionsDragModifier: "LeftControl",
       captionsHotkey: "CommandOrControl+Alt+Shift+C",
       captionsOcrHotkey: "Control+Shift+S",
+      captionsVad: "silero",
+      captionsSilenceMs: 900,
       captureDefaultFolder: "",
       captureEditorAlwaysOnTop: true,
       launchAtLogin: false,
@@ -267,6 +269,18 @@ describe("live captions settings (#179)", () => {
     expect(saved.captionsHotkey).toBe("CommandOrControl+Alt+Shift+C");
     expect(saved.captionsOcrHotkey).toBe("Control+Shift+S");
     expect(saved.captionsDragModifier).toBe("LeftControl");
+  });
+
+  it("clamps the silence threshold and rejects unknown VAD choices (#186)", () => {
+    expect(saveSettings({ captionsSilenceMs: 50 }).captionsSilenceMs).toBe(400);
+    expect(saveSettings({ captionsSilenceMs: 9_999 }).captionsSilenceMs).toBe(2_000);
+    expect(saveSettings({ captionsSilenceMs: "1250" as never }).captionsSilenceMs).toBe(1_250);
+    expect(saveSettings({ captionsSilenceMs: Number.NaN }).captionsSilenceMs).toBe(900);
+    expect(saveSettings({ captionsVad: "webrtc" as never }).captionsVad).toBe("silero");
+    expect(saveSettings({ captionsVad: "energy" }).captionsVad).toBe("energy");
+    applySettingsToEnv(saveSettings({ captionsVad: "energy", captionsSilenceMs: 1_400 }));
+    expect(process.env.MARSHAL_CAPTIONS_VAD).toBe("energy");
+    expect(process.env.MARSHAL_CAPTIONS_SILENCE_MS).toBe("1400");
   });
 
   it("keeps an explicitly blank captions prompt — blank means no prompting", () => {
