@@ -23,6 +23,7 @@ import { VideoRecorder } from "./capture/video-recorder.ts";
 import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
+import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
@@ -2067,6 +2068,9 @@ function initTranslator(): void {
   });
   translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
+  // First exec of a freshly installed helper is slow enough to time out the
+  // first OCR (#181); pay that cost now, in the background.
+  void warmUpAppleVisionOcr();
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
   translatorGlossary = new TranslatorGlossaryStore(app.getPath("userData"));
   translatorService.setGlossary(translatorGlossary.list());

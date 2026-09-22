@@ -88,7 +88,7 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
  * text. Shared with the live captions overlay, which needs OCR without a
  * translation attached.
  */
-export function runAppleVisionOcr(imagePath: string): Promise<string> {
+export function runAppleVisionOcr(imagePath: string, timeoutMs = OCR_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -107,8 +107,8 @@ export function runAppleVisionOcr(imagePath: string): Promise<string> {
       if (settled) return;
       settled = true;
       child.kill("SIGKILL");
-      reject(new Error(`apple-vision-ocr timed out after ${OCR_TIMEOUT_MS}ms`));
-    }, OCR_TIMEOUT_MS);
+      reject(new Error(`apple-vision-ocr timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
@@ -155,4 +155,41 @@ function appleVisionSpawnError(err: unknown): Error {
     "Rebuild Marshal (npm run build) so the Swift helper is compiled. " +
     "macOS only — on other platforms switch translator backend to a cloud provider."
   );
+}
+
+// A 1×1 transparent PNG: enough to make the helper start and exit.
+const WARM_UP_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64"
+);
+const WARM_UP_TIMEOUT_MS = 90_000;
+
+/**
+ * Runs the helper once in the background so its first real call is fast.
+ *
+ * A freshly installed build carries a never-run, un-notarized hardened-runtime
+ * binary, and macOS assesses it on first exec — measured at ~35 s on
+ * macOS 27, against 0.4 s for every run after. That is longer than the OCR
+ * timeout, so without this the first ⌘⇧2 and the first captions Ctrl+Shift+S
+ * after an install always failed (#181). Errors are swallowed: the point is
+ * the exec, not the result.
+ */
+export async function warmUpAppleVisionOcr(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const file = path.join(tmpdir(), `marshal-vision-warmup-${randomUUID()}.png`);
+  const startedAt = Date.now();
+  try {
+    await fs.writeFile(file, WARM_UP_PNG);
+    await runAppleVisionOcr(file, WARM_UP_TIMEOUT_MS);
+  } catch (err) {
+    // A Vision error on a 1×1 image is expected; a missing binary is logged
+    // by the first real call with its actionable message.
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/vision error|exited with code 2/iu.test(message)) {
+      console.warn("[vision] warm-up:", message.split("\n")[0]);
+    }
+  } finally {
+    await fs.unlink(file).catch(() => {});
+    console.log(`[vision] apple-vision-ocr warm-up took ${Date.now() - startedAt} ms`);
+  }
 }
