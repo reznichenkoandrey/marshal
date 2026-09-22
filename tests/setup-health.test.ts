@@ -190,3 +190,42 @@ describe("buildSetupHealth", () => {
     expect(summary.counts.warn).toBe(0);
   });
 });
+
+// #174: a permanent warn about a permission Marshal never requests itself.
+describe("microphone in setup health", () => {
+  const base = {
+    platform: "darwin" as NodeJS.Platform,
+    dictationEnabled: true,
+    dictationBackend: "hybrid" as const,
+    screenStatus: "granted" as const,
+    accessibilityTrusted: true,
+    apiKeyPresent: true,
+    whisperBinPath: "/whisper-cli",
+    whisperModelPath: "/model.bin",
+    codesignIdentityPresent: true,
+    launchAtLogin: false,
+    exists: () => true
+  };
+
+  const micItem = (microphoneStatus: "granted" | "denied" | "not-determined") =>
+    buildSetupHealth({ ...base, microphoneStatus }).items.find((i) => i.id === "microphone");
+
+  it("reports not-determined as unknown, not as something to go fix", () => {
+    const item = micItem("not-determined");
+    expect(item?.status).toBe("unknown");
+    // No action: sending the user to System Settings would be a dead end, the
+    // grant they need is already there under the helper's name.
+    expect(item?.action).toBeUndefined();
+    expect(item?.detail).toMatch(/audio-recorder/u);
+  });
+
+  it("still reports an actual refusal as an error with an action", () => {
+    const item = micItem("denied");
+    expect(item?.status).toBe("error");
+    expect(item?.action).toMatch(/System Settings/u);
+  });
+
+  it("reports a real grant as ok", () => {
+    expect(micItem("granted")?.status).toBe("ok");
+  });
+});

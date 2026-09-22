@@ -54,7 +54,16 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
       status: input.platform === "darwin" ? input.microphoneStatus : undefined,
       okDetail: "Granted. Dictation can record audio.",
       missingDetail: "Required for voice dictation.",
-      action: "System Settings -> Privacy & Security -> Microphone"
+      action: "System Settings -> Privacy & Security -> Microphone",
+      // The recording is done by the audio-recorder helper, which holds its
+      // own grant under its own name. This app never asks for the microphone
+      // itself (#82), so its status sits at "not-determined" forever — a warn
+      // there would be permanent and wrong (#174).
+      notDeterminedIsUnknown: true,
+      notDeterminedDetail:
+        "Held by the audio-recorder helper, not by Marshal itself — check the " +
+        "`audio-recorder` row in System Settings -> Privacy & Security -> Microphone. " +
+        "Dictation raises the system prompt on its first recording."
     })
     : disabledDictationItem("microphone", "Microphone"));
 
@@ -183,6 +192,13 @@ function permissionItem(input: {
   okDetail: string;
   missingDetail: string;
   action: string;
+  /**
+   * For a permission this process never requests itself, "not-determined"
+   * says nothing about whether the feature works — report it as unknown
+   * rather than as a problem the user should go fix.
+   */
+  notDeterminedIsUnknown?: boolean;
+  notDeterminedDetail?: string;
 }): SetupHealthItem {
   if (!input.status) {
     return {
@@ -198,6 +214,14 @@ function permissionItem(input: {
       label: input.label,
       status: "ok",
       detail: input.okDetail
+    };
+  }
+  if (input.status === "not-determined" && input.notDeterminedIsUnknown) {
+    return {
+      id: input.id,
+      label: input.label,
+      status: "unknown",
+      detail: input.notDeterminedDetail ?? input.missingDetail
     };
   }
   return {
