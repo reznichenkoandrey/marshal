@@ -47,7 +47,10 @@ import { SileroVad } from "./silero-vad.ts";
 import { TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
-const SUMMARY_DEBOUNCE_MS = 600;
+// Coalesces segments that land within a breath of each other. Short, because
+// with speculative transcription the text is usually ready at the cut and
+// every millisecond here is on the critical path (#189).
+const SUMMARY_DEBOUNCE_MS = 300;
 /** A held half-sentence is shown on its own if nothing completes it within this long. */
 const FRAGMENT_HOLD_MS = 4_000;
 /** Segments waiting for whisper beyond this are dropped, oldest first. */

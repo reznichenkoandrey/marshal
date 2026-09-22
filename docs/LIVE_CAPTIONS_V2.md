@@ -24,9 +24,9 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | System audio loopback (not the mic) | ✅ macOS | `swift/system-audio-tap.swift` (ScreenCaptureKit); Windows WASAPI — #178 |
 | Continuous background VAD | ✅ | `silero-vad.ts` — Silero VAD v5 on `onnxruntime-web` (WASM, no native binding; 14 MB runtime asar-unpacked + 2.3 MB model in `assets/models`); `segmenter.ts` combines its decision with an absolute energy floor. WebRTC VAD (libfvad) was tried first and rejected: it calls white noise and pure tones speech (#186) |
 | Configurable silence threshold (1.2–1.5 s) | ✅ | Settings → Live captions → "End of utterance after silence", 400–2000 ms, default 900 (`MARSHAL_CAPTIONS_SILENCE_MS`) (#186) |
-| Question-intonation end detection | ✅ | `transcript-normalize.ts` → `isQuestion`: a trailing `?`, or an interrogative opener (EN/UK) on a line without terminal punctuation. A question skips the 600 ms debounce and the prompt tells the model to answer it. Textual rather than pitch-based on purpose — whisper's punctuation is more reliable than intonation on call audio (#187) |
+| Question-intonation end detection | ✅ | `transcript-normalize.ts` → `isQuestion`: a trailing `?`, or an interrogative opener (EN/UK) on a line without terminal punctuation. A question skips the 300 ms debounce and the prompt tells the model to answer it. Textual rather than pitch-based on purpose — whisper's punctuation is more reliable than intonation on call audio (#187) |
 | Filler-word / half-sentence filtering | ✅ | `stripFillers` (EN/UK fillers, sentence openers, "like" only as a comma aside) and `isFragment` (< 4 words or cut mid-word) — fragments are held and glued to the next utterance, or shown alone after 4 s (#187) |
-| Trigger the AI pipeline the moment a turn ends | ✅ | Every accepted segment schedules a summary after a 600 ms debounce |
+| Trigger the AI pipeline the moment a turn ends | ✅ | Every accepted segment schedules a summary after a 300 ms debounce (a question skips it) |
 
 ## 2.3 On-demand visual context (OCR)
 
@@ -44,7 +44,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | V2 system prompt (first person, code snippets) | ✅ | The spec's V2 prompt verbatim, used only when reference files exist (without them "first person" is fabrication); fenced code renders as `<pre><code>` on the overlay (#188) |
 | Request queue: queue or interrupt an in-flight generation | ✅ | `summary-policy.ts` — Settings → "New speech while a summary is streaming": **interrupt** (abort, restart with the fuller transcript) or **queue** (let it finish, then one coalesced follow-up). The overlay dims the stale bullets and shows "updating…" until the replacement's first token (#189) |
 | Token streaming | ✅ | OpenAI-compatible SSE or Anthropic SDK; deltas render as they arrive |
-| Total response latency < 1 s | ✅ (from turn end) | Speculative STT: at a 300 ms pause the utterance is transcribed while the real 900 ms pause is still being waited out; if no speech follows, the text is reused at the cut and whisper's ~550 ms leaves the critical path. From turn end to first summary token that leaves ~300 ms (Groq). Measured from end of speech the silence threshold itself still adds 900 ms by design — lower it in Settings for fast speakers (#189) |
+| Total response latency < 1 s | ✅ (from turn end) | Speculative STT: at a 300 ms pause the utterance is transcribed while the real 900 ms pause is still being waited out; if no speech follows, the text is reused at the cut and whisper's ~550 ms leaves the critical path. Measured on the installed build (Groq): a question — caption +5 ms, first summary token +102 ms after the audio ended; a two-sentence statement — caption +261 ms, first token +1016 ms with the 600 ms debounce, since lowered to 300 ms. The silence threshold itself (900 ms) is inside "audio ended" here; lower it in Settings for fast speakers (#189) |
 
 ## Testing notes
 
