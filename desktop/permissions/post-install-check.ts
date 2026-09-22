@@ -64,6 +64,11 @@ const PERMISSION_DEFS: Record<MissingPermissionId, Omit<MissingPermission, "stat
   }
 };
 
+/** Someone actively turned the permission off, as opposed to never granting it. */
+export function isActivelyBlocked(status: MediaAccessStatus): boolean {
+  return status === "denied" || status === "restricted";
+}
+
 export function evaluatePostInstallPermissionCheck(
   snapshot: PermissionCheckSnapshot
 ): PermissionCheckDecision {
@@ -75,7 +80,18 @@ export function evaluatePostInstallPermissionCheck(
   }
 
   const missing: MissingPermission[] = [];
-  if (snapshot.microphoneStatus !== "granted") {
+  // The app's own microphone status can never reach "granted": main.ts
+  // deliberately never calls askForMediaAccess, because on a self-signed
+  // bundle that returns `denied` with no UI and writes the refusal into TCC,
+  // blocking the audio-recorder helper from raising its own prompt (#82).
+  // Recording is done by that helper, which holds the grant under its own
+  // name in System Settings.
+  //
+  // So "not-determined" here carries no information and must not drive the
+  // dialog — it fired on every version bump while dictation worked fine
+  // (#174). "denied" and "restricted" do carry information: somebody turned
+  // it off, and that is worth saying.
+  if (isActivelyBlocked(snapshot.microphoneStatus)) {
     missing.push({ ...PERMISSION_DEFS.microphone, status: snapshot.microphoneStatus });
   }
   if (!snapshot.accessibilityTrusted) {

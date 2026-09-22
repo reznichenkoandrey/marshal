@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   evaluatePostInstallPermissionCheck,
+  isActivelyBlocked,
   runPostInstallPermissionCheck,
   type PermissionCheckSnapshot
 } from "../desktop/permissions/post-install-check.ts";
@@ -163,5 +164,54 @@ describe("runPostInstallPermissionCheck", () => {
     expect(showMessageBox).toHaveBeenCalledTimes(2);
     expect(showMessageBox.mock.calls[1]?.[0].title).toBe("Marshal permissions are ready");
     expect(saveSettings).toHaveBeenCalledWith({ lastSeenVersion: "0.2.0" });
+  });
+});
+
+// #174: the reported bug. The app never asks for the microphone itself (#82),
+// so its own status sits at "not-determined" forever while the audio-recorder
+// helper holds the real grant. Treating that as "missing" made the dialog fire
+// on every version bump — five times over 0.2.5 → 0.2.9 — with dictation
+// working the whole time.
+describe("microphone: not-determined must not raise the dialog", () => {
+  it("stays quiet when only the app's own microphone status is undetermined", () => {
+    const decision = evaluatePostInstallPermissionCheck({
+      ...baseSnapshot,
+      microphoneStatus: "not-determined"
+    });
+    expect(decision.shouldPrompt).toBe(false);
+    expect(decision.missing).toEqual([]);
+  });
+
+  it("still speaks up when the microphone was actively refused", () => {
+    for (const status of ["denied", "restricted"] as const) {
+      const decision = evaluatePostInstallPermissionCheck({
+        ...baseSnapshot,
+        microphoneStatus: status
+      });
+      expect(decision.shouldPrompt).toBe(true);
+      expect(decision.missing.map((m) => m.id)).toEqual(["microphone"]);
+      expect(decision.missing[0].status).toBe(status);
+    }
+  });
+
+  it("does not mask the other two permissions, which the app does hold itself", () => {
+    const decision = evaluatePostInstallPermissionCheck({
+      ...baseSnapshot,
+      microphoneStatus: "not-determined",
+      accessibilityTrusted: false,
+      screenStatus: "not-determined"
+    });
+    expect(decision.shouldPrompt).toBe(true);
+    expect(decision.missing.map((m) => m.id)).toEqual(["accessibility", "screen-recording"]);
+  });
+});
+
+describe("isActivelyBlocked", () => {
+  it("separates a refusal from never having been asked", () => {
+    expect(isActivelyBlocked("denied")).toBe(true);
+    expect(isActivelyBlocked("restricted")).toBe(true);
+    expect(isActivelyBlocked("not-determined")).toBe(false);
+    expect(isActivelyBlocked("granted")).toBe(false);
+    expect(isActivelyBlocked("unknown")).toBe(false);
   });
 });
