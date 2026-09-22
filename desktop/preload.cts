@@ -157,6 +157,8 @@ const desktopApi = {
     captionsDragModifier?: string;
     captionsHotkey?: string;
     captionsOcrHotkey?: string;
+    captionsVad?: string;
+    captionsSilenceMs?: number;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,

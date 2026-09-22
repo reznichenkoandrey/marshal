@@ -33,7 +33,14 @@ import { SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
 import { createSummaryStreamer, resolveSummaryProvider, type SummaryStreamer } from "./summarizer.ts";
 import { renderSummaryHtml } from "./summary-prompt.ts";
 import { SystemAudioTap } from "./system-audio-tap.ts";
-import { DEFAULT_CAPTIONS_DRAG_MODIFIER, DEFAULT_CAPTIONS_PROMPT } from "./captions-defaults.ts";
+import {
+  DEFAULT_CAPTIONS_DRAG_MODIFIER,
+  DEFAULT_CAPTIONS_PROMPT,
+  DEFAULT_CAPTIONS_SILENCE_MS,
+  MAX_CAPTIONS_SILENCE_MS,
+  MIN_CAPTIONS_SILENCE_MS
+} from "./captions-defaults.ts";
+import { SileroVad } from "./silero-vad.ts";
 import { TranscriptBuffer } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
@@ -72,6 +79,9 @@ export class LiveCaptionsService extends EventEmitter {
   private readonly injected: { whisper: boolean; summarizer: boolean };
 
   private segmenter: SpeechSegmenter | null = null;
+  private vad: SileroVad | null = null;
+  private silenceMs = DEFAULT_CAPTIONS_SILENCE_MS;
+  private vadChoice: "silero" | "energy" = "silero";
   private dragHotkey: PushToTalkBackend | null = null;
   private state: CaptionsState = "stopped";
   private status: OverlayStatus = "stopped";
@@ -127,6 +137,36 @@ export class LiveCaptionsService extends EventEmitter {
     this.prompt = typeof promptEnv === "string" ? promptEnv.trim() : DEFAULT_CAPTIONS_PROMPT;
     const provider = resolveSummaryProvider(process.env);
     this.providerHint = provider.id === "off" ? `captions only — ${provider.reason}` : `summary: ${provider.id}`;
+    const silence = Number.parseInt(process.env.MARSHAL_CAPTIONS_SILENCE_MS ?? "", 10);
+    this.silenceMs = Number.isFinite(silence)
+      ? Math.min(Math.max(silence, MIN_CAPTIONS_SILENCE_MS), MAX_CAPTIONS_SILENCE_MS)
+      : DEFAULT_CAPTIONS_SILENCE_MS;
+    this.vadChoice = (process.env.MARSHAL_CAPTIONS_VAD ?? "silero").trim().toLowerCase() === "energy" ? "energy" : "silero";
+  }
+
+  /**
+   * Silero runs on WASM and loads asynchronously; when it cannot (a broken
+   * install, an unsupported platform) the energy gate takes over and the
+   * overlay hint says so, rather than captions silently degrading.
+   */
+  private async createSegmenter(): Promise<SpeechSegmenter> {
+    this.vad?.dispose();
+    this.vad = null;
+    let classifyFrame: ((frame: Int16Array, rms: number) => boolean) | undefined;
+    if (this.vadChoice === "silero") {
+      try {
+        const vad = await SileroVad.create();
+        this.vad = vad;
+        classifyFrame = (frame) => vad.classify(frame);
+      } catch (err) {
+        console.warn("[captions] Silero VAD unavailable, using the energy gate:", err instanceof Error ? err.message : err);
+        this.vadChoice = "energy";
+      }
+    }
+    return new SpeechSegmenter((segment) => this.enqueueSegment(segment), {
+      silenceEndMs: this.silenceMs,
+      classifyFrame
+    });
   }
 
   isAvailable(): boolean {
@@ -158,7 +198,7 @@ export class LiveCaptionsService extends EventEmitter {
       this.window.show();
       this.setStatus("starting", "starting audio tap…");
 
-      this.segmenter = new SpeechSegmenter((segment) => this.enqueueSegment(segment));
+      this.segmenter = await this.createSegmenter();
       const onPcm = (chunk: Buffer): void => {
         this.segmenter?.pushBytes(chunk);
       };
@@ -171,7 +211,7 @@ export class LiveCaptionsService extends EventEmitter {
       }
       this.startDragHotkey();
       this.setState("running");
-      this.setStatus("listening", this.providerHint);
+      this.setStatus("listening", this.idleHint());
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.teardown();
@@ -323,7 +363,7 @@ export class LiveCaptionsService extends EventEmitter {
       if (!controller.signal.aborted) {
         this.summaryText = streamed;
         this.summaryStreaming = false;
-        this.setStatus("listening", this.providerHint);
+        this.setStatus("listening", this.idleHint());
       }
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -369,6 +409,11 @@ export class LiveCaptionsService extends EventEmitter {
     );
   }
 
+  /** What the overlay shows while waiting for speech: provider, detector, pause. */
+  private idleHint(): string {
+    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms`;
+  }
+
   private setStatus(status: OverlayStatus, hint?: string): void {
     this.status = status;
     if (hint !== undefined) this.hint = hint;
@@ -399,6 +444,8 @@ export class LiveCaptionsService extends EventEmitter {
     this.tap.removeAllListeners("pcm");
     this.tap.stop();
     this.segmenter = null;
+    this.vad?.dispose();
+    this.vad = null;
     this.dragHotkey?.stop();
     this.dragHotkey = null;
     this.modifierHeld = false;

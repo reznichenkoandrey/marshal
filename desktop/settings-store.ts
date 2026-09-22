@@ -14,10 +14,15 @@ import {
   DEFAULT_CAPTIONS_HOTKEY,
   DEFAULT_CAPTIONS_OCR_HOTKEY,
   DEFAULT_CAPTIONS_PROMPT,
+  DEFAULT_CAPTIONS_SILENCE_MS,
+  MAX_CAPTIONS_SILENCE_MS,
+  MIN_CAPTIONS_SILENCE_MS,
   VALID_CAPTIONS_PROVIDERS,
   VALID_CAPTIONS_STT,
+  VALID_CAPTIONS_VAD,
   type CaptionsProviderChoice,
-  type CaptionsSttChoice
+  type CaptionsSttChoice,
+  type CaptionsVadChoice
 } from "./captions/captions-defaults.ts";
 import {
   resolveLangCode,
@@ -110,6 +115,10 @@ export type MarshalSettings = {
   captionsDragModifier: string;
   captionsHotkey: string;
   captionsOcrHotkey: string;
+  /** Per-frame speech detector; `energy` is the fallback when the WASM VAD cannot load. */
+  captionsVad: CaptionsVadChoice;
+  /** Trailing silence (ms) that ends an utterance and triggers the summary. */
+  captionsSilenceMs: number;
   /**
    * Directory where "quick save" stores captured PNGs. Empty string → use
    * ~/Desktop.
@@ -187,6 +196,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   captionsDragModifier: DEFAULT_CAPTIONS_DRAG_MODIFIER,
   captionsHotkey: DEFAULT_CAPTIONS_HOTKEY,
   captionsOcrHotkey: DEFAULT_CAPTIONS_OCR_HOTKEY,
+  captionsVad: "silero",
+  captionsSilenceMs: DEFAULT_CAPTIONS_SILENCE_MS,
   captureDefaultFolder: "",
   captureEditorAlwaysOnTop: true,
   launchAtLogin: false,
@@ -298,6 +309,11 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   setOrDelete("MARSHAL_CAPTIONS_DRAG_MODIFIER", settings.captionsDragModifier);
   setOrDelete("MARSHAL_CAPTIONS_HOTKEY", settings.captionsHotkey);
   setOrDelete("MARSHAL_CAPTIONS_OCR_HOTKEY", settings.captionsOcrHotkey);
+  setOrDelete("MARSHAL_CAPTIONS_VAD", settings.captionsVad);
+  setOrDelete(
+    "MARSHAL_CAPTIONS_SILENCE_MS",
+    typeof settings.captionsSilenceMs === "number" ? String(settings.captionsSilenceMs) : ""
+  );
   // Forwarded to the backend utility process so the local bridge server can
   // persist captures (e.g. /capture/fullpage from the Chrome extension) into
   // the same folder the rest of the capture pipeline uses.
@@ -393,6 +409,12 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
   const captionsLanguage = (VALID_DICTATION_LANGUAGES as readonly string[]).includes(captionsLanguageCandidate)
     ? (captionsLanguageCandidate as DictationLanguage)
     : DEFAULT_SETTINGS.captionsLanguage;
+  const captionsVadCandidate = typeof input.captionsVad === "string"
+    ? input.captionsVad.trim().toLowerCase()
+    : DEFAULT_SETTINGS.captionsVad;
+  const captionsVad = (VALID_CAPTIONS_VAD as readonly string[]).includes(captionsVadCandidate)
+    ? (captionsVadCandidate as CaptionsVadChoice)
+    : DEFAULT_SETTINGS.captionsVad;
 
   return {
     bridgeMode,
@@ -431,6 +453,13 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     captionsDragModifier: nonEmptyOr(input.captionsDragModifier, DEFAULT_SETTINGS.captionsDragModifier),
     captionsHotkey: nonEmptyOr(input.captionsHotkey, DEFAULT_SETTINGS.captionsHotkey),
     captionsOcrHotkey: nonEmptyOr(input.captionsOcrHotkey, DEFAULT_SETTINGS.captionsOcrHotkey),
+    captionsVad,
+    captionsSilenceMs: normalizeInteger(
+      input.captionsSilenceMs,
+      DEFAULT_SETTINGS.captionsSilenceMs,
+      MIN_CAPTIONS_SILENCE_MS,
+      MAX_CAPTIONS_SILENCE_MS
+    ),
     captureEditorAlwaysOnTop: typeof input.captureEditorAlwaysOnTop === "boolean"
       ? input.captureEditorAlwaysOnTop
       : DEFAULT_SETTINGS.captureEditorAlwaysOnTop,

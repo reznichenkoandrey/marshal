@@ -65,8 +65,10 @@ share your screen with never see.
   app underneath and focus never moves.
 - **System audio, not the microphone.** A ScreenCaptureKit tap streams what the
   speakers play into the same whisper backend dictation uses (Groq with local
-  whisper.cpp fallback); an energy-based segmenter cuts at pauses so a sentence
-  is transcribed the moment it ends.
+  whisper.cpp fallback). Silero VAD (ONNX on WASM, no native code) decides which
+  frames are speech and a configurable pause (default 900 ms) cuts the utterance, so a
+  sentence is transcribed the moment it ends and typing or music does not
+  produce phantom captions.
 - **Screen context on demand.** `⌃⇧S` OCRs a screen region (first press picks
   the region, later presses are silent) with Apple Vision and hands the text to
   the summarizer as context. The overlay hides itself during the capture.
@@ -211,7 +213,7 @@ Click the ⚙ icon in the main window. Fields:
 
 - **Reasoning provider** — bridge mode + model for the agent.
 - **Voice dictation** — enabled toggle, hotkey, backend (whisper.cpp / Groq), spoken language, auto-paste.
-- **Live captions** — toggle and OCR hotkeys, drag modifier, summary provider / model / language, transcription backend, spoken language, whisper prompt. Hotkeys rebind on save; the rest applies on the next captions start.
+- **Live captions** — toggle and OCR hotkeys, drag modifier, summary provider / model / language, transcription backend, speech detection (Silero VAD / energy), end-of-utterance silence, spoken language, whisper prompt. Hotkeys rebind on save; the rest applies on the next captions start.
 
 Saving restarts the agent backend utility process; dictation rebinds hotkeys in-place.
 

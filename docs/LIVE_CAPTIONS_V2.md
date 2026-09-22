@@ -22,8 +22,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | Requirement | Status | Where / what is missing |
 |---|---|---|
 | System audio loopback (not the mic) | ✅ macOS | `swift/system-audio-tap.swift` (ScreenCaptureKit); Windows WASAPI — #178 |
-| Continuous background VAD | 🟡 | `segmenter.ts` is an energy-based VAD with an adaptive noise floor. Works on call audio; a model VAD (Silero / WebRTC) is more robust to music, typing and cross-talk — #186 |
-| Configurable silence threshold (1.2–1.5 s) | 🟡 | Fixed at 650 ms (`silenceEndMs`). Needs a Settings field and a tuning pass: 650 ms cuts mid-sentence on slow speakers, 1.5 s adds latency — #186 |
+| Continuous background VAD | ✅ | `silero-vad.ts` — Silero VAD v5 on `onnxruntime-web` (WASM, no native binding; 14 MB runtime asar-unpacked + 2.3 MB model in `assets/models`); `segmenter.ts` combines its decision with an absolute energy floor. WebRTC VAD (libfvad) was tried first and rejected: it calls white noise and pure tones speech (#186) |
+| Configurable silence threshold (1.2–1.5 s) | ✅ | Settings → Live captions → "End of utterance after silence", 400–2000 ms, default 900 (`MARSHAL_CAPTIONS_SILENCE_MS`) (#186) |
 | Question-intonation end detection | ⬜ | No pitch analysis. Cheapest useful version: treat a whisper segment ending in `?` as a turn end and summarize immediately — #187 |
 | Filler-word / half-sentence filtering | ⬜ | Only whisper's silence hallucinations are dropped (`isLikelyHallucination`). Fillers ("uhm", "so", "like") and fragments should not reach the summarizer — #187 |
 | Trigger the AI pipeline the moment a turn ends | ✅ | Every accepted segment schedules a summary after a 600 ms debounce |

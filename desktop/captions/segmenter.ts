@@ -28,6 +28,14 @@ export interface SegmenterOptions {
   minSpeechMs: number;
   /** Hard cap: a segment is emitted even if the speaker never pauses. */
   maxSegmentMs: number;
+  /**
+   * Per-frame speech decision. When set (the WebRTC VAD), a frame counts as
+   * speech only if the classifier says so AND its energy clears the absolute
+   * floor — the model catches typing and music that the energy gate lets
+   * through, the gate catches the model's false positives on near-silence.
+   * When unset, the adaptive energy threshold alone decides.
+   */
+  classifyFrame?: (frame: Int16Array, rms: number) => boolean;
 }
 
 export const DEFAULT_SEGMENTER_OPTIONS: SegmenterOptions = {
@@ -142,7 +150,9 @@ export class SpeechSegmenter {
   private processFrame(frame: Int16Array): void {
     const rms = frameRms(frame);
     const threshold = Math.max(this.options.minSpeechRms, this.noiseFloor * this.options.noiseFloorRatio);
-    const isSpeech = rms > threshold;
+    const isSpeech = this.options.classifyFrame
+      ? rms > this.options.minSpeechRms && this.options.classifyFrame(frame, rms)
+      : rms > threshold;
 
     // Track the floor only on quiet frames, so speech never drags it up and
     // makes the detector deaf to the next sentence. Decay it slowly upward
