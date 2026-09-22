@@ -362,6 +362,19 @@
             </div>
 
             <div class="field">
+              <label>Reference files</label>
+              <div class="folder-picker">
+                <input id="settings-captions-context-dir" type="text" readonly autocomplete="off" />
+                <button type="button" id="settings-captions-context-open" class="btn btn-ghost">Open folder…</button>
+              </div>
+              <p class="field-hint" id="settings-captions-context-info">
+                Drop Markdown or text files here — CV, project notes, stack description. They go into
+                the summary's system prompt so the bullets answer as you, from your experience. Up to
+                ~12k characters; picked up automatically when a file changes.
+              </p>
+            </div>
+
+            <div class="field">
               <label for="settings-captions-prompt">Initial prompt (glossary)</label>
               <textarea id="settings-captions-prompt" name="captionsPrompt" rows="3"
                 placeholder="Vocabulary whisper should expect in the audio."></textarea>

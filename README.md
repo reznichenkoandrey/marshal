@@ -78,7 +78,9 @@ share your screen with never see.
 - **Streamed summary.** Transcript + context go to an OpenAI-compatible model
   (Groq by default, Ollama works with a local base) or the Anthropic API with a
   strict "accessibility summarizer" prompt; tokens render as they arrive. With
-  no provider configured the overlay still shows raw captions.
+  no provider configured the overlay still shows raw captions. Drop your CV or
+  project notes into Settings → Live captions → Reference files and the bullets
+  answer as you, from your experience (the V2 first-person prompt).
 - **Move it by holding Left Control**, or via tray → Live Captions → Move
   Overlay. Position is remembered.
 

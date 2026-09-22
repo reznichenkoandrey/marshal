@@ -1434,6 +1434,20 @@ function initLiveCaptions(): void {
   handleIpc("marshal:captions-stop", () => {
     captionsService?.stop();
   });
+  // Reference files for the summarizer (#188): Settings shows what is in
+  // the folder and opens it in Finder; the folder is created on first open.
+  handleIpc("marshal:captions-context-info", async () => {
+    if (!captionsService) return { dir: "", files: [], truncated: 0 };
+    const context = await captionsService.describeReferenceContext();
+    return { dir: captionsService.referenceContextDir, files: context.files, truncated: context.truncated };
+  });
+  handleIpc("marshal:captions-context-open", async () => {
+    if (!captionsService) return { ok: false, error: "Live captions are not available." };
+    const dir = captionsService.referenceContextDir;
+    fs.mkdirSync(dir, { recursive: true });
+    const failure = await shell.openPath(dir);
+    return failure ? { ok: false, error: failure } : { ok: true };
+  });
 
   registerCaptionsShortcuts();
 }

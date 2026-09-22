@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { OpenAiSseParser } from "../desktop/captions/sse.ts";
-import { resolveSummaryProvider } from "../desktop/captions/summarizer.ts";
+import { buildAnthropicSystem, resolveSummaryProvider } from "../desktop/captions/summarizer.ts";
 import {
   buildSummaryMessages,
   renderSummaryHtml,
-  SUMMARY_SYSTEM_PROMPT
+  REFERENCE_CONTEXT_HEADER,
+  SUMMARY_SYSTEM_PROMPT,
+  SUMMARY_SYSTEM_PROMPT_V2
 } from "../desktop/captions/summary-prompt.ts";
 
 describe("buildSummaryMessages", () => {
@@ -34,7 +36,43 @@ describe("buildSummaryMessages", () => {
   });
 });
 
+describe("reference context (#188)", () => {
+  it("keeps the V1 prompt without reference files — first person with nothing to draw on is fabrication", () => {
+    const messages = buildSummaryMessages({ transcript: "hi", ocrContext: "", outputLanguage: "", referenceContext: "  " });
+    expect(messages.system).toBe(SUMMARY_SYSTEM_PROMPT);
+    expect(messages.referenceContext).toBe("");
+    expect(buildAnthropicSystem(messages)).toEqual([{ type: "text", text: SUMMARY_SYSTEM_PROMPT }]);
+  });
+
+  it("switches to the V2 first-person prompt and appends the reference block when files exist", () => {
+    const messages = buildSummaryMessages({
+      transcript: "How do you scale consumers?",
+      ocrContext: "",
+      outputLanguage: "",
+      endsWithQuestion: true,
+      referenceContext: "### cv.md\nSenior developer, Kafka at scale."
+    });
+    expect(messages.systemInstructions).toBe(SUMMARY_SYSTEM_PROMPT_V2);
+    expect(messages.system.startsWith(SUMMARY_SYSTEM_PROMPT_V2)).toBe(true);
+    expect(messages.system).toContain(REFERENCE_CONTEXT_HEADER);
+    expect(messages.system).toContain("Kafka at scale");
+    const blocks = buildAnthropicSystem(messages);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({ type: "text", text: SUMMARY_SYSTEM_PROMPT_V2 });
+    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(blocks[1].text).toContain("Kafka at scale");
+  });
+});
+
 describe("renderSummaryHtml", () => {
+  it("renders fenced code verbatim and escaped, also while the fence is still open (#188)", () => {
+    expect(renderSummaryHtml("- Use a **bounded** queue\n```ts\nconst q = new Queue<Job>(100); // <cap>\n```\nDone.")).toBe(
+      "<ul><li>Use a <strong>bounded</strong> queue</li></ul>" +
+        "<pre><code>const q = new Queue&lt;Job&gt;(100); // &lt;cap&gt;</code></pre><p>Done.</p>"
+    );
+    expect(renderSummaryHtml("```py\nprint(1)")).toBe("<pre><code>print(1)</code></pre>");
+  });
+
   it("turns bullets into a list and bold into <strong>", () => {
     const html = renderSummaryHtml("- Uses **Kafka** for events\n* Latency target `p99 < 200ms`");
     expect(html).toBe(

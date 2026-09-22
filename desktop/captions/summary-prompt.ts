@@ -10,6 +10,21 @@ export const SUMMARY_SYSTEM_PROMPT =
   "highly concise, bulleted summaries. Maximum 2-3 short bullet points. Use bold formatting for " +
   "technical keywords and formulas only. Avoid conversational filler.";
 
+/**
+ * The V2 prompt from the hands-free spec. Used only when reference files
+ * are present: "answer in the first person" with nothing to answer from
+ * would be fabrication, so without context the V1 prompt stays.
+ */
+export const SUMMARY_SYSTEM_PROMPT_V2 =
+  "Act as an accessibility summarizer. Condense the incoming text transcripts and context into " +
+  "highly concise, bulleted summaries or functional code snippets. Maximum 2-3 short bullet points. " +
+  "Use bold formatting for technical keywords and formulas only. Answer in the first person based on " +
+  "the provided reference context. Avoid conversational filler.";
+
+export const REFERENCE_CONTEXT_HEADER =
+  "Reference context about the user — their background, projects and stack. Ground the answer in it " +
+  "and speak as them; never invent experience it does not contain:";
+
 export interface SummaryInput {
   transcript: string;
   ocrContext: string;
@@ -17,10 +32,17 @@ export interface SummaryInput {
   outputLanguage: string;
   /** The transcript ends with a question addressed to the user. */
   endsWithQuestion?: boolean;
+  /** Concatenated reference files (context-store.ts); empty = none. */
+  referenceContext?: string;
 }
 
 export interface SummaryMessages {
+  /** Full system prompt: instructions plus, when present, the reference block. */
   system: string;
+  /** Instructions alone — what the Anthropic path sends as its first system block. */
+  systemInstructions: string;
+  /** The reference block alone, or empty; a stable prefix worth caching. */
+  referenceContext: string;
   user: string;
 }
 
@@ -45,7 +67,11 @@ export function buildSummaryMessages(input: SummaryInput): SummaryMessages {
       ? `Write the bullet points in ${language}.`
       : "Write the bullet points in the same language as the transcript."
   );
-  return { system: SUMMARY_SYSTEM_PROMPT, user: parts.join("\n\n") };
+  const reference = (input.referenceContext ?? "").trim();
+  const systemInstructions = reference.length > 0 ? SUMMARY_SYSTEM_PROMPT_V2 : SUMMARY_SYSTEM_PROMPT;
+  const referenceContext = reference.length > 0 ? `${REFERENCE_CONTEXT_HEADER}\n\n${reference}` : "";
+  const system = referenceContext.length > 0 ? `${systemInstructions}\n\n${referenceContext}` : systemInstructions;
+  return { system, systemInstructions, referenceContext, user: parts.join("\n\n") };
 }
 
 function escapeHtml(text: string): string {
@@ -74,6 +100,7 @@ export function renderSummaryHtml(markdown: string): string {
   const lines = markdown.replace(/\r\n?/gu, "\n").split("\n");
   const html: string[] = [];
   let listOpen = false;
+  let codeLines: string[] | null = null;
   const closeList = (): void => {
     if (listOpen) {
       html.push("</ul>");
@@ -82,6 +109,23 @@ export function renderSummaryHtml(markdown: string): string {
   };
 
   for (const rawLine of lines) {
+    // Fenced code: the V2 prompt may answer with a snippet. Everything
+    // between the fences is verbatim (escaped), and an unclosed fence while
+    // streaming still renders as code rather than as a stray paragraph.
+    if (codeLines !== null) {
+      if (/^\s*```/u.test(rawLine)) {
+        html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        codeLines = null;
+      } else {
+        codeLines.push(rawLine);
+      }
+      continue;
+    }
+    if (/^\s*```/u.test(rawLine)) {
+      closeList();
+      codeLines = [];
+      continue;
+    }
     const line = rawLine.trim();
     if (line.length === 0) {
       closeList();
@@ -100,5 +144,6 @@ export function renderSummaryHtml(markdown: string): string {
     html.push(`<p>${inlineMarkdown(escapeHtml(line))}</p>`);
   }
   closeList();
+  if (codeLines !== null) html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
   return html.join("");
 }
