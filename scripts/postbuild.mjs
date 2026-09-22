@@ -150,6 +150,12 @@ if (process.platform === "darwin") {
       fallbackNote: "meeting recording will fall back to microphone-only audio"
     },
     {
+      src: path.join(root, "desktop", "captions", "swift", "system-audio-tap.swift"),
+      out: path.join(root, "dist", "desktop", "captions", "system-audio-tap"),
+      label: "system-audio-tap",
+      fallbackNote: "live captions (system audio → subtitles overlay) will be unavailable"
+    },
+    {
       src: path.join(root, "desktop", "capture", "swift", "scroll-capture.swift"),
       out: path.join(root, "dist", "desktop", "capture", "scroll-capture"),
       label: "scroll-capture",

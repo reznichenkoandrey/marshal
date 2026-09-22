@@ -1,0 +1,174 @@
+/*
+ * Captions overlay. Always dark and translucent regardless of the app theme:
+ * subtitles sit over arbitrary content and need their own contrast, not the
+ * OS palette. Local tokens for that reason.
+ */
+:root {
+  --captions-font: -apple-system, "SF Pro Text", Inter, sans-serif;
+  --captions-bg: rgba(14, 18, 27, 0.82);
+  --captions-bg-interactive: rgba(14, 18, 27, 0.94);
+  --captions-border: rgba(255, 255, 255, 0.12);
+  --captions-border-interactive: rgba(56, 189, 248, 0.7);
+  --captions-fg: rgba(255, 255, 255, 0.96);
+  --captions-fg-muted: rgba(255, 255, 255, 0.62);
+  --captions-fg-faint: rgba(255, 255, 255, 0.4);
+  --captions-accent: #38bdf8;
+  --captions-keyword: #fbbf24;
+  --captions-danger: #f87171;
+  --captions-radius: 14px;
+  --captions-fs-summary: 15px;
+  --captions-fs-caption: 13px;
+  --captions-fs-meta: 11px;
+  --captions-pad-x: 14px;
+  --captions-pad-y: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--captions-font);
+  color: var(--captions-fg);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: var(--captions-pad-y) var(--captions-pad-x);
+  gap: 6px;
+  background: var(--captions-bg);
+  border: 1px solid var(--captions-border);
+  border-radius: var(--captions-radius);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: background 160ms ease-out, border-color 160ms ease-out;
+}
+
+/* Drag mode: the whole body moves the window; buttons opt out. */
+body.interactive .overlay {
+  -webkit-app-region: drag;
+  background: var(--captions-bg-interactive);
+  border-color: var(--captions-border-interactive);
+  cursor: move;
+}
+body.interactive button { -webkit-app-region: no-drag; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--captions-fs-meta);
+  color: var(--captions-fg-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  min-height: 20px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--captions-fg-faint);
+  flex-shrink: 0;
+}
+.overlay[data-status="listening"] .dot { background: var(--captions-accent); animation: pulse 1.6s ease-in-out infinite; }
+.overlay[data-status="transcribing"] .dot,
+.overlay[data-status="summarizing"] .dot { background: var(--captions-keyword); animation: pulse 0.8s ease-in-out infinite; }
+.overlay[data-status="error"] .dot { background: var(--captions-danger); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+.title { font-weight: 600; flex-shrink: 0; }
+
+.hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--captions-fg-faint);
+}
+.overlay[data-status="error"] .hint { color: var(--captions-danger); }
+
+button.stop {
+  display: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.28);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+button.stop:hover { background: rgba(248, 113, 113, 0.5); }
+.square { width: 8px; height: 8px; border-radius: 1px; background: var(--captions-fg); }
+body.interactive button.stop { display: inline-flex; }
+
+.summary {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-size: var(--captions-fs-summary);
+  line-height: 1.4;
+}
+.summary ul { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.summary li { padding-left: 14px; position: relative; }
+.summary li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--captions-accent);
+}
+.summary p { margin-bottom: 3px; }
+.summary strong { color: var(--captions-keyword); font-weight: 600; }
+.summary code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--captions-keyword);
+}
+.summary.streaming::after {
+  content: "▍";
+  color: var(--captions-accent);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+.summary:empty { display: none; }
+
+.captions {
+  font-size: var(--captions-fs-caption);
+  line-height: 1.35;
+  color: var(--captions-fg-muted);
+  overflow: hidden;
+  max-height: 3.9em;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.captions .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.captions .line:last-child { color: var(--captions-fg); }
+.captions:empty { display: none; }
+
+.move-hint {
+  display: none;
+  font-size: var(--captions-fs-meta);
+  color: var(--captions-accent);
+  text-align: center;
+}
+body.interactive .move-hint { display: block; }

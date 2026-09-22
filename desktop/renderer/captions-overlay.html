@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'" />
+    <link rel="stylesheet" href="captions-overlay.css" />
+  </head>
+  <body>
+    <div class="overlay" id="overlay" data-status="starting">
+      <header class="bar">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="title">Live captions</span>
+        <span class="hint" id="hint"></span>
+        <button class="stop" id="stop" title="Stop live captions" type="button"><span class="square"></span></button>
+      </header>
+      <section class="summary" id="summary" aria-live="polite"></section>
+      <section class="captions" id="captions" aria-live="polite"></section>
+      <div class="move-hint" id="move-hint">Drag to move · release the key to lock</div>
+    </div>
+    <script src="captions-overlay.js"></script>
+  </body>
+</html>

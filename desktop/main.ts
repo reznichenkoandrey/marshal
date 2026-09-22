@@ -22,6 +22,8 @@ import { RecordingIndicator } from "./capture/recording-indicator.ts";
 import { VideoRecorder } from "./capture/video-recorder.ts";
 import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
+import { LiveCaptionsService } from "./captions/captions-service.ts";
+import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
@@ -109,6 +111,11 @@ let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
+let captionsService: LiveCaptionsService | null = null;
+// Cmd+Alt+Shift+C: same family as the meeting/dictation toggles, free of the
+// macOS screenshot chords. The OCR hotkey is the one from the spec.
+const CAPTIONS_TOGGLE_ACCELERATOR = process.env.MARSHAL_CAPTIONS_HOTKEY?.trim() || "CommandOrControl+Alt+Shift+C";
+const CAPTIONS_OCR_ACCELERATOR = process.env.MARSHAL_CAPTIONS_OCR_HOTKEY?.trim() || "Control+Shift+S";
 
 // `mainWindow` and `tray` are owned directly by the main process. Existing
 // code paths (IPC handlers, capture overlays, recording state fan-out) use
@@ -210,6 +217,7 @@ async function bootstrap(): Promise<void> {
       initCapture();
       initDictation();
       initMeetingRecorder();
+      initLiveCaptions();
       void initExtensionBridge();
       initUpdater();
     }
@@ -952,6 +960,7 @@ async function performTeardown(): Promise<void> {
   dictationIndicator?.hide();
   meetingRecorder?.kill();
   meetingIndicator?.hide();
+  captionsService?.stop();
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
@@ -1385,6 +1394,63 @@ function initMeetingRecorder(): void {
     console.log(`[marshal] meeting: toggle accelerator ${MEETING_TOGGLE_ACCELERATOR} registered`);
   } else {
     console.warn(`[marshal] meeting: toggle accelerator ${MEETING_TOGGLE_ACCELERATOR} could not register`);
+  }
+}
+
+function initLiveCaptions(): void {
+  if (!screenshotService) {
+    console.warn("[captions] screenshot service missing — live captions disabled");
+    return;
+  }
+  const pickRegion = async (): Promise<{ x: number; y: number; width: number; height: number } | null> => {
+    const region = await screenshotService!.pickRegion();
+    return region ? { x: region.x, y: region.y, width: region.width, height: region.height } : null;
+  };
+  const service = new LiveCaptionsService({
+    preloadPath,
+    userDataDir: app.getPath("userData"),
+    pickRegion
+  });
+  if (!service.isAvailable()) {
+    console.warn("[captions] system-audio-tap helper missing — live captions disabled (run `npm run build`)");
+    return;
+  }
+  captionsService = service;
+
+  service.on("state-change", () => void refreshTrayState());
+  service.on("error", (err: Error) => {
+    console.error("[captions] error:", err);
+    if (!Notification.isSupported()) return;
+    new Notification({ title: "Marshal — Live captions failed", body: err.message, silent: true }).show();
+  });
+
+  handleIpc("marshal:captions-stop", () => {
+    captionsService?.stop();
+  });
+
+  const bindings: Array<{ accelerator: string; label: string; run: () => void }> = [
+    { accelerator: CAPTIONS_TOGGLE_ACCELERATOR, label: "Live captions toggle", run: () => void toggleLiveCaptions() },
+    { accelerator: CAPTIONS_OCR_ACCELERATOR, label: "Live captions OCR context", run: () => void captionsService?.captureOcrContext() }
+  ];
+  for (const binding of bindings) {
+    globalShortcut.unregister(binding.accelerator);
+    const registered = globalShortcut.register(binding.accelerator, binding.run);
+    if (registered) {
+      console.log(`[marshal] captions: ${binding.label} accelerator ${binding.accelerator} registered`);
+    } else {
+      // Same failure mode as the capture hotkeys (#135): say so instead of
+      // letting a dead key look like a broken feature.
+      console.warn(`[marshal] captions: ${binding.label} accelerator ${binding.accelerator} could not register — another app owns it`);
+    }
+  }
+}
+
+async function toggleLiveCaptions(): Promise<void> {
+  if (!captionsService) return;
+  try {
+    await captionsService.toggle();
+  } catch {
+    // Reported through the service's "error" event as a notification.
   }
 }
 
@@ -1822,6 +1888,7 @@ function buildTrayMenu(): Electron.Menu {
   const dictationAvailable = dictationService !== null;
   const recording = dictationService?.isCurrentlyRecording() ?? false;
   const meetingAvailable = meetingRecorder !== null;
+  const captionsRunning = captionsService?.isRunning() ?? false;
 
   return Menu.buildFromTemplate([
     { label: "Open Marshal", click: () => showMainWindow() },
@@ -1841,6 +1908,36 @@ function buildTrayMenu(): Electron.Menu {
       accelerator: MEETING_TOGGLE_ACCELERATOR,
       enabled: meetingAvailable,
       click: () => void toggleMeetingRecording()
+    },
+    {
+      label: captionsRunning ? "Stop Live Captions" : "Start Live Captions",
+      accelerator: CAPTIONS_TOGGLE_ACCELERATOR,
+      enabled: captionsService !== null,
+      click: () => void toggleLiveCaptions()
+    },
+    {
+      label: "Live Captions",
+      visible: captionsService !== null,
+      submenu: [
+        {
+          label: "Move Overlay (accept mouse)",
+          type: "checkbox",
+          checked: captionsService?.isMoveMode() ?? false,
+          enabled: captionsRunning,
+          click: () => {
+            captionsService?.toggleMoveMode();
+            scheduleTrayRefresh();
+          }
+        },
+        {
+          label: "Read Screen Region Now",
+          accelerator: CAPTIONS_OCR_ACCELERATOR,
+          enabled: captionsRunning,
+          click: () => void captionsService?.captureOcrContext()
+        },
+        { label: "Reset OCR Region…", click: () => captionsService?.resetOcrRegion() },
+        { label: "Reset Overlay Position", click: () => captionsService?.resetOverlayPosition() }
+      ]
     },
     { label: "Capture", submenu: buildCaptureSubmenu() },
     buildModelMenuItem(),
@@ -1971,6 +2068,9 @@ function initTranslator(): void {
   });
   translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
+  // First exec of a freshly installed helper is slow enough to time out the
+  // first OCR (#181); pay that cost now, in the background.
+  void warmUpAppleVisionOcr();
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
   translatorGlossary = new TranslatorGlossaryStore(app.getPath("userData"));
   translatorService.setGlossary(translatorGlossary.list());

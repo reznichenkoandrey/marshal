@@ -285,6 +285,38 @@ const meetingApi = {
 
 contextBridge.exposeInMainWorld("marshalMeeting", meetingApi);
 
+// ── Live captions API ──
+// The overlay is a view only: main pushes fully rendered updates, the
+// renderer has one control (Stop) that is reachable only in drag mode.
+const captionsApi = {
+  stop: () => ipcRenderer.invoke("marshal:captions-stop"),
+  onUpdate: (
+    cb: (
+      event: IpcRendererEvent,
+      update: {
+        status: string;
+        captions: string[];
+        summaryHtml: string;
+        summaryStreaming: boolean;
+        interactive: boolean;
+        hint: string;
+      }
+    ) => void
+  ) =>
+    registerListener<[
+      {
+        status: string;
+        captions: string[];
+        summaryHtml: string;
+        summaryStreaming: boolean;
+        interactive: boolean;
+        hint: string;
+      }
+    ]>("marshal:captions-update", cb)
+};
+
+contextBridge.exposeInMainWorld("marshalCaptions", captionsApi);
+
 // ── Capture History API ──
 // Used exclusively by the history viewer window (capture-history.html).
 const historyApi = {
@@ -350,6 +382,7 @@ declare global {
     marshalTranslator: typeof translatorApi;
     marshalCapture: typeof captureApi;
     marshalMeeting: typeof meetingApi;
+    marshalCaptions: typeof captionsApi;
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
   }
