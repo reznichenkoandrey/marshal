@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { DEFAULT_DICTATION_PROMPT } from "../desktop/dictation/whisper-backend.ts";
+import { DEFAULT_CAPTIONS_PROMPT } from "../desktop/captions/captions-defaults.ts";
 
 // Electron's real `app.getPath("userData")` needs a running app instance.
 // Stub it with a tmp dir that we clean up after each test.
@@ -36,6 +37,9 @@ afterEach(() => {
   delete process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT;
   delete process.env.MARSHAL_DICTATION_PROMPT;
   delete process.env.MARSHAL_TRANSLATOR_BACKEND;
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("MARSHAL_CAPTIONS_")) delete process.env[name];
+  }
 });
 
 describe("loadSettings", () => {
@@ -112,6 +116,15 @@ describe("saveSettings", () => {
       dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR",
       dictationMicrophone: "",
+      captionsProvider: "auto",
+      captionsModel: "",
+      captionsOutputLanguage: "",
+      captionsSttBackend: "auto",
+      captionsLanguage: "auto",
+      captionsPrompt: DEFAULT_CAPTIONS_PROMPT,
+      captionsDragModifier: "LeftControl",
+      captionsHotkey: "CommandOrControl+Alt+Shift+C",
+      captionsOcrHotkey: "Control+Shift+S",
       captureDefaultFolder: "",
       captureEditorAlwaysOnTop: true,
       launchAtLogin: false,
@@ -212,6 +225,84 @@ describe("saveSettings", () => {
   it("accepts the new claude-api / openai-api backends", () => {
     expect(saveSettings({ translatorBackend: "claude-api" }).translatorBackend).toBe("claude-api");
     expect(saveSettings({ translatorBackend: "openai-api" }).translatorBackend).toBe("openai-api");
+  });
+});
+
+describe("live captions settings (#179)", () => {
+  it("round-trips every captions field", () => {
+    const saved = saveSettings({
+      captionsProvider: "claude-api",
+      captionsModel: "  llama-3.1-8b-instant ",
+      captionsOutputLanguage: "Ukrainian",
+      captionsSttBackend: "groq",
+      captionsLanguage: "en",
+      captionsPrompt: "Kafka, p99",
+      captionsDragModifier: "RightOption",
+      captionsHotkey: "CommandOrControl+Alt+K",
+      captionsOcrHotkey: "Control+Alt+S"
+    });
+    expect(saved.captionsProvider).toBe("claude-api");
+    expect(saved.captionsModel).toBe("llama-3.1-8b-instant");
+    expect(saved.captionsOutputLanguage).toBe("Ukrainian");
+    expect(saved.captionsSttBackend).toBe("groq");
+    expect(saved.captionsLanguage).toBe("en");
+    expect(saved.captionsPrompt).toBe("Kafka, p99");
+    expect(saved.captionsDragModifier).toBe("RightOption");
+    expect(loadSettings().captionsHotkey).toBe("CommandOrControl+Alt+K");
+    expect(loadSettings().captionsOcrHotkey).toBe("Control+Alt+S");
+  });
+
+  it("falls back to defaults for unknown choices and blank hotkeys", () => {
+    const saved = saveSettings({
+      captionsProvider: "gemini" as never,
+      captionsSttBackend: "deepgram" as never,
+      captionsLanguage: "fr" as never,
+      captionsHotkey: "   ",
+      captionsOcrHotkey: "",
+      captionsDragModifier: ""
+    });
+    expect(saved.captionsProvider).toBe("auto");
+    expect(saved.captionsSttBackend).toBe("auto");
+    expect(saved.captionsLanguage).toBe("auto");
+    expect(saved.captionsHotkey).toBe("CommandOrControl+Alt+Shift+C");
+    expect(saved.captionsOcrHotkey).toBe("Control+Shift+S");
+    expect(saved.captionsDragModifier).toBe("LeftControl");
+  });
+
+  it("keeps an explicitly blank captions prompt — blank means no prompting", () => {
+    expect(saveSettings({ captionsPrompt: "" }).captionsPrompt).toBe("");
+  });
+
+  it("applies the fields to MARSHAL_CAPTIONS_* and lets `auto` STT follow dictation", () => {
+    process.env.MARSHAL_CAPTIONS_STT_BACKEND = "stale";
+    process.env.MARSHAL_CAPTIONS_MODEL = "stale";
+    applySettingsToEnv(saveSettings({
+      captionsProvider: "off",
+      captionsModel: "",
+      captionsOutputLanguage: "English",
+      captionsSttBackend: "auto",
+      captionsLanguage: "uk",
+      captionsPrompt: "",
+      captionsDragModifier: "off",
+      captionsHotkey: "CommandOrControl+Alt+K",
+      captionsOcrHotkey: "Control+Alt+S"
+    }));
+    expect(process.env.MARSHAL_CAPTIONS_PROVIDER).toBe("off");
+    // Blank in Settings clears a stale value rather than leaving it behind.
+    expect(process.env.MARSHAL_CAPTIONS_MODEL).toBeUndefined();
+    expect(process.env.MARSHAL_CAPTIONS_STT_BACKEND).toBeUndefined();
+    expect(process.env.MARSHAL_CAPTIONS_OUTPUT_LANGUAGE).toBe("English");
+    expect(process.env.MARSHAL_CAPTIONS_LANGUAGE).toBe("uk");
+    expect(process.env.MARSHAL_CAPTIONS_PROMPT).toBe("");
+    expect(process.env.MARSHAL_CAPTIONS_DRAG_MODIFIER).toBe("off");
+    expect(process.env.MARSHAL_CAPTIONS_HOTKEY).toBe("CommandOrControl+Alt+K");
+    expect(process.env.MARSHAL_CAPTIONS_OCR_HOTKEY).toBe("Control+Alt+S");
+  });
+
+  it("sets a pinned STT backend for captions independently of dictation", () => {
+    applySettingsToEnv(saveSettings({ captionsSttBackend: "whisper-cpp", dictationBackend: "groq" }));
+    expect(process.env.MARSHAL_CAPTIONS_STT_BACKEND).toBe("whisper-cpp");
+    expect(process.env.MARSHAL_DICTATION_BACKEND).toBe("groq");
   });
 });
 

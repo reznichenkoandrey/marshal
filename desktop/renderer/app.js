@@ -115,6 +115,16 @@ const dom = {
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
   settingsDictationMicrophone: document.getElementById("settings-dictation-microphone"),
   settingsDictationMicrophoneRefresh: document.getElementById("settings-dictation-microphone-refresh"),
+  settingsCaptionsHotkey: document.getElementById("settings-captions-hotkey"),
+  settingsCaptionsOcrHotkey: document.getElementById("settings-captions-ocr-hotkey"),
+  settingsCaptionsDragModifier: document.getElementById("settings-captions-drag-modifier"),
+  settingsCaptionsProvider: document.getElementById("settings-captions-provider"),
+  settingsCaptionsModel: document.getElementById("settings-captions-model"),
+  settingsCaptionsOutputLanguage: document.getElementById("settings-captions-output-language"),
+  settingsCaptionsSttBackend: document.getElementById("settings-captions-stt-backend"),
+  settingsCaptionsLanguage: document.getElementById("settings-captions-language"),
+  settingsCaptionsPrompt: document.getElementById("settings-captions-prompt"),
+  settingsCaptionsPromptReset: document.getElementById("settings-captions-prompt-reset"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
@@ -867,6 +877,17 @@ function bindEvents() {
       console.error("getDictationDefaults failed", err);
     }
   });
+
+  dom.settingsCaptionsPromptReset?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!dom.settingsCaptionsPrompt || !api?.getCaptionsDefaults) return;
+    try {
+      const { prompt } = await api.getCaptionsDefaults();
+      dom.settingsCaptionsPrompt.value = prompt ?? "";
+    } catch (err) {
+      console.error("getCaptionsDefaults failed", err);
+    }
+  });
   dom.settingsDictationMicrophoneRefresh?.addEventListener("click", async (e) => {
     e.preventDefault();
     // Preserve the user's current pick across a refresh — the device list may
@@ -986,6 +1007,20 @@ async function openSettings() {
       dom.settingsDictationMicrophone.value = current.dictationMicrophone ?? "";
       void populateMicrophoneDropdown(current.dictationMicrophone ?? "");
     }
+    const captionsFields = {
+      settingsCaptionsHotkey: current.captionsHotkey ?? "CommandOrControl+Alt+Shift+C",
+      settingsCaptionsOcrHotkey: current.captionsOcrHotkey ?? "Control+Shift+S",
+      settingsCaptionsDragModifier: current.captionsDragModifier ?? "LeftControl",
+      settingsCaptionsProvider: current.captionsProvider ?? "auto",
+      settingsCaptionsModel: current.captionsModel ?? "",
+      settingsCaptionsOutputLanguage: current.captionsOutputLanguage ?? "",
+      settingsCaptionsSttBackend: current.captionsSttBackend ?? "auto",
+      settingsCaptionsLanguage: current.captionsLanguage ?? "auto",
+      settingsCaptionsPrompt: current.captionsPrompt ?? ""
+    };
+    for (const [key, value] of Object.entries(captionsFields)) {
+      if (dom[key]) dom[key].value = value;
+    }
     if (dom.settingsCaptureFolder) {
       dom.settingsCaptureFolder.value = current.captureDefaultFolder ?? "";
     }
@@ -1089,6 +1124,15 @@ async function saveSettingsFromForm() {
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",
+    captionsHotkey: (dom.settingsCaptionsHotkey?.value ?? "").trim(),
+    captionsOcrHotkey: (dom.settingsCaptionsOcrHotkey?.value ?? "").trim(),
+    captionsDragModifier: (dom.settingsCaptionsDragModifier?.value ?? "").trim(),
+    captionsProvider: dom.settingsCaptionsProvider?.value ?? "auto",
+    captionsModel: (dom.settingsCaptionsModel?.value ?? "").trim(),
+    captionsOutputLanguage: (dom.settingsCaptionsOutputLanguage?.value ?? "").trim(),
+    captionsSttBackend: dom.settingsCaptionsSttBackend?.value ?? "auto",
+    captionsLanguage: dom.settingsCaptionsLanguage?.value ?? "auto",
+    captionsPrompt: dom.settingsCaptionsPrompt?.value ?? "",
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true

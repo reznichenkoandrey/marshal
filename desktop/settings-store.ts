@@ -10,6 +10,16 @@ import {
 } from "./dictation/gesture-options.ts";
 import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
 import {
+  DEFAULT_CAPTIONS_DRAG_MODIFIER,
+  DEFAULT_CAPTIONS_HOTKEY,
+  DEFAULT_CAPTIONS_OCR_HOTKEY,
+  DEFAULT_CAPTIONS_PROMPT,
+  VALID_CAPTIONS_PROVIDERS,
+  VALID_CAPTIONS_STT,
+  type CaptionsProviderChoice,
+  type CaptionsSttChoice
+} from "./captions/captions-defaults.ts";
+import {
   resolveLangCode,
   resolveSourceLang as resolveSourceLangCode
 } from "./translator/languages.ts";
@@ -83,6 +93,24 @@ export type MarshalSettings = {
    */
   dictationMicrophone: string;
   /**
+   * Live captions (#176). Mirrors the MARSHAL_CAPTIONS_* env vars so a
+   * packaged-app user does not have to edit .env (#179). Empty strings and
+   * `auto` mean "fall back to the env / the dictation setting".
+   */
+  captionsProvider: CaptionsProviderChoice;
+  /** Chat model for the summary; empty → MARSHAL_TRANSLATOR_MODEL / provider default. */
+  captionsModel: string;
+  /** Language the bullets are written in; empty → same as the transcript. */
+  captionsOutputLanguage: string;
+  captionsSttBackend: CaptionsSttChoice;
+  captionsLanguage: DictationLanguage;
+  /** Whisper initial prompt for captions; empty disables prompting. */
+  captionsPrompt: string;
+  /** Modifier held to move the overlay; `off` disables the listener. */
+  captionsDragModifier: string;
+  captionsHotkey: string;
+  captionsOcrHotkey: string;
+  /**
    * Directory where "quick save" stores captured PNGs. Empty string → use
    * ~/Desktop.
    */
@@ -150,6 +178,15 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
   dictationMicrophone: "",
+  captionsProvider: "auto",
+  captionsModel: "",
+  captionsOutputLanguage: "",
+  captionsSttBackend: "auto",
+  captionsLanguage: "auto",
+  captionsPrompt: DEFAULT_CAPTIONS_PROMPT,
+  captionsDragModifier: DEFAULT_CAPTIONS_DRAG_MODIFIER,
+  captionsHotkey: DEFAULT_CAPTIONS_HOTKEY,
+  captionsOcrHotkey: DEFAULT_CAPTIONS_OCR_HOTKEY,
   captureDefaultFolder: "",
   captureEditorAlwaysOnTop: true,
   launchAtLogin: false,
@@ -246,6 +283,21 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   } else {
     delete process.env.MARSHAL_DICTATION_MIC;
   }
+  // Live captions. The service re-reads these on every start, and main
+  // re-registers the two accelerators on save, so a change takes effect
+  // without an app restart.
+  setOrDelete("MARSHAL_CAPTIONS_PROVIDER", settings.captionsProvider);
+  setOrDelete("MARSHAL_CAPTIONS_MODEL", settings.captionsModel);
+  setOrDelete("MARSHAL_CAPTIONS_OUTPUT_LANGUAGE", settings.captionsOutputLanguage);
+  // `auto` = follow the dictation backend, which is the variable the service
+  // falls back to when this one is absent.
+  setOrDelete("MARSHAL_CAPTIONS_STT_BACKEND", settings.captionsSttBackend === "auto" ? "" : settings.captionsSttBackend);
+  setOrDelete("MARSHAL_CAPTIONS_LANGUAGE", settings.captionsLanguage);
+  // An empty prompt is a choice (no prompting), not an absence — keep it.
+  if (typeof settings.captionsPrompt === "string") process.env.MARSHAL_CAPTIONS_PROMPT = settings.captionsPrompt;
+  setOrDelete("MARSHAL_CAPTIONS_DRAG_MODIFIER", settings.captionsDragModifier);
+  setOrDelete("MARSHAL_CAPTIONS_HOTKEY", settings.captionsHotkey);
+  setOrDelete("MARSHAL_CAPTIONS_OCR_HOTKEY", settings.captionsOcrHotkey);
   // Forwarded to the backend utility process so the local bridge server can
   // persist captures (e.g. /capture/fullpage from the Chrome extension) into
   // the same folder the rest of the capture pipeline uses.
@@ -254,6 +306,13 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   } else {
     delete process.env.MARSHAL_CAPTURE_FOLDER;
   }
+}
+
+/** Blank or absent clears the variable so a stale .env value cannot linger. */
+function setOrDelete(name: string, value: string | undefined): void {
+  const trimmed = (value ?? "").trim();
+  if (trimmed.length > 0) process.env[name] = trimmed;
+  else delete process.env[name];
 }
 
 function normalize(input: Partial<MarshalSettings>): MarshalSettings {
@@ -316,6 +375,25 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
   );
   const dictationToggleTapCount = normalizeToggleTapCount(input.dictationToggleTapCount);
 
+  const captionsProviderCandidate = typeof input.captionsProvider === "string"
+    ? input.captionsProvider.trim().toLowerCase()
+    : DEFAULT_SETTINGS.captionsProvider;
+  const captionsProvider = (VALID_CAPTIONS_PROVIDERS as readonly string[]).includes(captionsProviderCandidate)
+    ? (captionsProviderCandidate as CaptionsProviderChoice)
+    : DEFAULT_SETTINGS.captionsProvider;
+  const captionsSttCandidate = typeof input.captionsSttBackend === "string"
+    ? input.captionsSttBackend.trim().toLowerCase()
+    : DEFAULT_SETTINGS.captionsSttBackend;
+  const captionsSttBackend = (VALID_CAPTIONS_STT as readonly string[]).includes(captionsSttCandidate)
+    ? (captionsSttCandidate as CaptionsSttChoice)
+    : DEFAULT_SETTINGS.captionsSttBackend;
+  const captionsLanguageCandidate = typeof input.captionsLanguage === "string"
+    ? input.captionsLanguage.trim().toLowerCase()
+    : DEFAULT_SETTINGS.captionsLanguage;
+  const captionsLanguage = (VALID_DICTATION_LANGUAGES as readonly string[]).includes(captionsLanguageCandidate)
+    ? (captionsLanguageCandidate as DictationLanguage)
+    : DEFAULT_SETTINGS.captionsLanguage;
+
   return {
     bridgeMode,
     claudeModel: typeof input.claudeModel === "string" ? input.claudeModel : DEFAULT_SETTINGS.claudeModel,
@@ -342,6 +420,17 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationMicrophone: typeof input.dictationMicrophone === "string"
       ? input.dictationMicrophone.trim()
       : DEFAULT_SETTINGS.dictationMicrophone,
+    captionsProvider,
+    captionsModel: typeof input.captionsModel === "string" ? input.captionsModel.trim() : DEFAULT_SETTINGS.captionsModel,
+    captionsOutputLanguage: typeof input.captionsOutputLanguage === "string"
+      ? input.captionsOutputLanguage.trim()
+      : DEFAULT_SETTINGS.captionsOutputLanguage,
+    captionsSttBackend,
+    captionsLanguage,
+    captionsPrompt: typeof input.captionsPrompt === "string" ? input.captionsPrompt : DEFAULT_SETTINGS.captionsPrompt,
+    captionsDragModifier: nonEmptyOr(input.captionsDragModifier, DEFAULT_SETTINGS.captionsDragModifier),
+    captionsHotkey: nonEmptyOr(input.captionsHotkey, DEFAULT_SETTINGS.captionsHotkey),
+    captionsOcrHotkey: nonEmptyOr(input.captionsOcrHotkey, DEFAULT_SETTINGS.captionsOcrHotkey),
     captureEditorAlwaysOnTop: typeof input.captureEditorAlwaysOnTop === "boolean"
       ? input.captureEditorAlwaysOnTop
       : DEFAULT_SETTINGS.captureEditorAlwaysOnTop,
@@ -364,6 +453,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       ? input.lastSeenVersion
       : DEFAULT_SETTINGS.lastSeenVersion
   };
+}
+
+function nonEmptyOr(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
 }
 
 function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {

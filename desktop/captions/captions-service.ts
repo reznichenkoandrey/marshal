@@ -33,20 +33,10 @@ import { SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
 import { createSummaryStreamer, resolveSummaryProvider, type SummaryStreamer } from "./summarizer.ts";
 import { renderSummaryHtml } from "./summary-prompt.ts";
 import { SystemAudioTap } from "./system-audio-tap.ts";
+import { DEFAULT_CAPTIONS_DRAG_MODIFIER, DEFAULT_CAPTIONS_PROMPT } from "./captions-defaults.ts";
 import { TranscriptBuffer } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
-/**
- * Whisper's initial prompt for the captions path. The dictation default is a
- * Ukrainian verbatim instruction, which is the wrong prior for an English
- * interview or webinar; this one only primes technical vocabulary and lets
- * the language be whatever comes through the speakers.
- */
-export const DEFAULT_CAPTIONS_PROMPT =
-  "Technical conversation: API, backend, frontend, TypeScript, React, Node.js, Python, SQL, " +
-  "Docker, Kubernetes, CI/CD, latency, throughput, cache, queue, microservices, REST, GraphQL.";
-
-const DEFAULT_DRAG_MODIFIER = "LeftControl";
 const SUMMARY_DEBOUNCE_MS = 600;
 /** Segments waiting for whisper beyond this are dropped, oldest first. */
 const MAX_TRANSCRIBE_BACKLOG = 2;
@@ -71,13 +61,15 @@ export interface CaptionsServiceOptions {
 export class LiveCaptionsService extends EventEmitter {
   private readonly window: CaptionsWindow;
   private readonly tap: SystemAudioTap;
-  private readonly whisper: WhisperBackend;
-  private readonly summarizer: SummaryStreamer | null;
+  private whisper: WhisperBackend;
+  private summarizer: SummaryStreamer | null;
   private readonly pickRegion: () => Promise<OcrRegion | null>;
   private readonly buffer = new TranscriptBuffer();
-  private readonly language: string | undefined;
-  private readonly prompt: string;
-  private readonly providerHint: string;
+  private language: string | undefined;
+  private prompt = DEFAULT_CAPTIONS_PROMPT;
+  private providerHint = "";
+  /** Injected in tests; when set, start() does not re-read the environment. */
+  private readonly injected: { whisper: boolean; summarizer: boolean };
 
   private segmenter: SpeechSegmenter | null = null;
   private dragHotkey: PushToTalkBackend | null = null;
@@ -99,20 +91,11 @@ export class LiveCaptionsService extends EventEmitter {
     super();
     this.window = new CaptionsWindow(options.preloadPath, options.userDataDir);
     this.tap = options.audioTap ?? new SystemAudioTap();
-    this.whisper =
-      options.whisper ??
-      createWhisperBackend(
-        resolveBackendName(process.env.MARSHAL_CAPTIONS_STT_BACKEND ?? process.env.MARSHAL_DICTATION_BACKEND)
-      );
-    this.summarizer = options.summarizer === undefined ? createSummaryStreamer(process.env) : options.summarizer;
+    this.injected = { whisper: options.whisper !== undefined, summarizer: options.summarizer !== undefined };
+    this.whisper = options.whisper ?? createWhisperBackend("whisper-cpp");
+    this.summarizer = options.summarizer ?? null;
     this.pickRegion = options.pickRegion;
-    this.language = resolveDictationLanguage(
-      process.env.MARSHAL_CAPTIONS_LANGUAGE ?? process.env.MARSHAL_DICTATION_LANGUAGE ?? "auto"
-    );
-    const promptEnv = process.env.MARSHAL_CAPTIONS_PROMPT;
-    this.prompt = typeof promptEnv === "string" ? promptEnv.trim() : DEFAULT_CAPTIONS_PROMPT;
-    const provider = resolveSummaryProvider(process.env);
-    this.providerHint = provider.id === "off" ? `captions only — ${provider.reason}` : `summary: ${provider.id}`;
+    this.configureFromEnv();
 
     this.tap.on("error", (err: Error) => {
       console.warn("[captions] audio tap error:", err.message);
@@ -123,6 +106,27 @@ export class LiveCaptionsService extends EventEmitter {
         this.setStatus("error", `audio tap exited (${code ?? "signal"}) — stop and start captions again`);
       }
     });
+  }
+
+  /**
+   * Settings are applied to the environment on save (settings-store.ts), so
+   * reading the env at every start — not once in the constructor — is what
+   * makes a Settings change take effect without restarting the app (#179).
+   */
+  private configureFromEnv(): void {
+    if (!this.injected.whisper) {
+      this.whisper = createWhisperBackend(
+        resolveBackendName(process.env.MARSHAL_CAPTIONS_STT_BACKEND ?? process.env.MARSHAL_DICTATION_BACKEND)
+      );
+    }
+    if (!this.injected.summarizer) this.summarizer = createSummaryStreamer(process.env);
+    this.language = resolveDictationLanguage(
+      process.env.MARSHAL_CAPTIONS_LANGUAGE ?? process.env.MARSHAL_DICTATION_LANGUAGE ?? "auto"
+    );
+    const promptEnv = process.env.MARSHAL_CAPTIONS_PROMPT;
+    this.prompt = typeof promptEnv === "string" ? promptEnv.trim() : DEFAULT_CAPTIONS_PROMPT;
+    const provider = resolveSummaryProvider(process.env);
+    this.providerHint = provider.id === "off" ? `captions only — ${provider.reason}` : `summary: ${provider.id}`;
   }
 
   isAvailable(): boolean {
@@ -147,6 +151,7 @@ export class LiveCaptionsService extends EventEmitter {
     this.setState("starting");
     try {
       assertScreenRecordingGranted();
+      this.configureFromEnv();
       this.buffer.clear();
       this.summaryText = "";
       this.transcribeQueue = [];
@@ -334,7 +339,7 @@ export class LiveCaptionsService extends EventEmitter {
   // ── overlay plumbing ──
 
   private startDragHotkey(): void {
-    const hotkey = (process.env.MARSHAL_CAPTIONS_DRAG_MODIFIER ?? DEFAULT_DRAG_MODIFIER).trim();
+    const hotkey = (process.env.MARSHAL_CAPTIONS_DRAG_MODIFIER ?? DEFAULT_CAPTIONS_DRAG_MODIFIER).trim();
     if (hotkey.length === 0 || hotkey.toLowerCase() === "off") return;
     let backend: PushToTalkBackend;
     try {

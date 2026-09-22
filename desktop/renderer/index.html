@@ -257,6 +257,100 @@
           </fieldset>
 
           <fieldset class="field-group">
+            <legend>Live captions</legend>
+            <p class="field-hint">
+              Subtitles and a 2–3 bullet AI summary of whatever the Mac is playing, on an overlay that
+              screen sharing cannot see. Toggle with the hotkey below or from the tray.
+            </p>
+
+            <div class="field">
+              <label for="settings-captions-hotkey">Toggle hotkey</label>
+              <input id="settings-captions-hotkey" name="captionsHotkey" type="text"
+                placeholder="CommandOrControl+Alt+Shift+C" autocomplete="off" />
+              <p class="field-hint">
+                Electron accelerator syntax, e.g. <code>CommandOrControl+Alt+Shift+C</code>. Applies on save.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-ocr-hotkey">Read screen region hotkey</label>
+              <input id="settings-captions-ocr-hotkey" name="captionsOcrHotkey" type="text"
+                placeholder="Control+Shift+S" autocomplete="off" />
+              <p class="field-hint">
+                First press picks the region with the crop overlay; later presses OCR it silently into the summary.
+                Tray → Live Captions → Reset OCR Region… to pick again.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-drag-modifier">Move overlay while holding</label>
+              <input id="settings-captions-drag-modifier" name="captionsDragModifier" type="text"
+                placeholder="LeftControl" autocomplete="off" />
+              <p class="field-hint">
+                The overlay is click-through; it accepts the mouse only while this key is held.
+                Modifier names as for dictation (<code>LeftControl</code>, <code>RightOption</code>…);
+                <code>off</code> disables it — the tray toggle still works.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-provider">Summary provider</label>
+              <select id="settings-captions-provider" name="captionsProvider">
+                <option value="auto">Auto — Groq/OpenAI-compatible key if set, else Anthropic key, else captions only</option>
+                <option value="openai-api">OpenAI-compatible API (Groq, OpenRouter, Ollama via MARSHAL_CAPTIONS_API_BASE)</option>
+                <option value="claude-api">Anthropic API (needs ANTHROPIC_API_KEY)</option>
+                <option value="off">Off — raw captions, no summary</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-model">Summary model</label>
+              <input id="settings-captions-model" name="captionsModel" type="text"
+                placeholder="Blank = translator model (qwen/qwen3.8-27b on Groq)" autocomplete="off" />
+              <p class="field-hint">
+                Pick the fastest model the account serves — the first bullet should land within a second.
+                Only used with the OpenAI-compatible provider.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-output-language">Summary language</label>
+              <input id="settings-captions-output-language" name="captionsOutputLanguage" type="text"
+                placeholder="Blank = same as the transcript" autocomplete="off" />
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-stt-backend">Transcription backend</label>
+              <select id="settings-captions-stt-backend" name="captionsSttBackend">
+                <option value="auto">Same as dictation (default)</option>
+                <option value="hybrid">Hybrid: Groq large-v3 with local fallback</option>
+                <option value="groq">Groq whisper-large-v3 only</option>
+                <option value="whisper-cpp">whisper.cpp local-only (adds 1–2 s per utterance)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-language">Spoken language</label>
+              <select id="settings-captions-language" name="captionsLanguage">
+                <option value="auto">Auto-detect (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-prompt">Initial prompt (glossary)</label>
+              <textarea id="settings-captions-prompt" name="captionsPrompt" rows="3"
+                placeholder="Vocabulary whisper should expect in the audio."></textarea>
+              <p class="field-hint">
+                Separate from the dictation glossary: that one is Ukrainian-first, this one only primes
+                technical terms so an English call is not steered wrong. Leave blank to disable.
+                <a href="#" id="settings-captions-prompt-reset">Restore default</a>.
+              </p>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Capture</legend>
 
             <div class="field">
