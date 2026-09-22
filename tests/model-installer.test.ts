@@ -62,12 +62,41 @@ describe("modelsDir", () => {
     expect(path.isAbsolute(modelsDir())).toBe(true);
   });
 
-  it("stays outside the app bundle and outside the repo", () => {
-    delete process.env.MARSHAL_MODELS_DIR;
-    const dir = modelsDir();
-    expect(dir).toContain("Marshal");
-    expect(dir).not.toContain(".app");
-    expect(dir).not.toContain("/htdocs/marshal/");
+  describe("stays outside the app bundle and outside the repo", () => {
+    // The directory is per platform, so pin each one instead of asserting
+    // whatever the CI runner happens to be (#183).
+    const originalPlatform = process.platform;
+    const originalAppData = process.env.APPDATA;
+    const pin = (platform: NodeJS.Platform): void => {
+      Object.defineProperty(process, "platform", { value: platform, configurable: true, writable: true });
+    };
+    afterEach(() => {
+      pin(originalPlatform);
+      if (originalAppData === undefined) delete process.env.APPDATA;
+      else process.env.APPDATA = originalAppData;
+    });
+
+    it("macOS: Application Support, not inside Marshal.app", () => {
+      delete process.env.MARSHAL_MODELS_DIR;
+      pin("darwin");
+      const dir = modelsDir();
+      expect(dir).toBe(path.join(os.homedir(), "Library", "Application Support", "Marshal", "models"));
+      expect(dir).not.toContain(".app");
+      expect(dir).not.toContain("/htdocs/marshal/");
+    });
+
+    it("Windows: %APPDATA%\\Marshal", () => {
+      delete process.env.MARSHAL_MODELS_DIR;
+      process.env.APPDATA = path.join("C:", "Users", "me", "AppData", "Roaming");
+      pin("win32");
+      expect(modelsDir()).toBe(path.join(process.env.APPDATA, "Marshal", "models"));
+    });
+
+    it("Linux: XDG data home", () => {
+      delete process.env.MARSHAL_MODELS_DIR;
+      pin("linux");
+      expect(modelsDir()).toBe(path.join(os.homedir(), ".local", "share", "marshal", "models"));
+    });
   });
 });
 
