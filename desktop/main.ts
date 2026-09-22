@@ -22,6 +22,7 @@ import { RecordingIndicator } from "./capture/recording-indicator.ts";
 import { VideoRecorder } from "./capture/video-recorder.ts";
 import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
+import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
@@ -112,10 +113,12 @@ let meetingIndicator: MeetingIndicator | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
-// Cmd+Alt+Shift+C: same family as the meeting/dictation toggles, free of the
-// macOS screenshot chords. The OCR hotkey is the one from the spec.
-const CAPTIONS_TOGGLE_ACCELERATOR = process.env.MARSHAL_CAPTIONS_HOTKEY?.trim() || "CommandOrControl+Alt+Shift+C";
-const CAPTIONS_OCR_ACCELERATOR = process.env.MARSHAL_CAPTIONS_OCR_HOTKEY?.trim() || "Control+Shift+S";
+// Accelerators come from Settings (applied to the env on save) and are
+// re-registered on every save, so the tray labels read them live.
+let captionsAccelerators: { toggle: string; ocr: string } = {
+  toggle: DEFAULT_CAPTIONS_HOTKEY,
+  ocr: DEFAULT_CAPTIONS_OCR_HOTKEY
+};
 
 // `mainWindow` and `tray` are owned directly by the main process. Existing
 // code paths (IPC handlers, capture overlays, recording state fan-out) use
@@ -322,6 +325,7 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
   handleIpc("marshal:get-dictation-defaults", () => ({ prompt: DEFAULT_DICTATION_PROMPT }));
+  handleIpc("marshal:get-captions-defaults", () => ({ prompt: DEFAULT_CAPTIONS_PROMPT }));
   // Stop button on the floating dictation indicator (#98). The indicator
   // renderer is the only legitimate caller; the action is idempotent so a
   // double-click while transcription is already in flight is a no-op.
@@ -349,6 +353,9 @@ function registerIpcHandlers(): void {
     applySettingsToEnv(saved);
     saved = applyLaunchAtLogin(saved);
     restartDictation();
+    // Captions read their config from the env on the next start; only the
+    // accelerators need rebinding now (#179).
+    registerCaptionsShortcuts();
     // Hot-swap the translator so the new choice takes effect without waiting
     // for a full app restart. Apply bridge FIRST so "auto" resolves against
     // the up-to-date provider before setBackend re-reads the choice.
@@ -1428,13 +1435,33 @@ function initLiveCaptions(): void {
     captionsService?.stop();
   });
 
+  registerCaptionsShortcuts();
+}
+
+/**
+ * (Re)binds the captions accelerators from the current settings. Called at
+ * init and after every Settings save, so a hotkey change applies at once.
+ */
+function registerCaptionsShortcuts(): void {
+  if (!captionsService) return;
+  globalShortcut.unregister(captionsAccelerators.toggle);
+  globalShortcut.unregister(captionsAccelerators.ocr);
+  const settings = loadSettings();
+  captionsAccelerators = { toggle: settings.captionsHotkey, ocr: settings.captionsOcrHotkey };
+
   const bindings: Array<{ accelerator: string; label: string; run: () => void }> = [
-    { accelerator: CAPTIONS_TOGGLE_ACCELERATOR, label: "Live captions toggle", run: () => void toggleLiveCaptions() },
-    { accelerator: CAPTIONS_OCR_ACCELERATOR, label: "Live captions OCR context", run: () => void captionsService?.captureOcrContext() }
+    { accelerator: captionsAccelerators.toggle, label: "Live captions toggle", run: () => void toggleLiveCaptions() },
+    { accelerator: captionsAccelerators.ocr, label: "Live captions OCR context", run: () => void captionsService?.captureOcrContext() }
   ];
   for (const binding of bindings) {
     globalShortcut.unregister(binding.accelerator);
-    const registered = globalShortcut.register(binding.accelerator, binding.run);
+    let registered = false;
+    try {
+      registered = globalShortcut.register(binding.accelerator, binding.run);
+    } catch (err) {
+      // A malformed accelerator string throws instead of returning false.
+      console.warn(`[marshal] captions: ${binding.label} accelerator "${binding.accelerator}" is invalid:`, err instanceof Error ? err.message : err);
+    }
     if (registered) {
       console.log(`[marshal] captions: ${binding.label} accelerator ${binding.accelerator} registered`);
     } else {
@@ -1443,6 +1470,7 @@ function initLiveCaptions(): void {
       console.warn(`[marshal] captions: ${binding.label} accelerator ${binding.accelerator} could not register — another app owns it`);
     }
   }
+  scheduleTrayRefresh();
 }
 
 async function toggleLiveCaptions(): Promise<void> {
@@ -1911,7 +1939,7 @@ function buildTrayMenu(): Electron.Menu {
     },
     {
       label: captionsRunning ? "Stop Live Captions" : "Start Live Captions",
-      accelerator: CAPTIONS_TOGGLE_ACCELERATOR,
+      accelerator: captionsAccelerators.toggle,
       enabled: captionsService !== null,
       click: () => void toggleLiveCaptions()
     },
@@ -1931,7 +1959,7 @@ function buildTrayMenu(): Electron.Menu {
         },
         {
           label: "Read Screen Region Now",
-          accelerator: CAPTIONS_OCR_ACCELERATOR,
+          accelerator: captionsAccelerators.ocr,
           enabled: captionsRunning,
           click: () => void captionsService?.captureOcrContext()
         },

@@ -78,8 +78,11 @@ share your screen with never see.
   Overlay. Position is remembered.
 
 Needs Screen Recording (same grant as screen capture). `⌘⌥⇧C` toggles it; the
-tray has the same entry. Configuration lives under `MARSHAL_CAPTIONS_*` in
-[`.env.example`](.env.example).
+tray has the same entry. Everything is configurable in Settings → Live captions;
+the matching `MARSHAL_CAPTIONS_*` env vars in [`.env.example`](.env.example) are
+the fallback for whatever Settings leaves blank.
+What the hands-free V2 spec still needs is tracked in
+[`docs/LIVE_CAPTIONS_V2.md`](docs/LIVE_CAPTIONS_V2.md) (epic #190).
 
 ### Screen capture
 - The annotation editor **stays above other windows** by default, and the arrow button in its
@@ -208,6 +211,7 @@ Click the ⚙ icon in the main window. Fields:
 
 - **Reasoning provider** — bridge mode + model for the agent.
 - **Voice dictation** — enabled toggle, hotkey, backend (whisper.cpp / Groq), spoken language, auto-paste.
+- **Live captions** — toggle and OCR hotkeys, drag modifier, summary provider / model / language, transcription backend, spoken language, whisper prompt. Hotkeys rebind on save; the rest applies on the next captions start.
 
 Saving restarts the agent backend utility process; dictation rebinds hotkeys in-place.
 
