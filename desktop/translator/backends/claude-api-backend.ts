@@ -27,11 +27,22 @@ const MAX_TOKENS = 1024;
 export class ClaudeApiTranslatorBackend implements TranslatorBackend {
   readonly id: TranslatorBackendId = "claude-api";
 
-  private readonly client: Anthropic;
+  private client: Anthropic | null = null;
   private readonly model: string;
 
   constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    // The key is checked per request, not here: this constructor runs from
+    // TranslatorService's constructor inside initTranslator(), and a throw
+    // there used to take the clipboard monitor, layout switcher and the
+    // ⌘⇧2 hotkey down with it (#156). A missing key is a translation error
+    // the user sees in the translator window, not a startup failure.
+    this.model = process.env.MARSHAL_CLAUDE_MODEL ?? process.env.MARSHAL_MODEL ?? DEFAULT_MODEL;
+  }
+
+  /** Builds the SDK client on first use; re-reads the env so a key added later is picked up. */
+  private requireClient(): Anthropic {
+    if (this.client) return this.client;
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
     if (!apiKey) {
       throw new Error(
         "Claude API translator backend requires ANTHROPIC_API_KEY. " +
@@ -39,7 +50,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
       );
     }
     this.client = new Anthropic({ apiKey });
-    this.model = process.env.MARSHAL_CLAUDE_MODEL ?? process.env.MARSHAL_MODEL ?? DEFAULT_MODEL;
+    return this.client;
   }
 
   async translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
@@ -97,7 +108,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
    */
   private async send(body: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
     try {
-      return await this.client.messages.create(body);
+      return await this.requireClient().messages.create(body);
     } catch (err) {
       if (err && typeof err === "object" && isAuthStatus((err as { status?: unknown }).status)) {
         const detail = err instanceof Error ? err.message : String(err);
