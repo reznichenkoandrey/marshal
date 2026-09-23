@@ -20,10 +20,13 @@ import path from "node:path";
 
 import {
   createWhisperBackend,
-  resolveBackendName,
+  isLocalWhisperAvailable,
   resolveDictationLanguage,
+  type BackendName,
   type WhisperBackend
 } from "../dictation/whisper-backend.ts";
+import { ResidentWhisperBackend } from "../dictation/whisper-server.ts";
+import { resolveCaptionsSttBackend } from "./stt-choice.ts";
 import { PushToTalkHotkey, type PushToTalkBackend } from "../dictation/hotkey-manager.ts";
 import { isSwiftPttCandidate, SwiftPushToTalkHotkey } from "../dictation/swift-ptt-monitor.ts";
 import { CaptionsWindow, type OcrRegion } from "./captions-window.ts";
@@ -122,6 +125,8 @@ export class LiveCaptionsService extends EventEmitter {
   /** STT for the live partial line (#203); null when partials are off. */
   private partialWhisper: WhisperBackend | null = null;
   private partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
+  /** Which STT the captions run on, for the overlay hint. */
+  private sttBackend: BackendName = "whisper-cpp";
   private readonly partialGate = new PartialGate();
   /** The open utterance as transcribed so far — shown, never stored. */
   private partialText = "";
@@ -186,13 +191,24 @@ export class LiveCaptionsService extends EventEmitter {
    * makes a Settings change take effect without restarting the app (#179).
    */
   private configureFromEnv(): void {
-    const sttBackend = resolveBackendName(process.env.MARSHAL_CAPTIONS_STT_BACKEND ?? process.env.MARSHAL_DICTATION_BACKEND);
+    const sttBackend = resolveCaptionsSttBackend(
+      process.env.MARSHAL_CAPTIONS_STT_BACKEND,
+      process.env.MARSHAL_DICTATION_BACKEND,
+      isLocalWhisperAvailable()
+    );
+    this.sttBackend = sttBackend;
     if (!this.injected.whisper) {
+      // Local finals and local partials share one resident model (#218):
+      // createWhisperBackend hands both the same whisper-server.
       this.whisper = createWhisperBackend(sttBackend);
     }
     if (!this.injected.partialWhisper) {
       const partialBackend = resolvePartialBackend(process.env.MARSHAL_CAPTIONS_PARTIALS, sttBackend);
-      this.partialWhisper = partialBackend ? createWhisperBackend(partialBackend) : null;
+      const partialWhisper = partialBackend ? createWhisperBackend(partialBackend) : null;
+      // A local partial without the resident server would run whisper-cli
+      // next to the final and slow it down several times over (#219).
+      this.partialWhisper =
+        partialBackend === "whisper-cpp" && !(partialWhisper instanceof ResidentWhisperBackend) ? null : partialWhisper;
     }
     this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
     if (!this.injected.summarizer) {
@@ -480,7 +496,15 @@ export class LiveCaptionsService extends EventEmitter {
     let cooldownMs: number | null = null;
     try {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
-      const result = await partialWhisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+      const options = { language: this.language, prompt: this.prompt };
+      // Locally, only while the model is resident: through whisper-cli a
+      // partial would cost 1.6 s and delay the final behind it (#219).
+      // Skipped, not failed — so no cool-down while the server warms up.
+      const result =
+        partialWhisper instanceof ResidentWhisperBackend
+          ? await partialWhisper.transcribeIfResident(wavPath, options)
+          : await partialWhisper.transcribe(wavPath, options);
+      if (result === null) return;
       if (this.state !== "running") return;
       if (!isPartialCurrent(segment.utteranceId, this.lastFinalUtteranceId)) return;
       const text = result.text.trim().replace(/\s+/gu, " ");
@@ -668,7 +692,8 @@ export class LiveCaptionsService extends EventEmitter {
     const context = files > 0 ? ` · ctx: ${files} file${files === 1 ? "" : "s"}` : "";
     const turn = this.turnPolicy === "queue" ? " · queue" : "";
     const mic = this.micState === "on" ? " · mic" : this.micState === "off" ? "" : ` · mic ${this.micState}`;
-    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${mic}${context}`;
+    const stt = this.sttBackend === "whisper-cpp" ? "local" : this.sttBackend;
+    return `${this.providerHint} · stt: ${stt} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${mic}${context}`;
   }
 
   /** Where the user drops reference files; created on demand by the Settings button. */

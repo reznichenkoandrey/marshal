@@ -323,10 +323,10 @@
             <div class="field">
               <label for="settings-captions-stt-backend">Transcription backend</label>
               <select id="settings-captions-stt-backend" name="captionsSttBackend">
-                <option value="auto">Same as dictation (default)</option>
+                <option value="auto">Auto — local model if installed, else same as dictation (default)</option>
                 <option value="hybrid">Hybrid: Groq large-v3 with local fallback</option>
-                <option value="groq">Groq whisper-large-v3 only</option>
-                <option value="whisper-cpp">whisper.cpp local-only (adds 1–2 s per utterance)</option>
+                <option value="groq">Groq whisper-large-v3 only (20 requests/min on the free tier)</option>
+                <option value="whisper-cpp">whisper.cpp local-only (~0.7 s per utterance, no rate limit)</option>
               </select>
             </div>
 

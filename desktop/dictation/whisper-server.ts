@@ -277,6 +277,21 @@ export class ResidentWhisperBackend implements WhisperBackend {
     }
   }
 
+  /**
+   * The resident server only, or null while it is not running (and warming
+   * up). For work that is worth doing only when it is cheap: a live caption
+   * partial taken through whisper-cli would cost 1.6 s and slow the final
+   * behind it (#219), so it is better skipped than sent there.
+   */
+  async transcribeIfResident(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult | null> {
+    if (this.serverDisabled) return null;
+    if (!this.server.isRunning) {
+      this.warmUp();
+      return null;
+    }
+    return this.server.transcribe(wavPath, options);
+  }
+
   /** Starts the server without anyone waiting on it; a startup failure disables it for the session. */
   warmUp(): void {
     if (this.serverDisabled) return;
