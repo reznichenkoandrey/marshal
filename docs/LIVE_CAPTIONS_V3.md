@@ -67,6 +67,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | Scribe system prompt, verbatim | ✅ | `summary-prompt.ts` → `SUMMARY_SYSTEM_PROMPT` (#211) |
 | Context files (agendas, project logs) guide terminology | ✅ | `context-store.ts`; framed as background that never adds facts (#211) |
 | Claude with `stream=True` | ✅ | `summarizer.ts` → `AnthropicSummaryStreamer`; `auto` prefers Claude when `ANTHROPIC_API_KEY` is set (#211). Model: `claude-haiku-4-5`, override `MARSHAL_CAPTIONS_CLAUDE_MODEL` |
+| Keep summarising when the Claude account cannot serve | ✅ | `FallbackSummaryStreamer` (#214): under `auto`, a rejected key, an empty credit balance or a missing model switches to the OpenAI-compatible provider for the rest of the session and says so in the overlay hint. Rate limits and 5xx do not switch; an explicitly chosen provider is never wrapped |
 | < 1 s from end of speech to first tokens | 🟡 | measured +102 ms on the Groq path (#189); **not yet measured on Claude** — needs a run with the user's key |
 
 ## 2.5 Build debugging
@@ -80,7 +81,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MARSHAL_CAPTIONS_PROVIDER` | `auto` | `claude-api`, `openai-api`, `off`; `auto` prefers Claude |
+| `MARSHAL_CAPTIONS_PROVIDER` | `auto` | `claude-api`, `openai-api`, `off`; `auto` prefers Claude and falls back to `openai-api` if Claude is unusable (#214) |
 | `MARSHAL_CAPTIONS_CLAUDE_MODEL` | `claude-haiku-4-5` | summary model on the Anthropic path |
 | `MARSHAL_CAPTIONS_STT_BACKEND` | follows dictation | `whisper-cpp` (local), `groq`, `hybrid` — #208 changes the default |
 | `MARSHAL_CAPTIONS_PARTIALS` | on for remote STT | `1` / `0` — the live line (#203) |

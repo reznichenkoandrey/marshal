@@ -32,7 +32,12 @@ import { systemPreferences } from "electron";
 import { assertScreenRecordingGranted, readRegionText } from "./ocr-context.ts";
 import { shouldAcceptMouse, type OverlayStatus, type OverlayUpdate } from "./overlay-layout.ts";
 import { DEFAULT_SEGMENTER_OPTIONS, SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
-import { createSummaryStreamer, resolveSummaryProvider, type SummaryStreamer } from "./summarizer.ts";
+import {
+  createSummaryStreamer,
+  resolveSummaryProvider,
+  type SummaryFallbackNotice,
+  type SummaryStreamer
+} from "./summarizer.ts";
 import { renderSummaryHtml } from "./summary-prompt.ts";
 import { SystemAudioTap } from "./system-audio-tap.ts";
 import {
@@ -188,7 +193,9 @@ export class LiveCaptionsService extends EventEmitter {
       this.partialWhisper = partialBackend ? createWhisperBackend(partialBackend) : null;
     }
     this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
-    if (!this.injected.summarizer) this.summarizer = createSummaryStreamer(process.env);
+    if (!this.injected.summarizer) {
+      this.summarizer = createSummaryStreamer(process.env, (notice) => this.onSummaryFallback(notice));
+    }
     this.language = resolveDictationLanguage(
       process.env.MARSHAL_CAPTIONS_LANGUAGE ?? process.env.MARSHAL_DICTATION_LANGUAGE ?? "auto"
     );
@@ -520,6 +527,18 @@ export class LiveCaptionsService extends EventEmitter {
     if (this.summaryText.length > 0) this.summaryStale = true;
     this.pushUpdate();
     this.scheduleSummary(result.question ? 0 : SUMMARY_DEBOUNCE_MS);
+  }
+
+  /**
+   * `auto` picked a summary provider that cannot serve requests (#214) and the
+   * streamer switched to the next one. Said once — in the log and in the
+   * overlay hint — because a silently different provider is how a summary
+   * ends up slower or in another style with nobody knowing why.
+   */
+  private onSummaryFallback(notice: SummaryFallbackNotice): void {
+    const why = { auth: "key rejected", credit: "no credits", model: "model not found" }[notice.reason];
+    console.warn(`[captions] summary: ${notice.from} unusable (${why}); using ${notice.to}`);
+    this.providerHint = `summary: ${notice.to} (${notice.from}: ${why})`;
   }
 
   private clearFragmentTimer(): void {
