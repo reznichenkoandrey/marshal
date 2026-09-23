@@ -82,3 +82,12 @@ jobs:
         run: npm run test:e2e
         env:
           MARSHAL_HEADLESS: "1"
+
+      - name: translator alternatives
+        # Drives the real translator renderer through a stub preload, so it
+        # needs no API key, no network and none of the TCC grants a runner
+        # cannot give. `npm run build` above already produced dist/, so the
+        # script is invoked directly rather than through its build-first
+        # npm script.
+        run: npx electron tests/e2e/translator-alternatives.mjs
+        timeout-minutes: 5
