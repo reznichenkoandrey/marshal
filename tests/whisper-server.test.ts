@@ -298,3 +298,33 @@ describe("ResidentWhisperBackend", () => {
     expect(control.spawned).toBe(2);
   });
 });
+
+describe("ResidentWhisperBackend.transcribeIfResident (#208)", () => {
+  it("skips — and warms up — while the server is not running", async () => {
+    const { control, spawnProcess } = fakeServer({ text: "from the server", language: "english" });
+    const server = makeServer(spawnProcess);
+    const cli = new FakeCli();
+    const backend = new ResidentWhisperBackend(server, cli);
+
+    await expect(backend.transcribeIfResident(wav)).resolves.toBeNull();
+    // Nothing went to whisper-cli: a partial there would slow the final (#219).
+    expect(cli.calls).toBe(0);
+
+    const deadline = Date.now() + 1_000;
+    while (!server.isRunning && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(backend.transcribeIfResident(wav)).resolves.toEqual({ text: "from the server", language: "en" });
+    expect(control.spawned).toBe(1);
+  });
+
+  it("stays skipped when the server cannot start", async () => {
+    const cli = new FakeCli();
+    const server = new WhisperServer({ bin: path.join(dir, "no-such-binary"), model, threads: 4 });
+    servers.push(server);
+    const backend = new ResidentWhisperBackend(server, cli);
+
+    await expect(backend.transcribeIfResident(wav)).resolves.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect(backend.transcribeIfResident(wav)).resolves.toBeNull();
+    expect(cli.calls).toBe(0);
+  });
+});

@@ -20,10 +20,11 @@ import {
 } from "../desktop/captions/partial-policy.ts";
 
 describe("resolvePartialBackend", () => {
-  it("is on for remote STT and off for the local model by default", () => {
+  it("is on by default on every backend, the local one included (#208)", () => {
     expect(resolvePartialBackend(undefined, "groq")).toBe("groq");
     expect(resolvePartialBackend(undefined, "hybrid")).toBe("groq");
-    expect(resolvePartialBackend(undefined, "whisper-cpp")).toBeNull();
+    // Off until the model stayed resident: each partial cost 1.6 s (#218).
+    expect(resolvePartialBackend(undefined, "whisper-cpp")).toBe("whisper-cpp");
   });
 
   it("never gives hybrid its local fallback", () => {
@@ -31,9 +32,10 @@ describe("resolvePartialBackend", () => {
     expect(resolvePartialBackend("1", "hybrid")).toBe("groq");
   });
 
-  it("can be forced on for the local model and off everywhere", () => {
+  it("can be turned off everywhere; `1` still means the default", () => {
     expect(resolvePartialBackend("1", "whisper-cpp")).toBe("whisper-cpp");
     expect(resolvePartialBackend("0", "groq")).toBeNull();
+    expect(resolvePartialBackend("0", "whisper-cpp")).toBeNull();
     expect(resolvePartialBackend("off", "hybrid")).toBeNull();
   });
 });

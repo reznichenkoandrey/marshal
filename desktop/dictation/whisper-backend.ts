@@ -348,6 +348,13 @@ export function resolveDefaultModel(): string {
   return firstExisting(whisperModelCandidates());
 }
 
+/** A local model and a binary to run it are both on disk. */
+export function isLocalWhisperAvailable(): boolean {
+  const { bin, model } = resolveWhisperAssetPaths();
+  const serverBin = process.env.MARSHAL_WHISPER_SERVER_BIN ?? resolveDefaultServerBin();
+  return existsSync(model) && (existsSync(bin) || existsSync(serverBin));
+}
+
 export function resolveWhisperAssetPaths(): { bin: string; model: string } {
   return {
     bin: process.env.MARSHAL_WHISPER_BIN ?? resolveDefaultBin(),

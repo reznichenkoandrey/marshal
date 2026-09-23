@@ -65,17 +65,18 @@ export function parseRetryAfterMs(message: string): number | null {
 /**
  * Which STT backend the partial pass uses, or null when partials are off.
  *
- * Unset: on whenever captions already use a remote STT, off on the local
- * one — every partial pass there is real CPU time on the machine running the
- * call. `1` forces them on (on `whisper-cpp` too, the user asked); `0` turns
- * them off. `hybrid` maps to plain `groq`, see the header for why.
+ * On by default on every backend. The local one used to be excluded because
+ * each whisper-cli call cost 1.6 s of model loading and two of them in flight
+ * slowed a final to 11 s (#219); with the model resident (#218) a partial
+ * costs ~0.6 s and queues behind a final instead of fighting it. `0` turns
+ * partials off; `1` is accepted for compatibility and means the default.
+ * `hybrid` maps to plain `groq`: a rate-limited partial must fail, not drag
+ * the finals onto the local fallback with it.
  */
 export function resolvePartialBackend(raw: string | undefined, captionsBackend: BackendName): BackendName | null {
   const value = (raw ?? "").trim().toLowerCase();
   if (value === "0" || value === "off" || value === "false") return null;
-  const forced = value === "1" || value === "on" || value === "true";
-  if (captionsBackend === "whisper-cpp") return forced ? "whisper-cpp" : null;
-  return "groq";
+  return captionsBackend === "whisper-cpp" ? "whisper-cpp" : "groq";
 }
 
 export function resolvePartialIntervalMs(raw: string | undefined): number {
