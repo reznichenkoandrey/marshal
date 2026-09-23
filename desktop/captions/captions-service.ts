@@ -52,6 +52,8 @@ import { decideSummaryAction, type TurnPolicy } from "./summary-policy.ts";
 import {
   isPartialCurrent,
   PartialGate,
+  parseRetryAfterMs,
+  PARTIAL_COOLDOWN_MS,
   resolvePartialBackend,
   resolvePartialIntervalMs,
   DEFAULT_PARTIAL_INTERVAL_MS
@@ -475,6 +477,7 @@ export class LiveCaptionsService extends EventEmitter {
 
     const wavPath = path.join(tmpdir(), `marshal-captions-partial-${randomUUID()}.wav`);
     let ok = true;
+    let cooldownMs: number | null = null;
     try {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
       const result = await partialWhisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
@@ -488,11 +491,16 @@ export class LiveCaptionsService extends EventEmitter {
     } catch (err) {
       ok = false;
       // Most likely a rate limit. Partials go quiet for the cool-down so the
-      // quota is left to the final captions; say so once, not per request.
+      // quota is left to the final captions. The message is logged whole:
+      // Groq names the exhausted limit and the wait only at its end, which a
+      // 160-character cut used to drop (#207). It fires once per cool-down,
+      // since the gate admits nothing until then.
       const message = err instanceof Error ? err.message : String(err);
-      console.warn("[captions] partial transcription failed, pausing partials:", message.split("\n")[0].slice(0, 160));
+      cooldownMs = parseRetryAfterMs(message);
+      const pause = Math.round((cooldownMs ?? PARTIAL_COOLDOWN_MS) / 1000);
+      console.warn(`[captions] partial transcription failed, pausing partials for ${pause} s:`, message);
     } finally {
-      this.partialGate.end(ok, Date.now());
+      this.partialGate.end(ok, Date.now(), cooldownMs);
       await fs.unlink(wavPath).catch(() => undefined);
     }
   }

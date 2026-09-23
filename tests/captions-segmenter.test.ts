@@ -184,7 +184,7 @@ describe("SpeechSegmenter partial copies (#203)", () => {
     expect(partials.length).toBe(3);
     // One utterance: every partial belongs to it.
     expect(new Set(partials.map((segment) => segment.utteranceId)).size).toBe(1);
-    // Each copy holds everything spoken so far, so later ones are longer.
+    // Until the utterance outgrows the window, each copy holds everything so far.
     expect(partials[1].samples.length).toBeGreaterThan(partials[0].samples.length);
   });
 
@@ -228,5 +228,61 @@ describe("SpeechSegmenter partial copies (#203)", () => {
     const { segments, segmenter } = collectPartials({ partialIntervalMs: 200, minSpeechMs: 450 });
     segmenter.pushSamples(tone(300, 6000));
     expect(segments.some((segment) => segment.reason === "partial")).toBe(false);
+  });
+});
+
+describe("SpeechSegmenter partial window (#207)", () => {
+  const RATE = 16_000;
+
+  it("caps a partial at the window while the final keeps the whole utterance", () => {
+    const segments: SpeechSegment[] = [];
+    const segmenter = new SpeechSegmenter((segment) => segments.push(segment), {
+      silenceEndMs: 900,
+      partialIntervalMs: 1_000,
+      partialWindowMs: 3_000
+    });
+    // 8 s, under the 9 s segment cap, so the utterance closes on the pause.
+    segmenter.pushSamples(tone(8_000, 6000));
+    segmenter.pushSamples(silence(1_000));
+
+    const partials = segments.filter((segment) => segment.reason === "partial");
+    const final = segments.find((segment) => segment.reason === "silence");
+    expect(final).toBeDefined();
+    expect(partials.length).toBeGreaterThanOrEqual(6);
+    // Constant cost per pass: no partial carries more than the window.
+    for (const partial of partials) {
+      expect(partial.samples.length).toBeLessThanOrEqual(RATE * 3);
+    }
+    // The ones taken late in the sentence are exactly the window.
+    expect(partials[partials.length - 1].samples.length).toBe(RATE * 3);
+    // The final is untouched: every word of the sentence still gets transcribed.
+    expect(final!.samples.length).toBeGreaterThan(RATE * 8);
+  });
+
+  it("sends a whole utterance when the window is off", () => {
+    const segments: SpeechSegment[] = [];
+    const segmenter = new SpeechSegmenter((segment) => segments.push(segment), {
+      partialIntervalMs: 1_000,
+      partialWindowMs: 0
+    });
+    segmenter.pushSamples(tone(5_000, 6000));
+    const partials = segments.filter((segment) => segment.reason === "partial");
+    expect(partials[partials.length - 1].samples.length).toBeGreaterThan(RATE * 4);
+  });
+
+  it("adds up to linear audio cost over a long sentence", () => {
+    // The #207 arithmetic, pinned: before the window a 9 s sentence sent
+    // ~36 s of partial audio; with a 3 s window it cannot exceed 3 s per pass.
+    const segments: SpeechSegment[] = [];
+    const segmenter = new SpeechSegmenter((segment) => segments.push(segment), {
+      partialIntervalMs: 1_000,
+      partialWindowMs: 3_000
+    });
+    segmenter.pushSamples(tone(9_000, 6000));
+    const partialSeconds = segments
+      .filter((segment) => segment.reason === "partial")
+      .reduce((sum, segment) => sum + segment.samples.length / RATE, 0);
+    expect(partialSeconds).toBeLessThanOrEqual(8 * 3);
+    expect(partialSeconds).toBeLessThan(30);
   });
 });
