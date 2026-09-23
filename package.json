@@ -58,6 +58,7 @@
       "dist/desktop/dictation/mic-list",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
+      "dist/desktop/dictation/whisper-server",
       "dist/desktop/dictation/*.bin",
       "dist/desktop/capture/screen-recorder",
       "dist/desktop/capture/system-audio-recorder",

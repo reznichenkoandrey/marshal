@@ -84,6 +84,20 @@ await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
     console.warn("[postbuild] whisper-cli missing (run `npm run setup:dictation`) — packaged builds will need it for voice dictation");
   }
 
+  // The resident server (#218): keeps the model loaded, ~0.7 s per utterance
+  // instead of whisper-cli's 1.6 s. Optional — without it the app falls back
+  // to whisper-cli, so a missing copy is a warning, not a failure.
+  const serverSrc = path.join(root, ".whisper", "whisper.cpp", "build", "bin", "whisper-server");
+  const serverDst = path.join(dictationDistDir, "whisper-server");
+  try {
+    await fs.access(serverSrc);
+    await fs.copyFile(serverSrc, serverDst);
+    await fs.chmod(serverDst, 0o755);
+    console.log("[postbuild] whisper-server copied →", serverDst);
+  } catch {
+    console.warn("[postbuild] whisper-server missing (run `npm run setup:dictation`) — dictation and captions fall back to the slower whisper-cli");
+  }
+
   const staged = await fs.readdir(dictationDistDir).catch(() => []);
   for (const entry of staged) {
     if (!entry.endsWith(".bin")) continue;

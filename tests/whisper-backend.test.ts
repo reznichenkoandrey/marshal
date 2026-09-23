@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { WHISPER_MODELS, modelPath } from "../desktop/dictation/model-installer.ts";
+import { ResidentWhisperBackend } from "../desktop/dictation/whisper-server.ts";
 import {
   DEFAULT_DICTATION_PROMPT,
   GroqWhisperBackend,
@@ -137,8 +138,32 @@ describe("createWhisperBackend", () => {
     else process.env.MARSHAL_API_KEY = originalApiKey;
   });
 
-  it("instantiates the WhisperCppBackend for whisper-cpp", () => {
-    expect(createWhisperBackend("whisper-cpp")).toBeInstanceOf(WhisperCppBackend);
+  describe("whisper-cpp (#218)", () => {
+    const saved = { bin: process.env.MARSHAL_WHISPER_SERVER_BIN, toggle: process.env.MARSHAL_WHISPER_SERVER };
+
+    afterEach(() => {
+      if (saved.bin === undefined) delete process.env.MARSHAL_WHISPER_SERVER_BIN;
+      else process.env.MARSHAL_WHISPER_SERVER_BIN = saved.bin;
+      if (saved.toggle === undefined) delete process.env.MARSHAL_WHISPER_SERVER;
+      else process.env.MARSHAL_WHISPER_SERVER = saved.toggle;
+    });
+
+    it("keeps the model resident when the server binary is present", () => {
+      // Any existing file stands in for the binary; nothing is spawned here.
+      process.env.MARSHAL_WHISPER_SERVER_BIN = process.execPath;
+      expect(createWhisperBackend("whisper-cpp")).toBeInstanceOf(ResidentWhisperBackend);
+    });
+
+    it("uses whisper-cli alone when the server binary is missing", () => {
+      process.env.MARSHAL_WHISPER_SERVER_BIN = path.join(os.tmpdir(), "no-such-whisper-server");
+      expect(createWhisperBackend("whisper-cpp")).toBeInstanceOf(WhisperCppBackend);
+    });
+
+    it("uses whisper-cli alone when the server is switched off", () => {
+      process.env.MARSHAL_WHISPER_SERVER_BIN = process.execPath;
+      process.env.MARSHAL_WHISPER_SERVER = "0";
+      expect(createWhisperBackend("whisper-cpp")).toBeInstanceOf(WhisperCppBackend);
+    });
   });
 
   it("instantiates the GroqWhisperBackend for groq", () => {

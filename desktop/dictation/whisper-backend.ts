@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { asarUnpacked } from "../utils/asar-paths.ts";
 import { WHISPER_MODELS, modelPath } from "./model-installer.ts";
+import { ResidentWhisperBackend, sharedWhisperServer } from "./whisper-server.ts";
 
 export type TranscribeResult = {
   text: string;
@@ -92,7 +93,26 @@ export function resolveDictationLanguage(raw: string | undefined): string | unde
 export function createWhisperBackend(name: BackendName): WhisperBackend {
   if (name === "groq") return new GroqWhisperBackend();
   if (name === "hybrid") return new HybridWhisperBackend();
-  return new WhisperCppBackend();
+  return createLocalWhisperBackend();
+}
+
+/**
+ * Local whisper.cpp: the resident server when its binary is present (#218),
+ * with whisper-cli behind it as the fallback; whisper-cli alone otherwise.
+ * `MARSHAL_WHISPER_SERVER=0` turns the server off.
+ */
+export function createLocalWhisperBackend(): WhisperBackend {
+  const cli = new WhisperCppBackend();
+  const serverBin = process.env.MARSHAL_WHISPER_SERVER_BIN ?? resolveDefaultServerBin();
+  if ((process.env.MARSHAL_WHISPER_SERVER ?? "1").trim() === "0" || !existsSync(serverBin)) return cli;
+  const { model } = resolveWhisperAssetPaths();
+  const server = sharedWhisperServer({ bin: serverBin, model, threads: resolveWhisperThreads() });
+  return new ResidentWhisperBackend(server, cli);
+}
+
+function resolveWhisperThreads(): number {
+  const parsed = Number.parseInt(process.env.MARSHAL_WHISPER_THREADS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
 }
 
 // ── whisper.cpp (local, offline, free) ──
@@ -105,8 +125,7 @@ export class WhisperCppBackend implements WhisperBackend {
   constructor() {
     this.bin = process.env.MARSHAL_WHISPER_BIN ?? resolveDefaultBin();
     this.model = process.env.MARSHAL_WHISPER_MODEL ?? resolveDefaultModel();
-    const parsed = Number.parseInt(process.env.MARSHAL_WHISPER_THREADS ?? "", 10);
-    this.threads = Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+    this.threads = resolveWhisperThreads();
   }
 
   async transcribe(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult> {
@@ -219,29 +238,25 @@ export class GroqWhisperBackend implements WhisperBackend {
  */
 export class HybridWhisperBackend implements WhisperBackend {
   private readonly primary: GroqWhisperBackend;
-  private readonly fallback: WhisperCppBackend;
-  // Cache fallback availability so we don't pay the `fs.access` cost on every
-  // call. Resets to undefined every time the primary succeeds — if Groq
-  // recovers, we don't actually need the local copy to exist.
-  private fallbackChecked = false;
+  // The resident server when available (#218), so a Groq 429 costs ~0.7 s
+  // locally instead of whisper-cli's 1.6 s.
+  private readonly fallback: WhisperBackend;
 
   constructor() {
     this.primary = new GroqWhisperBackend();
-    this.fallback = new WhisperCppBackend();
+    this.fallback = createLocalWhisperBackend();
   }
 
   async transcribe(wavPath: string, options: TranscribeOptions = {}): Promise<TranscribeResult> {
     try {
-      const result = await this.primary.transcribe(wavPath, options);
-      // Primary worked — we don't need the local copy. Defer its check until
-      // a real fallback is attempted.
-      return result;
+      return await this.primary.transcribe(wavPath, options);
     } catch (err) {
-      if (process.env.MARSHAL_DICTATION_DEBUG === "1") {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.log(`[whisper] Groq failed → local fallback: ${msg}`);
-      }
-      this.fallbackChecked = true;
+      // Always logged: this used to print only with MARSHAL_DICTATION_DEBUG=1,
+      // which made "no fallback in the log" look like "no fallback happened"
+      // while a Groq rate limit was quietly sending finals to the slower
+      // local path (#217).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`[whisper] Groq failed → local fallback: ${msg.split("\n")[0].slice(0, 300)}`);
       return this.fallback.transcribe(wavPath, options);
     }
   }
@@ -292,6 +307,14 @@ export function resolveDefaultBin(): string {
   return firstExisting([
     path.join(distDictationDirOnDisk, "whisper-cli"),
     path.join(process.cwd(), ".whisper", "bin", "whisper-cli")
+  ]);
+}
+
+/** Same search as `resolveDefaultBin`, for the resident server (#218). */
+export function resolveDefaultServerBin(): string {
+  return firstExisting([
+    path.join(distDictationDirOnDisk, "whisper-server"),
+    path.join(process.cwd(), ".whisper", "bin", "whisper-server")
   ]);
 }
 
