@@ -31,6 +31,8 @@ export interface TranscriptPushResult {
   question: boolean;
   /** Nothing stored: the input is being held as a half-sentence for the next segment. */
   held: boolean;
+  /** The text was appended to the previous line instead of starting a new one. */
+  continued?: boolean;
 }
 
 export interface TranscriptBufferOptions {
@@ -46,6 +48,17 @@ export interface TranscriptBufferOptions {
   ocrTtlMs: number;
   /** Utterances shorter than this many words are held as fragments. */
   fragmentMinWords: number;
+  /**
+   * A new utterance arriving within this many ms of a line that has no
+   * terminal punctuation is appended to it instead of becoming its own line.
+   *
+   * This is how a sentence cut by a thinking pause is put back together
+   * (#202). The join happens *after* the first half is already on screen,
+   * deliberately: holding it back would mean waiting out FRAGMENT_HOLD_MS
+   * before showing anything, which trades the cut for latency — the exact
+   * trade this is meant to avoid. 0 disables.
+   */
+  continuationMs: number;
 }
 
 export const DEFAULT_TRANSCRIPT_BUFFER_OPTIONS: TranscriptBufferOptions = {
@@ -54,7 +67,11 @@ export const DEFAULT_TRANSCRIPT_BUFFER_OPTIONS: TranscriptBufferOptions = {
   maxOcrSnapshots: 2,
   maxOcrChars: 1_500,
   ocrTtlMs: 3 * 60 * 1000,
-  fragmentMinWords: 4
+  fragmentMinWords: 4,
+  // Long enough to cover the silence window that closed the line plus its
+  // transcription, short enough that a genuinely new sentence is not glued
+  // onto the previous speaker's unfinished one.
+  continuationMs: 1_200
 };
 
 const HALLUCINATION_PATTERNS: RegExp[] = [
@@ -64,6 +81,32 @@ const HALLUCINATION_PATTERNS: RegExp[] = [
   /subtitles? by/iu,
   /^♪+$/u
 ];
+
+/**
+ * True when the line reads as unfinished: whisper punctuates reliably, so a
+ * line that ends without terminal punctuation was most likely cut off rather
+ * than completed.
+ */
+export function looksUnfinished(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  return !/[.!?…:;»"”')\]]$/u.test(trimmed);
+}
+
+/**
+ * True when the text reads as the second half of somebody's sentence rather
+ * than a new one. Whisper capitalises the start of a sentence, so a lowercase
+ * opening is the signal — and it is the load-bearing half of the continuation
+ * rule: "ends without a full stop" alone also matches short complete
+ * utterances whisper left unpunctuated, and gluing those together produced
+ * one endless line.
+ */
+export function looksLikeContinuation(text: string): boolean {
+  const first = text.trim()[0];
+  if (!first) return false;
+  if (!/\p{L}/u.test(first)) return false;
+  return first === first.toLocaleLowerCase() && first !== first.toLocaleUpperCase();
+}
 
 /** True when whisper's output is the kind of filler it invents for silence. */
 export function isLikelyHallucination(text: string): boolean {
@@ -104,6 +147,24 @@ export class TranscriptBuffer {
       this.fragment = joined;
       return { accepted: false, text: joined, question: false, held: true };
     }
+
+    // A sentence the segmenter cut at a thinking pause: append to the line it
+    // belongs to rather than starting a new one (#202).
+    const previous = this.lines[this.lines.length - 1];
+    if (
+      previous &&
+      this.options.continuationMs > 0 &&
+      at - previous.at <= this.options.continuationMs &&
+      looksUnfinished(previous.text) &&
+      looksLikeContinuation(joined)
+    ) {
+      const merged = joinFragment(previous.text, joined);
+      previous.text = merged;
+      previous.at = at;
+      this.trimTranscript();
+      return { accepted: true, text: merged, question: isQuestion(merged), held: false, continued: true };
+    }
+
     this.lines.push({ text: joined, at });
     this.trimTranscript();
     return { accepted: true, text: joined, question: isQuestion(joined), held: false };

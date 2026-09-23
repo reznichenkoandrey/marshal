@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isLikelyHallucination, TranscriptBuffer } from "../desktop/captions/transcript-buffer.ts";
+import {
+  isLikelyHallucination,
+  looksLikeContinuation,
+  looksUnfinished,
+  TranscriptBuffer
+} from "../desktop/captions/transcript-buffer.ts";
 import { isFragment, isQuestion, joinFragment, stripFillers } from "../desktop/captions/transcript-normalize.ts";
 
 describe("isLikelyHallucination", () => {
@@ -20,9 +25,14 @@ describe("isLikelyHallucination", () => {
 describe("TranscriptBuffer", () => {
   it("keeps the last lines for display and everything within the char budget for the prompt", () => {
     const buffer = new TranscriptBuffer({ maxTranscriptChars: 60, maxDisplayLines: 2 });
-    buffer.pushTranscript("first sentence about caching");
-    buffer.pushTranscript("second sentence about queues");
-    buffer.pushTranscript("third sentence about retries");
+    // Explicit timestamps a real call would produce — an utterance cannot
+    // close sooner than the silence window plus its transcription. Pushing
+    // all three at the same instant would instead exercise the continuation
+    // merge (#202), which has its own tests below.
+    const t0 = 1_000_000;
+    buffer.pushTranscript("first sentence about caching", t0);
+    buffer.pushTranscript("second sentence about queues", t0 + 2_000);
+    buffer.pushTranscript("third sentence about retries", t0 + 4_000);
     expect(buffer.displayLines()).toEqual(["second sentence about queues", "third sentence about retries"]);
     // 3 × 29 chars > 60, so the oldest line is gone from the prompt too.
     expect(buffer.transcriptText()).not.toContain("first");
@@ -134,5 +144,88 @@ describe("TranscriptBuffer turn handling (#187)", () => {
     const buffer = new TranscriptBuffer();
     expect(buffer.pushTranscript("Um, uh, hmm.").accepted).toBe(false);
     expect(buffer.hasTranscript()).toBe(false);
+  });
+});
+
+describe("continuation merge (#202)", () => {
+  const t0 = 1_000_000;
+
+  it("appends a lowercase continuation to an unfinished line", () => {
+    const buffer = new TranscriptBuffer();
+    const first = buffer.pushTranscript("we shard the write path by tenant id and then", t0);
+    expect(first.accepted).toBe(true);
+
+    const second = buffer.pushTranscript("fan out to the read replicas.", t0 + 1_000);
+    expect(second.continued).toBe(true);
+    expect(buffer.displayLines()).toEqual([
+      "we shard the write path by tenant id and then fan out to the read replicas."
+    ]);
+  });
+
+  it("leaves a finished line alone", () => {
+    const buffer = new TranscriptBuffer();
+    buffer.pushTranscript("we shard by tenant id.", t0);
+    const second = buffer.pushTranscript("then we fan out to replicas.", t0 + 500);
+    expect(second.continued).toBeUndefined();
+    expect(buffer.displayLines()).toHaveLength(2);
+  });
+
+  it("leaves a new sentence alone even after an unpunctuated line", () => {
+    const buffer = new TranscriptBuffer();
+    buffer.pushTranscript("we shard the write path by tenant id", t0);
+    // Capitalised: whisper starts a new sentence, not a continuation.
+    const second = buffer.pushTranscript("The read path is different.", t0 + 500);
+    expect(second.continued).toBeUndefined();
+    expect(buffer.displayLines()).toHaveLength(2);
+  });
+
+  it("does not glue across a long gap", () => {
+    const buffer = new TranscriptBuffer();
+    buffer.pushTranscript("we shard the write path by tenant id and then", t0);
+    const second = buffer.pushTranscript("fan out to the read replicas.", t0 + 5_000);
+    expect(second.continued).toBeUndefined();
+    expect(buffer.displayLines()).toHaveLength(2);
+  });
+
+  it("can be turned off", () => {
+    const buffer = new TranscriptBuffer({ continuationMs: 0 });
+    buffer.pushTranscript("we shard the write path by tenant id and then", t0);
+    const second = buffer.pushTranscript("fan out to the read replicas.", t0 + 500);
+    expect(second.continued).toBeUndefined();
+    expect(buffer.displayLines()).toHaveLength(2);
+  });
+
+  it("reports a question when the merged line ends as one", () => {
+    const buffer = new TranscriptBuffer();
+    buffer.pushTranscript("so when you say eventual consistency here you mean", t0);
+    const second = buffer.pushTranscript("within one region or across all of them?", t0 + 900);
+    expect(second.continued).toBe(true);
+    expect(second.question).toBe(true);
+  });
+});
+
+describe("looksUnfinished / looksLikeContinuation (#202)", () => {
+  it("treats terminal punctuation as finished", () => {
+    for (const text of ["Redis.", "Yes!", "Who?", "…", 'He said "no."']) {
+      expect(looksUnfinished(text), text).toBe(false);
+    }
+  });
+
+  it("treats a bare tail as unfinished", () => {
+    for (const text of ["and then we", "ми шардимо по tenant id"]) {
+      expect(looksUnfinished(text), text).toBe(true);
+    }
+  });
+
+  it("recognises a lowercase opening as a continuation, in both scripts", () => {
+    expect(looksLikeContinuation("fan out to replicas.")).toBe(true);
+    expect(looksLikeContinuation("і потім реплікуємо.")).toBe(true);
+    expect(looksLikeContinuation("The read path.")).toBe(false);
+    expect(looksLikeContinuation("Далі — реплікація.")).toBe(false);
+  });
+
+  it("does not treat a number or symbol opening as a continuation", () => {
+    expect(looksLikeContinuation("300 ms is the budget.")).toBe(false);
+    expect(looksLikeContinuation("— and then.")).toBe(false);
   });
 });

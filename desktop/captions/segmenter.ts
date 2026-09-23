@@ -37,11 +37,21 @@ export interface SegmenterOptions {
    */
   provisionalSilenceMs: number;
   /**
-   * Per-frame speech decision. When set (the WebRTC VAD), a frame counts as
-   * speech only if the classifier says so AND its energy clears the absolute
-   * floor — the model catches typing and music that the energy gate lets
-   * through, the gate catches the model's false positives on near-silence.
-   * When unset, the adaptive energy threshold alone decides.
+   * Absolute RMS floor used *instead of* `minSpeechRms` while `classifyFrame`
+   * is set. It exists only to stop the model firing on digital silence, so it
+   * sits far below `minSpeechRms`: that value was calibrated as the lower
+   * bound of the adaptive energy threshold, and reusing it as a second
+   * detector under the model silenced quiet speech — a distant or softly
+   * speaking participant dipped under it mid-sentence and the utterance was
+   * closed while they were still talking. See #202.
+   */
+  classifierMinRms: number;
+  /**
+   * Per-frame speech decision (Silero). A frame counts as speech when the
+   * classifier says so AND its energy clears `classifierMinRms` — the model
+   * catches typing and music that the energy gate lets through, the floor
+   * catches the model's false positives on near-silence. When unset, the
+   * adaptive energy threshold alone decides.
    */
   classifyFrame?: (frame: Int16Array, rms: number) => boolean;
 }
@@ -50,6 +60,9 @@ export const DEFAULT_SEGMENTER_OPTIONS: SegmenterOptions = {
   sampleRate: 16_000,
   frameMs: 20,
   minSpeechRms: 350,
+  // ~-48 dBFS: below anything a microphone picks up as voice, above the
+  // numerical noise of a silent capture.
+  classifierMinRms: 120,
   noiseFloorRatio: 2.5,
   prerollMs: 240,
   silenceEndMs: 650,
@@ -171,7 +184,7 @@ export class SpeechSegmenter {
     const rms = frameRms(frame);
     const threshold = Math.max(this.options.minSpeechRms, this.noiseFloor * this.options.noiseFloorRatio);
     const isSpeech = this.options.classifyFrame
-      ? rms > this.options.minSpeechRms && this.options.classifyFrame(frame, rms)
+      ? rms > this.options.classifierMinRms && this.options.classifyFrame(frame, rms)
       : rms > threshold;
 
     // Track the floor only on quiet frames, so speech never drags it up and

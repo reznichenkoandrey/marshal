@@ -118,3 +118,49 @@ describe("SpeechSegmenter", () => {
     expect(segments[0].reason).toBe("flush");
   });
 });
+
+describe("SpeechSegmenter with a classifier (#202)", () => {
+  /** Silero-like stand-in: everything the test feeds it is speech. */
+  const alwaysSpeech = (): boolean => true;
+
+  function collectClassified(options = {}): { segments: SpeechSegment[]; segmenter: SpeechSegmenter } {
+    const segments: SpeechSegment[] = [];
+    const segmenter = new SpeechSegmenter((segment) => segments.push(segment), {
+      classifyFrame: alwaysSpeech,
+      silenceEndMs: 900,
+      ...options
+    });
+    return { segments, segmenter };
+  }
+
+  it("keeps a sentence whose middle goes quiet as one segment", () => {
+    const { segments, segmenter } = collectClassified();
+    // Amplitude 200 sits under the energy-mode floor (350) and above the
+    // classifier floor (120) — a softly speaking participant. Before #202
+    // this stretch counted as silence and closed the utterance mid-sentence.
+    segmenter.pushSamples(tone(700, 6000));
+    segmenter.pushSamples(tone(1_200, 200));
+    segmenter.pushSamples(tone(700, 6000));
+    expect(segments).toHaveLength(0);
+
+    segmenter.pushSamples(silence(1_000));
+    expect(segments).toHaveLength(1);
+    expect(segments[0].reason).toBe("silence");
+  });
+
+  it("still ignores digital silence the classifier calls speech", () => {
+    const { segments, segmenter } = collectClassified();
+    segmenter.pushSamples(silence(2_000));
+    expect(segments).toHaveLength(0);
+    expect(segmenter.isInSpeech).toBe(false);
+  });
+
+  it("honours a raised floor, so a noisy room can be tuned back up", () => {
+    const { segments, segmenter } = collectClassified({ classifierMinRms: 350 });
+    segmenter.pushSamples(tone(700, 6000));
+    segmenter.pushSamples(tone(1_200, 200)); // now below the floor again
+    segmenter.pushSamples(tone(700, 6000));
+    // The quiet stretch is long enough to close the first half on its own.
+    expect(segments.length).toBeGreaterThanOrEqual(1);
+  });
+});
