@@ -21,7 +21,16 @@ export type SystemAudioTapEvents = {
   pcm: [Buffer];
   error: [Error];
   exit: [number | null];
+  /** Microphone mixing state reported by the helper (#191). */
+  mic: [{ on: boolean; reason?: string }];
 };
+
+export interface SystemAudioTapOptions {
+  /** Mix the microphone into the stream (macOS 15+). */
+  microphone?: boolean;
+  /** Core Audio unique ID of the microphone; empty = default input. */
+  microphoneDevice?: string;
+}
 
 export class SystemAudioTap extends EventEmitter<SystemAudioTapEvents> {
   private readonly binPath: string;
@@ -40,13 +49,18 @@ export class SystemAudioTap extends EventEmitter<SystemAudioTapEvents> {
     return this.child !== null;
   }
 
-  async start(): Promise<void> {
+  async start(options: SystemAudioTapOptions = {}): Promise<void> {
     if (this.child) throw new Error("System audio tap is already running.");
     if (!this.isAvailable()) {
       throw new Error(`system-audio-tap helper missing at ${this.binPath}. Run \`npm run build\`.`);
     }
 
-    const child = spawn(this.binPath, [], { stdio: ["ignore", "pipe", "pipe"] });
+    const args: string[] = [];
+    if (options.microphone) {
+      args.push("--mic");
+      if (options.microphoneDevice) args.push("--mic-device", options.microphoneDevice);
+    }
+    const child = spawn(this.binPath, args, { stdio: ["ignore", "pipe", "pipe"] });
     this.child = child;
 
     let stderrBuffer = "";
@@ -74,6 +88,10 @@ export class SystemAudioTap extends EventEmitter<SystemAudioTapEvents> {
             const error = new Error(line.slice("error ".length));
             if (!ready) settle(error);
             else this.emit("error", error);
+          } else if (line === "mic on") {
+            this.emit("mic", { on: true });
+          } else if (line.startsWith("mic unavailable")) {
+            this.emit("mic", { on: false, reason: line.slice("mic unavailable".length).trim() });
           } else if (line.length > 0) {
             console.warn("[captions] audio tap stderr:", line);
           }

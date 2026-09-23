@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 
 | Requirement | Status | Where / what is missing |
 |---|---|---|
-| System audio loopback (not the mic) | ✅ macOS | `swift/system-audio-tap.swift` (ScreenCaptureKit); Windows WASAPI — #178 |
+| System audio loopback (not the mic) | ✅ macOS | `swift/system-audio-tap.swift` (ScreenCaptureKit); Windows WASAPI — #178. Optional microphone mix (#191): ScreenCaptureKit's own `captureMicrophone` (macOS 15+) delivers the mic on the same clock and queue, the helper sums it into the stream; Settings → "Also caption my microphone", off by default because on speakers the mic hears the call too |
 | Continuous background VAD | ✅ | `silero-vad.ts` — Silero VAD v5 on `onnxruntime-web` (WASM, no native binding; 14 MB runtime asar-unpacked + 2.3 MB model in `assets/models`); `segmenter.ts` combines its decision with an absolute energy floor. WebRTC VAD (libfvad) was tried first and rejected: it calls white noise and pure tones speech (#186) |
 | Configurable silence threshold (1.2–1.5 s) | ✅ | Settings → Live captions → "End of utterance after silence", 400–2000 ms, default 900 (`MARSHAL_CAPTIONS_SILENCE_MS`) (#186) |
 | Question-intonation end detection | ✅ | `transcript-normalize.ts` → `isQuestion`: a trailing `?`, or an interrogative opener (EN/UK) on a line without terminal punctuation. A question skips the 300 ms debounce and the prompt tells the model to answer it. Textual rather than pitch-based on purpose — whisper's punctuation is more reliable than intonation on call audio (#187) |

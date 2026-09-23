@@ -130,6 +130,12 @@ export type MarshalSettings = {
    */
   captionsSpeculativeStt: boolean;
   /**
+   * Mix the microphone (the dictation microphone, or the default input) into
+   * the captions stream so the user's own answers are captioned too. Off by
+   * default: on speakers the mic also hears the system audio.
+   */
+  captionsMixMicrophone: boolean;
+  /**
    * Directory where "quick save" stores captured PNGs. Empty string → use
    * ~/Desktop.
    */
@@ -210,6 +216,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   captionsSilenceMs: DEFAULT_CAPTIONS_SILENCE_MS,
   captionsTurnPolicy: "interrupt",
   captionsSpeculativeStt: true,
+  captionsMixMicrophone: false,
   captureDefaultFolder: "",
   captureEditorAlwaysOnTop: true,
   launchAtLogin: false,
@@ -329,6 +336,9 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   setOrDelete("MARSHAL_CAPTIONS_TURN_POLICY", settings.captionsTurnPolicy);
   if (typeof settings.captionsSpeculativeStt === "boolean") {
     process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT = settings.captionsSpeculativeStt ? "1" : "0";
+  }
+  if (typeof settings.captionsMixMicrophone === "boolean") {
+    process.env.MARSHAL_CAPTIONS_MIX_MIC = settings.captionsMixMicrophone ? "1" : "0";
   }
   // Forwarded to the backend utility process so the local bridge server can
   // persist captures (e.g. /capture/fullpage from the Chrome extension) into
@@ -486,6 +496,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     captionsSpeculativeStt: typeof input.captionsSpeculativeStt === "boolean"
       ? input.captionsSpeculativeStt
       : DEFAULT_SETTINGS.captionsSpeculativeStt,
+    captionsMixMicrophone: typeof input.captionsMixMicrophone === "boolean"
+      ? input.captionsMixMicrophone
+      : DEFAULT_SETTINGS.captionsMixMicrophone,
     captureEditorAlwaysOnTop: typeof input.captureEditorAlwaysOnTop === "boolean"
       ? input.captureEditorAlwaysOnTop
       : DEFAULT_SETTINGS.captureEditorAlwaysOnTop,

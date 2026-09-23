@@ -161,6 +161,7 @@ const desktopApi = {
     captionsSilenceMs?: number;
     captionsTurnPolicy?: string;
     captionsSpeculativeStt?: boolean;
+    captionsMixMicrophone?: boolean;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,

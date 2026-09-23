@@ -131,6 +131,7 @@ const dom = {
   settingsCaptionsSilenceMs: document.getElementById("settings-captions-silence-ms"),
   settingsCaptionsTurnPolicy: document.getElementById("settings-captions-turn-policy"),
   settingsCaptionsSpeculativeStt: document.getElementById("settings-captions-speculative-stt"),
+  settingsCaptionsMixMic: document.getElementById("settings-captions-mix-mic"),
   settingsCaptionsPromptReset: document.getElementById("settings-captions-prompt-reset"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
@@ -1042,6 +1043,9 @@ async function openSettings() {
     if (dom.settingsCaptionsSpeculativeStt) {
       dom.settingsCaptionsSpeculativeStt.checked = current.captionsSpeculativeStt ?? true;
     }
+    if (dom.settingsCaptionsMixMic) {
+      dom.settingsCaptionsMixMic.checked = current.captionsMixMicrophone ?? false;
+    }
     for (const [key, value] of Object.entries(captionsFields)) {
       if (dom[key]) dom[key].value = value;
     }
@@ -1182,6 +1186,7 @@ async function saveSettingsFromForm() {
     captionsSilenceMs: Number.parseInt(dom.settingsCaptionsSilenceMs?.value ?? "900", 10),
     captionsTurnPolicy: dom.settingsCaptionsTurnPolicy?.value ?? "interrupt",
     captionsSpeculativeStt: dom.settingsCaptionsSpeculativeStt?.checked ?? true,
+    captionsMixMicrophone: dom.settingsCaptionsMixMic?.checked ?? false,
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true
