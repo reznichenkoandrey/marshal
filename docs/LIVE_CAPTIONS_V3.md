@@ -40,7 +40,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 |---|---|---|
 | System-output loopback, not the mic | ✅ macOS | `swift/system-audio-tap.swift`; Windows — #178 |
 | Local STT, no cloud endpoints | ⬜ | #208 — captions default to `whisper-cpp`; cloud STT only when asked for explicitly |
-| Live line that does not burn a rate limit | ⬜ | #207 — each partial pass sends only the tail of the open utterance, so its cost is constant instead of growing with the sentence |
+| Live line that does not burn a rate limit | ✅ | #207 — each partial pass sends only the last 3 s of the open utterance (`partialWindowMs`), so its cost is constant instead of growing with the sentence; one pass per 1.5 s of speech; after a 429 the pause follows the provider's "try again in", and the full error (with the limit's name) is logged |
 
 ## 2.2 Hands-free VAD & end-of-utterance
 
@@ -85,7 +85,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | `MARSHAL_CAPTIONS_CLAUDE_MODEL` | `claude-haiku-4-5` | summary model on the Anthropic path |
 | `MARSHAL_CAPTIONS_STT_BACKEND` | follows dictation | `whisper-cpp` (local), `groq`, `hybrid` — #208 changes the default |
 | `MARSHAL_CAPTIONS_PARTIALS` | on for remote STT | `1` / `0` — the live line (#203) |
-| `MARSHAL_CAPTIONS_PARTIAL_MS` | `1000` | speech between live-line updates |
+| `MARSHAL_CAPTIONS_PARTIAL_MS` | `1500` | speech between live-line updates (#207) |
 | `MARSHAL_CAPTIONS_MIN_RMS` | `120` | classifier energy floor (#202) |
 | `MARSHAL_CAPTIONS_SILENCE_MS` | `900` | end-of-utterance pause — #209 |
 | `MARSHAL_CAPTIONS_MIX_MIC` | `0` | also caption the microphone (#191, #212) |

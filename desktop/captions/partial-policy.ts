@@ -21,8 +21,12 @@
 
 import type { BackendName } from "../dictation/whisper-backend.ts";
 
-/** Speech between two partial passes. Roughly one request per second of talking. */
-export const DEFAULT_PARTIAL_INTERVAL_MS = 1_000;
+/**
+ * Speech between two partial passes. 1000 ms tripped the Groq rate limit
+ * within seconds on a real call (#207); with the 3 s window that is now the
+ * most a pass sends, 1500 ms costs ~2 s of audio per second of speech.
+ */
+export const DEFAULT_PARTIAL_INTERVAL_MS = 1_500;
 /** Floor for the env override — below this the requests only queue up behind each other. */
 export const MIN_PARTIAL_INTERVAL_MS = 500;
 /**
@@ -30,6 +34,33 @@ export const MIN_PARTIAL_INTERVAL_MS = 500;
  * cause, and the quota it protects is the one the final captions live on.
  */
 export const PARTIAL_COOLDOWN_MS = 60_000;
+/** Bounds for a cool-down taken from the provider's own "try again in" hint. */
+export const MIN_PARTIAL_COOLDOWN_MS = 5_000;
+export const MAX_PARTIAL_COOLDOWN_MS = 10 * 60_000;
+
+const RETRY_HINT = /try again in\s+([\d.hms]+)/iu;
+const RETRY_PART = /(\d+(?:\.\d+)?)(ms|h|m|s)/gu;
+const UNIT_MS: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 };
+
+/**
+ * The cool-down a rate-limit error asks for, from Groq's "Please try again in
+ * 1m3.5s" wording. A fixed minute was both too short for an hourly audio
+ * limit and too long for a per-minute one; the provider knows which it is.
+ * Returns null when the message carries no hint, so the caller keeps its
+ * default. Clamped: a hint of hours still re-checks within ten minutes.
+ */
+export function parseRetryAfterMs(message: string): number | null {
+  const hint = RETRY_HINT.exec(message)?.[1]?.replace(/\.$/u, "");
+  if (!hint) return null;
+  let total = 0;
+  let matched = false;
+  for (const [, value, unit] of hint.matchAll(RETRY_PART)) {
+    total += Number.parseFloat(value) * UNIT_MS[unit];
+    matched = true;
+  }
+  if (!matched || !Number.isFinite(total)) return null;
+  return Math.min(Math.max(Math.ceil(total), MIN_PARTIAL_COOLDOWN_MS), MAX_PARTIAL_COOLDOWN_MS);
+}
 
 /**
  * Which STT backend the partial pass uses, or null when partials are off.
@@ -70,10 +101,13 @@ export class PartialGate {
     return true;
   }
 
-  /** Releases the slot; a failed pass starts the cool-down. */
-  end(ok: boolean, now: number): void {
+  /**
+   * Releases the slot; a failed pass starts the cool-down — the provider's
+   * own figure when it gave one, the default otherwise.
+   */
+  end(ok: boolean, now: number, cooldownMs: number | null = null): void {
     this.inFlight = false;
-    if (!ok) this.disabledUntil = now + this.cooldownMs;
+    if (!ok) this.disabledUntil = now + (cooldownMs ?? this.cooldownMs);
   }
 
   /** True while partials are switched off after a failure. */

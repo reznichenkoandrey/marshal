@@ -44,6 +44,15 @@ export interface SegmenterOptions {
    */
   partialIntervalMs: number;
   /**
+   * How much of the open utterance a `partial` copy carries: only its last
+   * this-many ms (#207). Sending the whole utterance made each partial cost
+   * more than the one before — a 9 s sentence with a partial every second
+   * sent 36 s of audio before its final — and exhausted the STT rate limit
+   * within seconds. The live line is clipped on the left anyway (#203), so
+   * the tail is all it ever shows. 0 sends the whole utterance.
+   */
+  partialWindowMs: number;
+  /**
    * Absolute RMS floor used *instead of* `minSpeechRms` while `classifyFrame`
    * is set. It exists only to stop the model firing on digital silence, so it
    * sits far below `minSpeechRms`: that value was calibrated as the lower
@@ -76,7 +85,8 @@ export const DEFAULT_SEGMENTER_OPTIONS: SegmenterOptions = {
   minSpeechMs: 450,
   maxSegmentMs: 9_000,
   provisionalSilenceMs: 0,
-  partialIntervalMs: 0
+  partialIntervalMs: 0,
+  partialWindowMs: 3_000
 };
 
 export interface SpeechSegment {
@@ -113,6 +123,7 @@ export class SpeechSegmenter {
   private readonly maxSegmentFrames: number;
   private readonly provisionalFrames: number;
   private readonly partialFrames: number;
+  private readonly partialWindowFrames: number;
   private readonly listener: SegmentListener;
   /** Frames appended since the last partial copy of this utterance. */
   private framesSincePartial = 0;
@@ -137,6 +148,9 @@ export class SpeechSegmenter {
     this.maxSegmentFrames = Math.ceil(this.options.maxSegmentMs / this.options.frameMs);
     this.provisionalFrames = this.options.provisionalSilenceMs > 0
       ? Math.ceil(this.options.provisionalSilenceMs / this.options.frameMs)
+      : 0;
+    this.partialWindowFrames = this.options.partialWindowMs > 0
+      ? Math.ceil(this.options.partialWindowMs / this.options.frameMs)
       : 0;
     this.partialFrames = this.options.partialIntervalMs > 0
       ? Math.ceil(this.options.partialIntervalMs / this.options.frameMs)
@@ -283,7 +297,10 @@ export class SpeechSegmenter {
     // sentence end, without paying for the full pause.
     const keepSilence = Math.min(this.trailingSilenceFrames, Math.ceil(this.silenceEndFrames / 2));
     const dropFrames = reason === "silence" ? this.trailingSilenceFrames - keepSilence : 0;
-    const frames = dropFrames > 0 ? this.active.slice(0, this.active.length - dropFrames) : this.active;
+    let frames = dropFrames > 0 ? this.active.slice(0, this.active.length - dropFrames) : this.active;
+    if (reason === "partial" && this.partialWindowFrames > 0 && frames.length > this.partialWindowFrames) {
+      frames = frames.slice(-this.partialWindowFrames);
+    }
     const total = frames.reduce((sum, frame) => sum + frame.length, 0);
     const samples = new Int16Array(total);
     let offset = 0;
