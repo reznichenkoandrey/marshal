@@ -6,27 +6,20 @@ import {
   buildSummaryMessages,
   renderSummaryHtml,
   REFERENCE_CONTEXT_HEADER,
-  SUMMARY_SYSTEM_PROMPT,
-  SUMMARY_SYSTEM_PROMPT_V2
+  SUMMARY_SYSTEM_PROMPT
 } from "../desktop/captions/summary-prompt.ts";
 
 describe("buildSummaryMessages", () => {
-  it("uses the spec's system prompt verbatim and puts the transcript last", () => {
+  it("uses the V3 scribe prompt verbatim and puts the transcript last", () => {
     const messages = buildSummaryMessages({
       transcript: "We shard by tenant id.",
       ocrContext: "Slide: Sharding strategy",
       outputLanguage: ""
     });
     expect(messages.system).toBe(SUMMARY_SYSTEM_PROMPT);
+    expect(SUMMARY_SYSTEM_PROMPT.startsWith("Act as an expert real-time business scribe.")).toBe(true);
     expect(messages.user.indexOf("Screen context")).toBeLessThan(messages.user.indexOf("Live transcript"));
     expect(messages.user).toContain("same language as the transcript");
-  });
-
-  it("tells the model to answer when the transcript ends with a question (#187)", () => {
-    const asked = buildSummaryMessages({ transcript: "How do you roll back?", ocrContext: "", outputLanguage: "", endsWithQuestion: true });
-    expect(asked.user).toContain("make the bullet points the answer");
-    const stated = buildSummaryMessages({ transcript: "We roll back with canaries.", ocrContext: "", outputLanguage: "" });
-    expect(stated.user).not.toContain("answer to it");
   });
 
   it("omits the OCR block when there is no screen context and honours the output language", () => {
@@ -36,31 +29,60 @@ describe("buildSummaryMessages", () => {
   });
 });
 
-describe("reference context (#188)", () => {
-  it("keeps the V1 prompt without reference files — first person with nothing to draw on is fabrication", () => {
+describe("scribe-only scope (#211)", () => {
+  // Every shape of input the service can produce. None of them may turn the
+  // summarizer into something that answers questions or speaks as the user.
+  const inputs = [
+    { transcript: "How do you roll back a bad deploy?", ocrContext: "", outputLanguage: "" },
+    { transcript: "We roll back with canaries.", ocrContext: "def solve(nums):", outputLanguage: "Ukrainian" },
+    {
+      transcript: "Can you walk me through your last project?",
+      ocrContext: "",
+      outputLanguage: "",
+      referenceContext: "### agenda.md\nQ3 roadmap review, Kafka migration."
+    }
+  ];
+
+  it("never instructs the model to answer or to speak as the user", () => {
+    for (const input of inputs) {
+      const messages = buildSummaryMessages(input);
+      const everything = `${messages.system}\n${messages.user}`.toLowerCase();
+      expect(everything, input.transcript).not.toMatch(/first person|answer (it|the question)|speak as|as the user|your experience/u);
+      expect(everything, input.transcript).not.toContain("code snippet");
+    }
+  });
+
+  it("uses the same system prompt whether or not the transcript ends with a question", () => {
+    const [question, statement] = inputs;
+    expect(buildSummaryMessages(question).system).toBe(buildSummaryMessages(statement).system);
+  });
+});
+
+describe("reference context (#188, reframed in #211)", () => {
+  it("adds nothing without reference files", () => {
     const messages = buildSummaryMessages({ transcript: "hi", ocrContext: "", outputLanguage: "", referenceContext: "  " });
     expect(messages.system).toBe(SUMMARY_SYSTEM_PROMPT);
     expect(messages.referenceContext).toBe("");
     expect(buildAnthropicSystem(messages)).toEqual([{ type: "text", text: SUMMARY_SYSTEM_PROMPT }]);
   });
 
-  it("switches to the V2 first-person prompt and appends the reference block when files exist", () => {
+  it("keeps the scribe prompt and appends the files as terminology background", () => {
     const messages = buildSummaryMessages({
-      transcript: "How do you scale consumers?",
+      transcript: "We are moving the billing consumers to Kafka.",
       ocrContext: "",
       outputLanguage: "",
-      endsWithQuestion: true,
-      referenceContext: "### cv.md\nSenior developer, Kafka at scale."
+      referenceContext: "### glossary.md\nKafka, billing-svc, ClickHouse."
     });
-    expect(messages.systemInstructions).toBe(SUMMARY_SYSTEM_PROMPT_V2);
-    expect(messages.system.startsWith(SUMMARY_SYSTEM_PROMPT_V2)).toBe(true);
+    expect(messages.systemInstructions).toBe(SUMMARY_SYSTEM_PROMPT);
+    expect(messages.system.startsWith(SUMMARY_SYSTEM_PROMPT)).toBe(true);
     expect(messages.system).toContain(REFERENCE_CONTEXT_HEADER);
-    expect(messages.system).toContain("Kafka at scale");
+    expect(REFERENCE_CONTEXT_HEADER).toContain("only what the speakers actually said");
+    expect(messages.system).toContain("billing-svc");
     const blocks = buildAnthropicSystem(messages);
     expect(blocks).toHaveLength(2);
-    expect(blocks[0]).toEqual({ type: "text", text: SUMMARY_SYSTEM_PROMPT_V2 });
+    expect(blocks[0]).toEqual({ type: "text", text: SUMMARY_SYSTEM_PROMPT });
     expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
-    expect(blocks[1].text).toContain("Kafka at scale");
+    expect(blocks[1].text).toContain("billing-svc");
   });
 });
 
@@ -118,8 +140,10 @@ describe("OpenAiSseParser", () => {
 });
 
 describe("resolveSummaryProvider", () => {
-  it("prefers the OpenAI-compatible key, then Anthropic, then nothing", () => {
-    expect(resolveSummaryProvider({ MARSHAL_API_KEY: "gsk", ANTHROPIC_API_KEY: "sk" }).id).toBe("openai-api");
+  it("prefers Anthropic, then the OpenAI-compatible key, then nothing", () => {
+    // Claude first (#211): the OpenAI-compatible key is Groq's, and STT already competes for its limits.
+    expect(resolveSummaryProvider({ MARSHAL_API_KEY: "gsk", ANTHROPIC_API_KEY: "sk" }).id).toBe("claude-api");
+    expect(resolveSummaryProvider({ MARSHAL_API_KEY: "gsk" }).id).toBe("openai-api");
     expect(resolveSummaryProvider({ ANTHROPIC_API_KEY: "sk" }).id).toBe("claude-api");
     expect(resolveSummaryProvider({}).id).toBe("off");
   });

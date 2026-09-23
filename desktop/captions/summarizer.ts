@@ -39,9 +39,9 @@ const DEFAULT_OPENAI_BASE = "https://api.groq.com/openai/v1";
 // Same reasoning as the translator (#155): a summary that must land in under
 // a second wants the fastest model the account serves, not the smartest.
 const DEFAULT_OPENAI_MODEL = "qwen/qwen3.8-27b";
-// Haiku is the latency pick on the Anthropic side for the same reason; override
-// with MARSHAL_CAPTIONS_CLAUDE_MODEL when quality matters more than the 2.5 s
-// budget from the spec.
+// Haiku is the latency pick on the Anthropic side for the same reason — the V3
+// spec budgets < 1 s from the end of speech to the first tokens. Override with
+// MARSHAL_CAPTIONS_CLAUDE_MODEL when quality matters more than that budget.
 const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5";
 const MAX_TOKENS = 256;
 const TEMPERATURE = 0.2;
@@ -58,9 +58,11 @@ function isLocalBase(base: string): boolean {
 
 /**
  * Which summarizer to run, from the environment alone. `auto` (the default)
- * prefers the OpenAI-compatible key because that is what the rest of Marshal
- * already uses for speed-critical work, then Anthropic, then nothing — in
- * which case the overlay still shows raw captions, just no bullets.
+ * prefers Anthropic (V3 spec §2.4, #211): a streamed Claude summary keeps the
+ * captions pipeline off the OpenAI-compatible key, which on Groq shares its
+ * rate limits with speech-to-text (#207). Then the OpenAI-compatible
+ * endpoint, then nothing — in which case the overlay still shows raw
+ * captions, just no bullets.
  */
 export function resolveSummaryProvider(env: SummarizerEnv): ResolvedSummaryProvider {
   const requested = (env.MARSHAL_CAPTIONS_PROVIDER ?? "auto").trim().toLowerCase();
@@ -82,8 +84,8 @@ export function resolveSummaryProvider(env: SummarizerEnv): ResolvedSummaryProvi
       ? { id: "claude-api", reason: `MARSHAL_CAPTIONS_PROVIDER=${requested}` }
       : { id: "off", reason: `${requested} requested but ANTHROPIC_API_KEY is empty` };
   }
-  if (openAiUsable) return { id: "openai-api", reason: "auto: OpenAI-compatible key/base present" };
   if (claudeUsable) return { id: "claude-api", reason: "auto: ANTHROPIC_API_KEY present" };
+  if (openAiUsable) return { id: "openai-api", reason: "auto: OpenAI-compatible key/base present" };
   return { id: "off", reason: "auto: no summarizer credentials — captions only" };
 }
 

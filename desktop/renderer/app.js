@@ -1149,8 +1149,9 @@ async function refreshCaptionsContextInfo() {
         : `${used.length} file${used.length === 1 ? "" : "s"} in the prompt: ${used.map((file) => file.name).join(", ")}` +
           (info.truncated > 0 ? ` (${info.truncated} characters over the budget were cut).` : ".");
       dom.settingsCaptionsContextInfo.textContent =
-        `${summary} Drop Markdown or text files in this folder — CV, project notes, stack description — ` +
-        "and the summary answers as you, from your experience. Up to ~12k characters; re-read when a file changes.";
+        `${summary} Drop Markdown or text files in this folder — meeting agenda, project log, glossary — ` +
+        "to help the summary get names and terms right; it only ever restates what was said. " +
+        "Up to ~12k characters; re-read when a file changes.";
     }
   } catch (err) {
     console.error("getCaptionsContextInfo failed", err);

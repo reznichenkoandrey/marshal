@@ -101,9 +101,13 @@
   `system-audio-tap` (ScreenCaptureKit → 16 kHz mono PCM у stdout), **не** meeting-recorder:
   той пише один M4A до стопу, а субтитрам потрібен потік. Нарізка на фрази — `segmenter.ts`
   (energy VAD, чистий і тестований); whisper — той самий `WhisperBackend`, що в диктовці;
-  summary — стрімінг (`summarizer.ts`, OpenAI-compatible SSE або Anthropic SDK), рендер
-  markdown → HTML робиться в main (`renderSummaryHtml`), renderer лише малює. Промпт
-  summarizer'а — дослівно зі спеки (#176), не «покращувати». OCR-регіон обирається один раз
+  summary — стрімінг (`summarizer.ts`, Anthropic SDK або OpenAI-compatible SSE; `auto` бере
+  Claude, якщо є `ANTHROPIC_API_KEY`), рендер markdown → HTML робиться в main
+  (`renderSummaryHtml`), renderer лише малює. Промпт summarizer'а — дослівно зі спеки V3
+  (business scribe, #211), не «покращувати». **Обсяг — нотатки й переклад**
+  (`docs/LIVE_CAPTIONS_V3.md`): режими, де summary відповідав на питання чи говорив від першої
+  особи за CV (V2, #187/#188), прибрані в #211 і не повертаються — це стережуть тести
+  `scribe-only scope`. Reference-файли — лише фон для термінології (агенда, глосарій). OCR-регіон обирається один раз
   crop-оверлеєм і зберігається в `captions-overlay-state.json`; під час знімка оверлей
   ховається, щоб не зняти сам себе.
   **Чому фрази більше не ріже посередині (#202):** під Silero абсолютний RMS-поріг — це

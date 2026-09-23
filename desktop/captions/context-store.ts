@@ -1,14 +1,15 @@
 // desktop/captions/context-store.ts
 //
-// Reference files for the summarizer (V2 spec §2.4, "local context
-// grounding"): a folder of Markdown / text files — CV, project README,
-// stack notes — that goes into the system prompt so the bullets speak from
-// the user's actual experience instead of a textbook.
+// Reference files for the summarizer (V3 spec §2.4, "context payload
+// ingestion"): a folder of Markdown / text files — meeting agendas, project
+// logs, glossaries — that goes into the system prompt so the scribe spells
+// names and technical terms the way this team does. The files are background
+// for terminology, never material for the bullets: the summary restates only
+// what was said (#211).
 //
-// Deliberately a size-capped concatenation, not embeddings: a CV plus a
-// project README fits in ~12k characters, and the whole block is a stable
-// prompt prefix the Anthropic path can cache. Vector retrieval is a later
-// step if people drop whole wikis in here.
+// Deliberately a size-capped concatenation, not embeddings: an agenda plus a
+// glossary fits in ~12k characters, and the whole block is a stable prompt
+// prefix the Anthropic path can cache.
 //
 // No Electron imports: the folder path comes from the caller, so this is
 // testable with a temp dir.
@@ -120,7 +121,7 @@ export async function loadReferenceContext(
 /**
  * Re-reads the folder only when a file's size or mtime changed, or a file
  * appeared or vanished — the check is a readdir plus stats, cheap enough to
- * run before every summary so an edited CV applies without a restart.
+ * run before every summary so an edited file applies without a restart.
  */
 export class ReferenceContextCache {
   private readonly dir: string;
