@@ -76,6 +76,9 @@ share your screen with never see.
   ready the moment the sentence ends; new speech during a streaming summary
   either restarts it or queues one follow-up (Settings), with the stale
   bullets marked "updating…" meanwhile.
+- **Your own answers too, if you want.** Settings → "Also caption my microphone"
+  mixes the dictation microphone into the stream (macOS 15+, headphones
+  recommended: on speakers the mic hears the other side as well).
 - **Screen context on demand.** `⌃⇧S` OCRs a screen region (first press picks
   the region, later presses are silent) with Apple Vision and hands the text to
   the summarizer as context. The overlay hides itself during the capture.

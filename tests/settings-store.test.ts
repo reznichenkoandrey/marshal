@@ -129,6 +129,7 @@ describe("saveSettings", () => {
       captionsSilenceMs: 900,
       captionsTurnPolicy: "interrupt",
       captionsSpeculativeStt: true,
+      captionsMixMicrophone: false,
       captureDefaultFolder: "",
       captureEditorAlwaysOnTop: true,
       launchAtLogin: false,
@@ -293,6 +294,13 @@ describe("live captions settings (#179)", () => {
     applySettingsToEnv(saveSettings({ captionsTurnPolicy: "queue", captionsSpeculativeStt: false }));
     expect(process.env.MARSHAL_CAPTIONS_TURN_POLICY).toBe("queue");
     expect(process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT).toBe("0");
+  });
+
+  it("keeps microphone mixing off unless explicitly enabled (#191)", () => {
+    expect(loadSettings().captionsMixMicrophone).toBe(false);
+    expect(saveSettings({ captionsMixMicrophone: "1" as never }).captionsMixMicrophone).toBe(false);
+    applySettingsToEnv(saveSettings({ captionsMixMicrophone: true }));
+    expect(process.env.MARSHAL_CAPTIONS_MIX_MIC).toBe("1");
   });
 
   it("keeps an explicitly blank captions prompt — blank means no prompting", () => {

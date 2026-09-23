@@ -27,6 +27,8 @@ import {
 import { PushToTalkHotkey, type PushToTalkBackend } from "../dictation/hotkey-manager.ts";
 import { isSwiftPttCandidate, SwiftPushToTalkHotkey } from "../dictation/swift-ptt-monitor.ts";
 import { CaptionsWindow, type OcrRegion } from "./captions-window.ts";
+import { systemPreferences } from "electron";
+
 import { assertScreenRecordingGranted, readRegionText } from "./ocr-context.ts";
 import { shouldAcceptMouse, type OverlayStatus, type OverlayUpdate } from "./overlay-layout.ts";
 import { SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
@@ -93,6 +95,9 @@ export class LiveCaptionsService extends EventEmitter {
   private silenceMs = DEFAULT_CAPTIONS_SILENCE_MS;
   private vadChoice: "silero" | "energy" = "silero";
   private turnPolicy: TurnPolicy = "interrupt";
+  private mixMicrophone = false;
+  /** What the helper said about the microphone: on, off, or why not. */
+  private micState: "off" | "on" | "denied" | "unavailable" = "off";
   private speculativeStt = true;
   /** Result of a speculative transcription of the utterance still open. */
   private provisional: { utteranceId: number; speechMs: number; text: string } | null = null;
@@ -132,6 +137,11 @@ export class LiveCaptionsService extends EventEmitter {
       console.warn("[captions] audio tap error:", err.message);
       this.setStatus("error", err.message);
     });
+    this.tap.on("mic", ({ on, reason }: { on: boolean; reason?: string }) => {
+      this.micState = on ? "on" : "unavailable";
+      if (!on) console.warn("[captions] microphone mixing unavailable:", reason ?? "unknown");
+      if (this.state === "running") this.setStatus(this.status, this.idleHint());
+    });
     this.tap.on("exit", (code: number | null) => {
       if (this.state === "running") {
         this.setStatus("error", `audio tap exited (${code ?? "signal"}) — stop and start captions again`);
@@ -165,6 +175,7 @@ export class LiveCaptionsService extends EventEmitter {
     this.vadChoice = (process.env.MARSHAL_CAPTIONS_VAD ?? "silero").trim().toLowerCase() === "energy" ? "energy" : "silero";
     this.turnPolicy = (process.env.MARSHAL_CAPTIONS_TURN_POLICY ?? "interrupt").trim().toLowerCase() === "queue" ? "queue" : "interrupt";
     this.speculativeStt = (process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT ?? "1").trim() !== "0";
+    this.mixMicrophone = (process.env.MARSHAL_CAPTIONS_MIX_MIC ?? "0").trim() === "1";
   }
 
   /**
@@ -228,8 +239,23 @@ export class LiveCaptionsService extends EventEmitter {
         this.segmenter?.pushBytes(chunk);
       };
       this.tap.on("pcm", onPcm);
+      // The microphone is opt-in (#191): the helper mixes it in only when
+      // asked, and only after macOS granted the app the microphone — the
+      // prompt is triggered here so it appears at the moment it makes sense.
+      let microphone = false;
+      this.micState = "off";
+      if (this.mixMicrophone) {
+        microphone = process.platform === "darwin" ? await systemPreferences.askForMediaAccess("microphone") : true;
+        if (!microphone) {
+          this.micState = "denied";
+          console.warn("[captions] microphone access denied — captions continue with system audio only");
+        }
+      }
       try {
-        await this.tap.start();
+        await this.tap.start({
+          microphone,
+          microphoneDevice: (process.env.MARSHAL_DICTATION_MIC ?? "").trim() || undefined
+        });
       } catch (err) {
         this.tap.off("pcm", onPcm);
         throw err;
@@ -522,7 +548,8 @@ export class LiveCaptionsService extends EventEmitter {
     const files = this.lastReference.files.filter((file) => file.included > 0).length;
     const context = files > 0 ? ` · ctx: ${files} file${files === 1 ? "" : "s"}` : "";
     const turn = this.turnPolicy === "queue" ? " · queue" : "";
-    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${context}`;
+    const mic = this.micState === "on" ? " · mic" : this.micState === "off" ? "" : ` · mic ${this.micState}`;
+    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${mic}${context}`;
   }
 
   /** Where the user drops reference files; created on demand by the Settings button. */
