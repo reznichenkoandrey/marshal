@@ -18,6 +18,7 @@ export default defineConfig({
       // number stays honest. Add new files here as new test suites land.
       include: [
         "desktop/settings-store.ts",
+        "desktop/backend-client.ts",
         "desktop/translator/translator-service.ts",
         "desktop/translator/languages.ts",
         "desktop/translator/glossary-store.ts",
@@ -25,6 +26,7 @@ export default defineConfig({
         "desktop/translator/backends/errors.ts",
         "desktop/translator/insert-service.ts",
         "desktop/translator/backends/shared.ts",
+        "desktop/translator/backends/alternatives.ts",
         "desktop/translator/translator-backend-factory.ts",
         "desktop/translator/clipboard-monitor.ts",
         "desktop/translator/history-store.ts",
@@ -41,10 +43,10 @@ export default defineConfig({
       // expected to either keep coverage flat or bump the floor; a drop
       // fails CI so we notice deletions / dead-code growth.
       thresholds: {
-        lines: 55,
-        statements: 55,
-        functions: 60,
-        branches: 50
+        lines: 70,
+        statements: 70,
+        functions: 70,
+        branches: 65
       }
     }
   }

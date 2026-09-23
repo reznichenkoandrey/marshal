@@ -124,6 +124,16 @@ function wordCentreScript(word) {
 
 app.on("window-all-closed", () => {});
 
+// A module-level failure (a syntax error, a missing renderer bundle) leaves
+// Electron running with no windows and nothing to exit it, which in CI reads
+// as a hang rather than a failure. The watchdog turns that into an exit code.
+const WATCHDOG_MS = 90_000;
+const watchdog = setTimeout(() => {
+  console.error(`[alt-e2e] timed out after ${WATCHDOG_MS}ms`);
+  app.exit(1);
+}, WATCHDOG_MS);
+watchdog.unref?.();
+
 async function main() {
   await app.whenReady();
 
@@ -251,6 +261,7 @@ async function main() {
 }
 
 async function finish(win, preloadPath) {
+  clearTimeout(watchdog);
   await fs.unlink(preloadPath).catch(() => {});
   win.destroy();
 
