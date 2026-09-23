@@ -7,11 +7,14 @@
 
 import { EventEmitter } from "node:events";
 
+import { clampAlternativesRequest } from "./backends/alternatives.ts";
 import { isBackendUnusableError, type BackendUnusableReason } from "./backends/errors.ts";
 import { createTranslatorBackend, resolveTranslatorBackendId, translatorBackendForBridge } from "./backends/factory.ts";
 import { selectGlossaryEntries, type GlossaryEntry } from "./glossary-store.ts";
 import { detectScriptLang } from "./languages.ts";
 import type {
+  AlternativesRequest,
+  AlternativesResult,
   Formality,
   LangCode,
   SourceLang,
@@ -24,6 +27,9 @@ import type {
 } from "./backends/types.ts";
 
 export type {
+  AlternativeOption,
+  AlternativesRequest,
+  AlternativesResult,
   Formality,
   LangCode,
   SourceLang,
@@ -158,6 +164,29 @@ export class TranslatorService extends EventEmitter {
   ): Promise<TranslationResult> {
     const filled = this.withDefaults(options);
     return this.run((backend) => backend.translateImage(base64, mimeType, targetLang, filled));
+  }
+
+  /**
+   * Word-level alternatives for a word the user clicked in a finished
+   * translation (#146).
+   *
+   * Goes through the same `run()` as a translation, so a rejected credential
+   * falls back exactly as it does for translating — a click must not be the
+   * one path that dies on an expired key. The glossary is filtered against
+   * the sentence, not the whole text, because that is all the prompt carries.
+   */
+  suggestAlternatives(request: AlternativesRequest): Promise<AlternativesResult> {
+    const clamped = clampAlternativesRequest(request);
+    const filled = this.withDefaults(clamped.options, clamped.sentence);
+    return this.run(async (backend) => {
+      if (!backend.suggestAlternatives) {
+        throw new Error(
+          `Alternatives are not available on the ${backend.id} backend. ` +
+          "Pick a text provider in Settings → Translator backend."
+        );
+      }
+      return backend.suggestAlternatives({ ...clamped, options: filled });
+    });
   }
 
   /**

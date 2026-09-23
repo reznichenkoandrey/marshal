@@ -10,6 +10,13 @@
 // the double-⌘C hotkey, ⌘⌥T and the ⌘⇧2 OCR capture — via onLoading /
 // onResult / onError.
 
+import {
+  alternativesCacheKey,
+  applyAlternative,
+  sentenceRangeAt,
+  tokenizeTranslation
+} from "./translator-alternatives.js";
+
 const api = window.marshalTranslator;
 
 // Translate-as-you-type: long enough that a normal typing burst produces one
@@ -40,6 +47,14 @@ let historyItems = [];       // cached list of HistoryItem, most recent first
 let historyIndex = -1;       // cursor into historyItems when navigating with ↑/↓
 let popoverSide = null;      // "source" | "target" | null
 let popoverFocus = -1;
+// Alternatives popover (#146): the word it belongs to, the answers already
+// paid for, and the keyboard cursor inside the list.
+let altAnchor = null;        // { word, start, end, sentence, sentenceRange }
+let altOptions = [];
+let altFocus = -1;
+let altSeq = 0;
+const altCache = new Map();
+const MAX_CACHED_ALTERNATIVES = 120;
 
 // ── Appearance sync ──
 // The main window owns the appearance choice (light / dark / system) and
@@ -103,6 +118,7 @@ const dom = {
   btnClear: document.getElementById("btn-clear"),
   // Target pane
   resultText: document.getElementById("result-text"),
+  altPopover: document.getElementById("alt-popover"),
   stateLoading: document.getElementById("state-loading"),
   stateEmpty: document.getElementById("state-empty"),
   errorMsg: document.getElementById("error-msg"),
@@ -425,7 +441,7 @@ function clearAll() {
   currentTranslation = "";
   detectedSourceLang = "";
   lastRequest = { text: "", sourceLang: "", targetLang: "", formality: "" };
-  dom.resultText.textContent = "";
+  renderTranslation("");
   dom.langBadge.textContent = "";
   setResultActions(false);
   renderLanguageBar();
@@ -467,7 +483,7 @@ async function runTranslate() {
 
   if (!text) {
     currentTranslation = "";
-    dom.resultText.textContent = "";
+    renderTranslation("");
     dom.langBadge.textContent = "";
     setResultActions(false);
     setState("empty");
@@ -508,7 +524,7 @@ async function runTranslate() {
 /** Renders a finished translation into the target pane. */
 function applyResult(result) {
   currentTranslation = result.translation || "";
-  dom.resultText.textContent = currentTranslation;
+  renderTranslation(currentTranslation);
 
   if (result.mode === "image") {
     detectedSourceLang = "";
@@ -523,6 +539,239 @@ function applyResult(result) {
   renderLanguageBar();
   setResultActions(!!currentTranslation);
   setState(currentTranslation ? "result" : "empty");
+}
+
+// ── Alternatives popover (#146) ──
+//
+// The translation is rendered as word spans rather than a single text node so
+// a word can be clicked. Separators stay plain text nodes, so `white-space:
+// pre-wrap` still lays the text out exactly as the model returned it, and a
+// selection copied out of the pane is unchanged.
+
+/** Paints `text` into the target pane as clickable words + literal separators. */
+function renderTranslation(text) {
+  closeAlternatives();
+  dom.resultText.replaceChildren();
+  if (!text) return;
+
+  const fragment = document.createDocumentFragment();
+  for (const token of tokenizeTranslation(text)) {
+    if (!token.isWord) {
+      fragment.appendChild(document.createTextNode(token.text));
+      continue;
+    }
+    const span = document.createElement("span");
+    span.className = "tw";
+    span.textContent = token.text;
+    span.dataset.start = String(token.start);
+    span.dataset.end = String(token.end);
+    fragment.appendChild(span);
+  }
+  dom.resultText.appendChild(fragment);
+}
+
+dom.resultText.addEventListener("click", (e) => {
+  const span = e.target.closest?.(".tw");
+  if (!span) return;
+  // A click that ends a selection is the user copying, not asking.
+  if (!window.getSelection()?.isCollapsed) return;
+  e.stopPropagation();
+  void openAlternatives(span);
+});
+
+async function openAlternatives(span) {
+  const start = Number(span.dataset.start);
+  const end = Number(span.dataset.end);
+  const word = currentTranslation.slice(start, end);
+  if (!word) return;
+
+  // Re-clicking the open word closes the popover, like the language picker.
+  if (altAnchor && altAnchor.start === start && !dom.altPopover.hidden) {
+    closeAlternatives();
+    return;
+  }
+
+  closeLangPopover();
+  dom.historyPanel.hidden = true;
+
+  // Claim the sequence before anything async: a click on a second word must
+  // discard the answer still in flight for the first one, cache hit or not.
+  const seq = ++altSeq;
+
+  const sentenceRange = sentenceRangeAt(currentTranslation, start);
+  const sentence = currentTranslation.slice(sentenceRange.start, sentenceRange.end);
+  altAnchor = { word, start, end, sentence, sentenceRange };
+  altFocus = -1;
+
+  markActiveWord(span);
+  positionAltPopover(span);
+
+  const key = alternativesCacheKey({
+    targetLang,
+    sentence,
+    word,
+    wordOffset: start - sentenceRange.start
+  });
+  const cached = altCache.get(key);
+  if (cached) {
+    altOptions = cached;
+    renderAlternatives(cached.length ? "ready" : "empty");
+    return;
+  }
+
+  altOptions = [];
+  renderAlternatives("loading");
+
+  try {
+    const result = await api.suggestAlternatives({
+      sentence,
+      word,
+      wordOffset: start - sentenceRange.start,
+      sourceText: dom.inputText.value.trim(),
+      sourceLang,
+      targetLang,
+      formality
+    });
+    if (seq !== altSeq) return; // another word was clicked while this ran
+    const list = Array.isArray(result?.alternatives) ? result.alternatives : [];
+    // Bounded: a long session of clicking must not grow the cache forever.
+    if (altCache.size >= MAX_CACHED_ALTERNATIVES) altCache.clear();
+    altCache.set(key, list);
+    altOptions = list;
+    renderAlternatives(list.length ? "ready" : "empty");
+  } catch (err) {
+    if (seq !== altSeq) return;
+    renderAlternatives("error", err?.message || "Could not load alternatives");
+  }
+}
+
+function renderAlternatives(state, message = "") {
+  dom.altPopover.replaceChildren();
+  dom.altPopover.hidden = false;
+
+  if (state !== "ready") {
+    const note = document.createElement("div");
+    note.className = state === "error" ? "alt-state alt-state-error" : "alt-state";
+    note.textContent =
+      state === "loading" ? "Looking for alternatives…" :
+      state === "empty" ? "No alternatives for this word" :
+      message;
+    dom.altPopover.appendChild(note);
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "alt-header";
+  header.textContent = altAnchor?.word ?? "";
+  dom.altPopover.appendChild(header);
+
+  altOptions.forEach((option, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "alt-option";
+    button.setAttribute("role", "option");
+    if (index === altFocus) button.classList.add("focused");
+
+    const word = document.createElement("span");
+    word.className = "alt-word";
+    word.textContent = option.word;
+    button.appendChild(word);
+
+    // The rewritten sentence is what actually lands in the pane, so show it
+    // rather than making the user apply a choice to find out.
+    const preview = document.createElement("span");
+    preview.className = "alt-sentence";
+    preview.textContent = option.sentence;
+    button.appendChild(preview);
+
+    button.addEventListener("click", () => chooseAlternative(index));
+    dom.altPopover.appendChild(button);
+  });
+}
+
+function chooseAlternative(index) {
+  const option = altOptions[index];
+  if (!option || !altAnchor) return;
+
+  currentTranslation = applyAlternative(currentTranslation, altAnchor.sentenceRange, option.sentence);
+  renderTranslation(currentTranslation);
+  setResultActions(!!currentTranslation);
+  // The source text has not changed, so nothing re-translates over this and
+  // the history entry for it is already committed; update the copy the user
+  // would recall, not a new one.
+  scheduleHistoryCommit({
+    text: dom.inputText.value.trim(),
+    translation: currentTranslation,
+    sourceLang: detectedSourceLang,
+    targetLang,
+    mode: "text"
+  });
+  dom.inputText.focus();
+}
+
+function markActiveWord(span) {
+  for (const active of dom.resultText.querySelectorAll(".tw.active")) {
+    active.classList.remove("active");
+  }
+  if (span) span.classList.add("active");
+}
+
+/**
+ * Anchors the popover under the word, flipping above it when there is no room
+ * below and clamping to the pane so a word at the right edge is still readable.
+ */
+function positionAltPopover(span) {
+  const body = dom.resultText.parentElement;
+  const bodyRect = body.getBoundingClientRect();
+  const wordRect = span.getBoundingClientRect();
+
+  dom.altPopover.hidden = false;
+  dom.altPopover.style.visibility = "hidden";
+  dom.altPopover.style.top = "0px";
+  dom.altPopover.style.left = "0px";
+
+  const popRect = dom.altPopover.getBoundingClientRect();
+  const width = popRect.width || 260;
+  const height = popRect.height || 120;
+
+  let left = wordRect.left - bodyRect.left;
+  left = Math.max(8, Math.min(left, bodyRect.width - width - 8));
+
+  const below = wordRect.bottom - bodyRect.top + 6;
+  const above = wordRect.top - bodyRect.top - height - 6;
+  const top = below + height <= bodyRect.height || above < 0 ? below : above;
+
+  dom.altPopover.style.left = `${Math.round(left)}px`;
+  dom.altPopover.style.top = `${Math.round(top)}px`;
+  dom.altPopover.style.visibility = "";
+}
+
+function closeAlternatives() {
+  altSeq++;
+  altAnchor = null;
+  altOptions = [];
+  altFocus = -1;
+  dom.altPopover.hidden = true;
+  dom.altPopover.replaceChildren();
+  markActiveWord(null);
+}
+
+/** Arrow keys / Enter inside the popover, mirroring the language picker. */
+function handleAlternativesKey(e) {
+  if (dom.altPopover.hidden || altOptions.length === 0) return false;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    altFocus = (altFocus + step + altOptions.length) % altOptions.length;
+    renderAlternatives("ready");
+    return true;
+  }
+  if (e.key === "Enter" && altFocus >= 0) {
+    e.preventDefault();
+    chooseAlternative(altFocus);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -712,7 +961,14 @@ api.onNotice?.((_, { message }) => {
 // ── Global keys ──
 
 document.addEventListener("keydown", (e) => {
+  if (handleAlternativesKey(e)) return;
+
   if (e.key === "Escape") {
+    if (!dom.altPopover.hidden) {
+      closeAlternatives();
+      dom.inputText.focus();
+      return;
+    }
     if (popoverSide) {
       closeLangPopover();
       dom.inputText.focus();
@@ -809,6 +1065,10 @@ dom.btnHistory.addEventListener("click", async (e) => {
 });
 
 document.addEventListener("click", (e) => {
+  if (!dom.altPopover.hidden && !dom.altPopover.contains(e.target)) {
+    closeAlternatives();
+  }
+
   if (
     !dom.historyPanel.hidden &&
     !dom.historyPanel.contains(e.target) &&

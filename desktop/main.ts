@@ -52,6 +52,7 @@ import {
   type GlossaryEntry
 } from "./translator/glossary-store.ts";
 import { insertTranslation } from "./translator/insert-service.ts";
+import { MAX_SENTENCE_CHARS } from "./translator/backends/alternatives.ts";
 import { LANGUAGES, resolveLangCode, resolveSourceLang } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
 import { LayoutSwitcher } from "./translator/layout-switcher.ts";
@@ -419,6 +420,35 @@ function registerIpcHandlers(): void {
         timestamp: Date.now()
       });
       return result;
+    }
+  );
+
+  // Alternatives for one clicked word (#146). The renderer resolves the word
+  // and the sentence around it, so this stays a sentence-sized request no
+  // matter how long the translation on screen is.
+  handleIpc(
+    "marshal:translator-alternatives",
+    async (_event, payload: AlternativesIpcRequest) => {
+      const { service } = ensureTranslator();
+      const settings = loadSettings();
+      const sentence = typeof payload?.sentence === "string" ? payload.sentence : "";
+      const word = typeof payload?.word === "string" ? payload.word : "";
+      if (!sentence || !word) return { alternatives: [] };
+
+      const request = {
+        sentence,
+        word,
+        wordOffset: typeof payload?.wordOffset === "number" ? payload.wordOffset : 0,
+        targetLang: resolveLangCode(payload?.targetLang, settings.translatorTargetLang),
+        options: {
+          sourceLang: resolveSourceLang(payload?.sourceLang, settings.translatorSourceLang),
+          formality: normalizeFormality(payload?.formality ?? settings.translatorFormality)
+        }
+      };
+      const sourceText = typeof payload?.sourceText === "string" ? payload.sourceText.trim() : "";
+      return service.suggestAlternatives(
+        sourceText ? { ...request, sourceText: sourceText.slice(0, MAX_SENTENCE_CHARS) } : request
+      );
     }
   );
 
@@ -929,6 +959,13 @@ interface TranslateTextRequest extends TranslateRequestBase {
 interface TranslateImageRequest extends TranslateRequestBase {
   base64: string;
   mimeType: string;
+}
+
+interface AlternativesIpcRequest extends TranslateRequestBase {
+  sentence: string;
+  word: string;
+  wordOffset: number;
+  sourceText?: string;
 }
 
 function normalizeFormality(raw: unknown): Formality {

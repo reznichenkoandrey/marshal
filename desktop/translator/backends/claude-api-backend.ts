@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { buildAlternativesPrompt, parseAlternativesJson } from "./alternatives.ts";
 import { TranslatorBackendUnusableError, isAuthStatus } from "./errors.ts";
 import type {
+  AlternativesRequest,
+  AlternativesResult,
   TargetLang,
   TranslateOptions,
   TranslationResult,
@@ -67,6 +70,15 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
       sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
+  }
+
+  async suggestAlternatives(request: AlternativesRequest): Promise<AlternativesResult> {
+    const response = await this.send({
+      model: this.model,
+      max_tokens: MAX_TOKENS,
+      messages: [{ role: "user", content: buildAlternativesPrompt(request) }]
+    });
+    return { alternatives: parseAlternativesJson(this.extractText(response), request.word) };
   }
 
   async translateImage(

@@ -60,6 +60,39 @@ export interface TranslationResult {
   targetLang: TargetLang;
 }
 
+/**
+ * One word of a finished translation, with the sentence it sits in. The
+ * renderer resolves both before asking — see
+ * desktop/renderer/translator-alternatives.js — so the prompt carries a
+ * sentence instead of the whole pane.
+ */
+export interface AlternativesRequest {
+  /** The sentence containing the clicked word, as currently rendered. */
+  sentence: string;
+  /** The clicked word itself. */
+  word: string;
+  /** Where `word` starts inside `sentence`; disambiguates repeated words. */
+  wordOffset: number;
+  targetLang: TargetLang;
+  /** The original text, when the window still has it — helps fidelity. */
+  sourceText?: string;
+  options?: TranslateOptions;
+}
+
+/**
+ * An alternative rendering. `sentence` is the whole sentence rewritten around
+ * `word`, so applying a choice costs no second round trip and the rest of the
+ * wording still agrees grammatically.
+ */
+export interface AlternativeOption {
+  word: string;
+  sentence: string;
+}
+
+export interface AlternativesResult {
+  alternatives: AlternativeOption[];
+}
+
 export interface TranslatorBackend {
   readonly id: TranslatorBackendId;
   translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult>;
@@ -69,4 +102,11 @@ export interface TranslatorBackend {
     targetLang: TargetLang,
     options?: TranslateOptions
   ): Promise<TranslationResult>;
+  /**
+   * Optional: word-level alternatives for a finished translation (#146).
+   * Optional because it is a text-completion capability — the OCR-only
+   * Apple Vision backend has nothing to answer with, and the service turns
+   * its absence into a message naming the provider instead of a crash.
+   */
+  suggestAlternatives?(request: AlternativesRequest): Promise<AlternativesResult>;
 }
