@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type {
+  AlternativesRequest,
+  AlternativesResult,
   TargetLang,
   TranslateOptions,
   TranslationResult,
   TranslatorBackend,
   TranslatorBackendId
 } from "./types.ts";
+import { buildAlternativesPrompt, parseAlternativesJson } from "./alternatives.ts";
 import {
   buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
@@ -71,6 +74,14 @@ export class ClaudeCliTranslatorBackend implements TranslatorBackend {
       sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
+  }
+
+  async suggestAlternatives(request: AlternativesRequest): Promise<AlternativesResult> {
+    const raw = await this.runClaude(
+      ["-p", "--output-format", "json", "--model", DEFAULT_MODEL, "--tools", "", "--permission-mode", "bypassPermissions"],
+      buildAlternativesPrompt(request)
+    );
+    return { alternatives: parseAlternativesJson(this.extractInnerResult(raw), request.word) };
   }
 
   async translateImage(

@@ -113,7 +113,7 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /** "Translate from X" clause — omitted when the source is left on auto. */
-function sourceClause(options: TranslateOptions | undefined): string {
+export function sourceClause(options: TranslateOptions | undefined): string {
   const source = options?.sourceLang;
   if (!source || source === "auto") return "";
   return ` The source text is in ${languageName(source)}.`;
@@ -124,7 +124,7 @@ function sourceClause(options: TranslateOptions | undefined): string {
  * demands: "render it exactly this way" and "do not touch it at all". Lumping
  * them together produced translated terms with the mapping listed right above.
  */
-function glossaryClause(
+export function glossaryClause(
   options: TranslateOptions | undefined,
   targetLang: TargetLang
 ): string {
@@ -150,7 +150,7 @@ function glossaryClause(
 }
 
 /** Register instruction — omitted for the neutral default. */
-function formalityClause(options: TranslateOptions | undefined): string {
+export function formalityClause(options: TranslateOptions | undefined): string {
   switch (options?.formality) {
     case "formal":
       return " Use a formal register (polite, professional, vous/Ви forms).";

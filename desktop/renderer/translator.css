@@ -6,6 +6,8 @@
   --pane-min-width: 240px;
   --lang-popover-width: 280px;
   --lang-popover-max-height: 300px;
+  --alt-popover-width: 300px;
+  --alt-popover-max-height: 260px;
   --history-panel-width: 320px;
   --font-size-pane: var(--fs-lg);
   --line-height-pane: 1.6;
@@ -501,6 +503,92 @@ input:focus-visible {
   color: var(--success-text);
   background: var(--success-soft);
   opacity: 1;
+}
+
+/* ── Alternatives popover (#146) ── */
+
+/* Clickable word inside the translation. The hint is deliberately quiet:
+   every word carries it, so anything stronger would turn the pane into a
+   field of links. */
+.tw {
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: background var(--dur-fast);
+}
+.tw:hover {
+  background: var(--bg-hover);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.tw.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.alt-popover {
+  position: absolute;
+  width: var(--alt-popover-width);
+  max-height: var(--alt-popover-max-height);
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  z-index: 30;
+  padding: var(--space-1) 0;
+  -webkit-app-region: no-drag;
+  animation: pop-in var(--dur-base) var(--ease-out);
+}
+
+.alt-header {
+  padding: 4px var(--space-3) 6px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--text-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-1);
+}
+
+.alt-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px var(--space-3);
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+.alt-option:hover,
+.alt-option.focused {
+  background: var(--bg-hover);
+}
+
+.alt-word {
+  font-size: var(--fs-base);
+  color: var(--text-default);
+  font-weight: var(--fw-medium);
+}
+
+/* The sentence the pick would produce. Two lines is enough to see what
+   changes around the word without the popover becoming a second pane. */
+.alt-sentence {
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-subtle);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.alt-state {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+}
+.alt-state-error {
+  color: var(--danger-text);
 }
 
 /* ── Language popover ── */

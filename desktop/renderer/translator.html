@@ -88,6 +88,10 @@
         <div class="result-body">
           <div class="result-text" id="result-text"></div>
 
+          <!-- Alternatives for a clicked word (#146). Anchored to the word
+               inside .result-body, which is the positioned ancestor. -->
+          <div class="alt-popover" id="alt-popover" hidden role="listbox" aria-label="Alternative translations"></div>
+
           <div class="state-overlay" id="state-loading" style="display:none">
             <div class="spinner"></div>
             <span>Translating…</span>
@@ -152,6 +156,6 @@
     </div>
 
     <script src="./icons.js"></script>
-    <script src="./translator.js"></script>
+    <script src="./translator.js" type="module"></script>
   </body>
 </html>

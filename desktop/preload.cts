@@ -42,6 +42,18 @@ const translatorApi = {
     ipcRenderer.invoke("marshal:translator-translate-text", { text, ...options }),
   translateImage: (base64: string, mimeType: string, options: TranslateRequestOptions = {}) =>
     ipcRenderer.invoke("marshal:translator-translate-image", { base64, mimeType, ...options }),
+  // Alternative renderings for one word of the translation on screen (#146).
+  // Each alternative comes back with the whole sentence rewritten around it,
+  // so applying the user's pick costs no second round trip.
+  suggestAlternatives: (payload: {
+    sentence: string;
+    word: string;
+    wordOffset: number;
+    sourceText?: string;
+  } & TranslateRequestOptions) =>
+    ipcRenderer.invoke("marshal:translator-alternatives", payload) as Promise<{
+      alternatives: Array<{ word: string; sentence: string }>;
+    }>,
   captureScreen: () => ipcRenderer.invoke("marshal:translator-capture-screen"),
   close: () => ipcRenderer.invoke("marshal:translator-close"),
   // Language registry + the persisted pair, fetched once on load.

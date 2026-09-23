@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type {
+  AlternativesRequest,
+  AlternativesResult,
   TargetLang,
   TranslateOptions,
   TranslationResult,
   TranslatorBackend,
   TranslatorBackendId
 } from "./types.ts";
+import { buildAlternativesPrompt, parseAlternativesJson } from "./alternatives.ts";
 import {
   buildOcrTranslatePrompt,
   buildTranslateJsonPrompt,
@@ -60,6 +63,11 @@ export class CodexCliTranslatorBackend implements TranslatorBackend {
       sourceLang: resolveSourceLang(text, parsed.sourceLang, options),
       targetLang
     };
+  }
+
+  async suggestAlternatives(request: AlternativesRequest): Promise<AlternativesResult> {
+    const raw = await this.runCodex([], buildAlternativesPrompt(request));
+    return { alternatives: parseAlternativesJson(raw, request.word) };
   }
 
   async translateImage(

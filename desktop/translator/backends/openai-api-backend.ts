@@ -1,5 +1,8 @@
+import { buildAlternativesPrompt, parseAlternativesJson } from "./alternatives.ts";
 import { TranslatorBackendUnusableError, isAuthStatus, isModelNotFound } from "./errors.ts";
 import type {
+  AlternativesRequest,
+  AlternativesResult,
   TargetLang,
   TranslateOptions,
   TranslationResult,
@@ -94,6 +97,13 @@ export class OpenAiApiTranslatorBackend implements TranslatorBackend {
       sourceLang: resolveSourceLang(text, result.sourceLang, options),
       targetLang
     };
+  }
+
+  async suggestAlternatives(request: AlternativesRequest): Promise<AlternativesResult> {
+    this.requireKey();
+    const prompt = buildAlternativesPrompt(request);
+    const raw = await this.chat(this.textModel, [{ role: "user", content: prompt }], { json: true });
+    return { alternatives: parseAlternativesJson(raw, request.word) };
   }
 
   async translateImage(
