@@ -102,7 +102,10 @@
   той пише один M4A до стопу, а субтитрам потрібен потік. Нарізка на фрази — `segmenter.ts`
   (energy VAD, чистий і тестований); whisper — той самий `WhisperBackend`, що в диктовці;
   summary — стрімінг (`summarizer.ts`, Anthropic SDK або OpenAI-compatible SSE; `auto` бере
-  Claude, якщо є `ANTHROPIC_API_KEY`), рендер markdown → HTML робиться в main
+  Claude, якщо є `ANTHROPIC_API_KEY`, **з fallback на OpenAI-compatible**: ключ ≠ придатний
+  ключ — перший акаунт мав ключ без кредитів, і кожне summary падало (#214). Непридатний =
+  401/403, 400 «credit balance», 404 моделі; 429/5xx — ні. Перемикання липке на сесію і не
+  повторює запит, що вже показав текст. Явно вибраний провайдер не обгортається), рендер markdown → HTML робиться в main
   (`renderSummaryHtml`), renderer лише малює. Промпт summarizer'а — дослівно зі спеки V3
   (business scribe, #211), не «покращувати». **Обсяг — нотатки й переклад**
   (`docs/LIVE_CAPTIONS_V3.md`): режими, де summary відповідав на питання чи говорив від першої

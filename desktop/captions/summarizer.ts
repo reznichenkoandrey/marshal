@@ -56,6 +56,17 @@ function isLocalBase(base: string): boolean {
   return /^https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?/iu.test(base);
 }
 
+/** An OpenAI-compatible endpoint is reachable: a key, or a local server that needs none. */
+function openAiCompatibleUsable(env: SummarizerEnv): boolean {
+  const key = env.MARSHAL_CAPTIONS_API_KEY ?? env.MARSHAL_API_KEY ?? "";
+  const base = env.MARSHAL_CAPTIONS_API_BASE ?? env.MARSHAL_API_BASE ?? DEFAULT_OPENAI_BASE;
+  return key.length > 0 || isLocalBase(base);
+}
+
+function requestedProvider(env: SummarizerEnv): string {
+  return (env.MARSHAL_CAPTIONS_PROVIDER ?? "auto").trim().toLowerCase();
+}
+
 /**
  * Which summarizer to run, from the environment alone. `auto` (the default)
  * prefers Anthropic (V3 spec §2.4, #211): a streamed Claude summary keeps the
@@ -65,10 +76,8 @@ function isLocalBase(base: string): boolean {
  * captions, just no bullets.
  */
 export function resolveSummaryProvider(env: SummarizerEnv): ResolvedSummaryProvider {
-  const requested = (env.MARSHAL_CAPTIONS_PROVIDER ?? "auto").trim().toLowerCase();
-  const openAiKey = env.MARSHAL_CAPTIONS_API_KEY ?? env.MARSHAL_API_KEY ?? "";
-  const openAiBase = env.MARSHAL_CAPTIONS_API_BASE ?? env.MARSHAL_API_BASE ?? DEFAULT_OPENAI_BASE;
-  const openAiUsable = openAiKey.length > 0 || isLocalBase(openAiBase);
+  const requested = requestedProvider(env);
+  const openAiUsable = openAiCompatibleUsable(env);
   const claudeUsable = (env.ANTHROPIC_API_KEY ?? "").length > 0;
 
   if (requested === "off" || requested === "none") {
@@ -89,11 +98,104 @@ export function resolveSummaryProvider(env: SummarizerEnv): ResolvedSummaryProvi
   return { id: "off", reason: "auto: no summarizer credentials — captions only" };
 }
 
-export function createSummaryStreamer(env: SummarizerEnv = process.env): SummaryStreamer | null {
+/**
+ * Builds the streamer for the resolved provider.
+ *
+ * When `auto` picked Claude and an OpenAI-compatible endpoint is also usable,
+ * Claude is wrapped with that endpoint as a fallback (#214). Having a key is
+ * not the same as being able to use it — the first account this ran against
+ * had an Anthropic key and no credits, and every summary failed. A provider
+ * the user named explicitly is never wrapped: they chose it, so its error is
+ * the thing they need to see.
+ */
+export function createSummaryStreamer(
+  env: SummarizerEnv = process.env,
+  onFallback?: (notice: SummaryFallbackNotice) => void
+): SummaryStreamer | null {
   const resolved = resolveSummaryProvider(env);
   if (resolved.id === "openai-api") return new OpenAiCompatibleSummaryStreamer(env);
-  if (resolved.id === "claude-api") return new AnthropicSummaryStreamer(env);
+  if (resolved.id !== "claude-api") return null;
+  const claude = new AnthropicSummaryStreamer(env);
+  if (requestedProvider(env) !== "auto" || !openAiCompatibleUsable(env)) return claude;
+  return new FallbackSummaryStreamer(claude, new OpenAiCompatibleSummaryStreamer(env), onFallback);
+}
+
+/** Why a provider can serve no summaries this session. */
+export type SummaryUnusableReason = "auth" | "credit" | "model";
+
+/**
+ * Sorts a failed request into "this provider cannot work" or "try again".
+ * Only the first kind justifies switching providers: a 429 or a 5xx is a
+ * passing condition, and switching on it would abandon a working key.
+ *
+ * Detection is by status and message rather than `instanceof`, as in the
+ * translator (#160): the error classes differ between the SDK and the fetch
+ * path, and have moved between SDK majors before.
+ */
+export function classifySummaryError(err: unknown): SummaryUnusableReason | null {
+  if (!err || typeof err !== "object") return null;
+  const status = (err as { status?: unknown }).status;
+  const message = err instanceof Error ? err.message : String((err as { message?: unknown }).message ?? "");
+  if (status === 401 || status === 403) return "auth";
+  // Anthropic reports an empty balance as a 400 invalid_request_error; only
+  // the message tells it apart from a malformed request.
+  if (status === 400 && /credit balance/iu.test(message)) return "credit";
+  if (status === 404 && /model|not_found/iu.test(message)) return "model";
   return null;
+}
+
+export interface SummaryFallbackNotice {
+  from: SummaryProviderId;
+  to: SummaryProviderId;
+  reason: SummaryUnusableReason;
+}
+
+/**
+ * Primary streamer with a fallback for when the primary turns out unusable.
+ *
+ * The switch is sticky for the session: once the primary has said "no
+ * credits", asking again before every summary would add a doomed round trip
+ * to each one. And it only happens before any text was shown — a request
+ * that already streamed words and then failed is not re-run, because the
+ * retry would put a second copy of the same bullets on screen.
+ */
+export class FallbackSummaryStreamer implements SummaryStreamer {
+  private active: SummaryStreamer;
+
+  constructor(
+    private readonly primary: SummaryStreamer,
+    private readonly fallback: SummaryStreamer,
+    private readonly onFallback?: (notice: SummaryFallbackNotice) => void
+  ) {
+    this.active = primary;
+  }
+
+  /** The provider currently answering — changes once, on fallback. */
+  get id(): SummaryProviderId {
+    return this.active.id;
+  }
+
+  async stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
+    if (this.active === this.fallback) return this.fallback.stream(input, onDelta, signal);
+
+    let streamedAnything = false;
+    try {
+      return await this.primary.stream(
+        input,
+        (delta) => {
+          streamedAnything = true;
+          onDelta(delta);
+        },
+        signal
+      );
+    } catch (err) {
+      const reason = classifySummaryError(err);
+      if (reason === null || streamedAnything || signal.aborted) throw err;
+      this.active = this.fallback;
+      this.onFallback?.({ from: this.primary.id, to: this.fallback.id, reason });
+      return this.fallback.stream(input, onDelta, signal);
+    }
+  }
 }
 
 export class OpenAiCompatibleSummaryStreamer implements SummaryStreamer {
@@ -129,7 +231,9 @@ export class OpenAiCompatibleSummaryStreamer implements SummaryStreamer {
     });
     if (!response.ok || !response.body) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`summarizer ${response.status} ${response.statusText}: ${detail.slice(0, 300)}`);
+      throw Object.assign(new Error(`summarizer ${response.status} ${response.statusText}: ${detail.slice(0, 300)}`), {
+        status: response.status
+      });
     }
 
     const parser = new OpenAiSseParser();
