@@ -1,5 +1,9 @@
 # Live captions — V2 roadmap (hands-free)
 
+> **Superseded in part by [V3](LIVE_CAPTIONS_V3.md).** V3 scopes the feature to notetaking and
+> translation: the rows below that made the summary answer questions or speak as the user were
+> removed in #211 and are marked as such. The rest of this page still describes the code.
+
 The V1 overlay (#176) shipped in 0.3.0. This page tracks the V2 spec
 ("Hands-Free Assistive Live-Captioning & Context Subtitles Overlay") against
 what the code already does, so the remaining work is a list of issues, not a
@@ -24,7 +28,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | System audio loopback (not the mic) | ✅ macOS | `swift/system-audio-tap.swift` (ScreenCaptureKit); Windows WASAPI — #178. Optional microphone mix (#191): ScreenCaptureKit's own `captureMicrophone` (macOS 15+) delivers the mic on the same clock and queue, the helper sums it into the stream; Settings → "Also caption my microphone", off by default because on speakers the mic hears the call too |
 | Continuous background VAD | ✅ | `silero-vad.ts` — Silero VAD v5 on `onnxruntime-web` (WASM, no native binding; 14 MB runtime asar-unpacked + 2.3 MB model in `assets/models`); `segmenter.ts` combines its decision with an absolute energy floor. WebRTC VAD (libfvad) was tried first and rejected: it calls white noise and pure tones speech (#186) |
 | Configurable silence threshold (1.2–1.5 s) | ✅ | Settings → Live captions → "End of utterance after silence", 400–2000 ms, default 900 (`MARSHAL_CAPTIONS_SILENCE_MS`) (#186) |
-| Question-intonation end detection | ✅ | `transcript-normalize.ts` → `isQuestion`: a trailing `?`, or an interrogative opener (EN/UK) on a line without terminal punctuation. A question skips the 300 ms debounce and the prompt tells the model to answer it. Textual rather than pitch-based on purpose — whisper's punctuation is more reliable than intonation on call audio (#187) |
+| Question-intonation end detection | ✅ | `transcript-normalize.ts` → `isQuestion`: a trailing `?`, or an interrogative opener (EN/UK) on a line without terminal punctuation. A question skips the 300 ms debounce. ~~The prompt tells the model to answer it~~ — removed in #211: a question now only means "summarise now", the summary itself is unchanged. Textual rather than pitch-based on purpose — whisper's punctuation is more reliable than intonation on call audio (#187) |
 | Filler-word / half-sentence filtering | ✅ | `stripFillers` (EN/UK fillers, sentence openers, "like" only as a comma aside) and `isFragment` (< 4 words or cut mid-word) — fragments are held and glued to the next utterance, or shown alone after 4 s (#187) |
 | Trigger the AI pipeline the moment a turn ends | ✅ | Every accepted segment schedules a summary after a 300 ms debounce (a question skips it) |
 
@@ -40,8 +44,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 
 | Requirement | Status | Where / what is missing |
 |---|---|---|
-| Local context grounding (reference files → system prompt) | ✅ | `context-store.ts`: `<userData>/captions-context/` (Settings → Live captions → Reference files → Open folder…), `.md`/`.txt` concatenated under headers within 12k chars, re-read when a file changes; Anthropic path puts the block in a cached system block. Embeddings deliberately not — a CV plus a README fits (#188) |
-| V2 system prompt (first person, code snippets) | ✅ | The spec's V2 prompt verbatim, used only when reference files exist (without them "first person" is fabrication); fenced code renders as `<pre><code>` on the overlay (#188) |
+| Local context grounding (reference files → system prompt) | ✅ → reframed | `context-store.ts`: `<userData>/captions-context/` (Settings → Live captions → Reference files → Open folder…), `.md`/`.txt` concatenated under headers within 12k chars, re-read when a file changes; Anthropic path puts the block in a cached system block. Since #211 the files are **terminology background** (agendas, project logs, glossaries), not a user profile |
+| ~~V2 system prompt (first person, code snippets)~~ | ❌ removed | Removed in #211 — out of scope per V3. One scribe prompt now, see [V3 §2.4](LIVE_CAPTIONS_V3.md#24-real-time-scribe-summarization-claude) |
 | Request queue: queue or interrupt an in-flight generation | ✅ | `summary-policy.ts` — Settings → "New speech while a summary is streaming": **interrupt** (abort, restart with the fuller transcript) or **queue** (let it finish, then one coalesced follow-up). The overlay dims the stale bullets and shows "updating…" until the replacement's first token (#189) |
 | Token streaming | ✅ | OpenAI-compatible SSE or Anthropic SDK; deltas render as they arrive |
 | Total response latency < 1 s | ✅ (from turn end) | Speculative STT: at a 300 ms pause the utterance is transcribed while the real 900 ms pause is still being waited out; if no speech follows, the text is reused at the cut and whisper's ~550 ms leaves the critical path. Measured on the installed build (Groq): a question — caption +5 ms, first summary token +102 ms after the audio ended; a two-sentence statement — caption +261 ms, first token +1016 ms with the 600 ms debounce, since lowered to 300 ms. The silence threshold itself (900 ms) is inside "audio ended" here; lower it in Settings for fast speakers (#189) |

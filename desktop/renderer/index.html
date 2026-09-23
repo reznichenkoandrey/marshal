@@ -296,7 +296,7 @@
             <div class="field">
               <label for="settings-captions-provider">Summary provider</label>
               <select id="settings-captions-provider" name="captionsProvider">
-                <option value="auto">Auto — Groq/OpenAI-compatible key if set, else Anthropic key, else captions only</option>
+                <option value="auto">Auto — Anthropic key if set, else Groq/OpenAI-compatible key, else captions only</option>
                 <option value="openai-api">OpenAI-compatible API (Groq, OpenRouter, Ollama via MARSHAL_CAPTIONS_API_BASE)</option>
                 <option value="claude-api">Anthropic API (needs ANTHROPIC_API_KEY)</option>
                 <option value="off">Off — raw captions, no summary</option>
@@ -309,7 +309,8 @@
                 placeholder="Blank = translator model (qwen/qwen3.8-27b on Groq)" autocomplete="off" />
               <p class="field-hint">
                 Pick the fastest model the account serves — the first bullet should land within a second.
-                Only used with the OpenAI-compatible provider.
+                Only used with the OpenAI-compatible provider; the Anthropic one uses
+                <code>MARSHAL_CAPTIONS_CLAUDE_MODEL</code> (default <code>claude-haiku-4-5</code>).
               </p>
             </div>
 
@@ -395,9 +396,9 @@
                 <button type="button" id="settings-captions-context-open" class="btn btn-ghost">Open folder…</button>
               </div>
               <p class="field-hint" id="settings-captions-context-info">
-                Drop Markdown or text files here — CV, project notes, stack description. They go into
-                the summary's system prompt so the bullets answer as you, from your experience. Up to
-                ~12k characters; picked up automatically when a file changes.
+                Drop Markdown or text files here — meeting agenda, project log, glossary. They help the
+                summary spell names and technical terms right; the bullets only ever restate what was
+                said. Up to ~12k characters; picked up automatically when a file changes.
               </p>
             </div>
 

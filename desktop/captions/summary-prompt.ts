@@ -4,34 +4,33 @@
 // HTML. Both halves are pure so the prompt shape and the markdown subset can
 // be pinned by tests — the overlay renders with innerHTML, so the renderer
 // here is also the escaping boundary.
+//
+// The summarizer is a scribe (V3 spec, #211): it restates what the speakers
+// said. There is deliberately one prompt and no mode that answers questions
+// or speaks as the user — those were removed, not hidden behind a flag.
 
+/** The V3 spec's system prompt, verbatim — do not "improve" it. */
 export const SUMMARY_SYSTEM_PROMPT =
-  "Act as an accessibility summarizer. Condense the incoming text transcripts and context into " +
-  "highly concise, bulleted summaries. Maximum 2-3 short bullet points. Use bold formatting for " +
-  "technical keywords and formulas only. Avoid conversational filler.";
+  "Act as an expert real-time business scribe. Your sole task is to analyze the incoming live transcript " +
+  "text. Summarize the speaker's core concepts, tech decisions, or action items into exactly 2-3 concise " +
+  "bullet points. Use bold text formatting ONLY for primary architectural concepts, numbers, or technical " +
+  "metrics. Speak in a professional, direct tone. Avoid conversational filler or introductory statements.";
 
 /**
- * The V2 prompt from the hands-free spec. Used only when reference files
- * are present: "answer in the first person" with nothing to answer from
- * would be fabrication, so without context the V1 prompt stays.
+ * Framing for the user's reference files: agendas, project logs, glossaries.
+ * They exist to get names and terms right, so the header says exactly that —
+ * and that the bullets never go beyond what was actually said.
  */
-export const SUMMARY_SYSTEM_PROMPT_V2 =
-  "Act as an accessibility summarizer. Condense the incoming text transcripts and context into " +
-  "highly concise, bulleted summaries or functional code snippets. Maximum 2-3 short bullet points. " +
-  "Use bold formatting for technical keywords and formulas only. Answer in the first person based on " +
-  "the provided reference context. Avoid conversational filler.";
-
 export const REFERENCE_CONTEXT_HEADER =
-  "Reference context about the user — their background, projects and stack. Ground the answer in it " +
-  "and speak as them; never invent experience it does not contain:";
+  "Meeting background supplied by the user — agendas, project logs, glossaries. Use it only to spell " +
+  "names and technical terms correctly and to recognise what is being discussed. Summarize only what " +
+  "the speakers actually said; never add facts from this background:";
 
 export interface SummaryInput {
   transcript: string;
   ocrContext: string;
   /** Language name/code the summary should be written in; empty = follow the transcript. */
   outputLanguage: string;
-  /** The transcript ends with a question addressed to the user. */
-  endsWithQuestion?: boolean;
   /** Concatenated reference files (context-store.ts); empty = none. */
   referenceContext?: string;
 }
@@ -55,12 +54,9 @@ export function buildSummaryMessages(input: SummaryInput): SummaryMessages {
   const parts: string[] = [];
   const ocr = input.ocrContext.trim();
   if (ocr.length > 0) {
-    parts.push("Screen context (OCR of the user's workspace, may be partial):\n" + ocr);
+    parts.push("Screen context (OCR of a region the user selected, may be partial):\n" + ocr);
   }
   parts.push("Live transcript (oldest first, most recent last):\n" + input.transcript.trim());
-  if (input.endsWithQuestion) {
-    parts.push("The transcript ends with a question addressed to the user: make the bullet points the answer to it.");
-  }
   const language = input.outputLanguage.trim();
   parts.push(
     language.length > 0
@@ -68,7 +64,7 @@ export function buildSummaryMessages(input: SummaryInput): SummaryMessages {
       : "Write the bullet points in the same language as the transcript."
   );
   const reference = (input.referenceContext ?? "").trim();
-  const systemInstructions = reference.length > 0 ? SUMMARY_SYSTEM_PROMPT_V2 : SUMMARY_SYSTEM_PROMPT;
+  const systemInstructions = SUMMARY_SYSTEM_PROMPT;
   const referenceContext = reference.length > 0 ? `${REFERENCE_CONTEXT_HEADER}\n\n${reference}` : "";
   const system = referenceContext.length > 0 ? `${systemInstructions}\n\n${referenceContext}` : systemInstructions;
   return { system, systemInstructions, referenceContext, user: parts.join("\n\n") };
@@ -109,9 +105,10 @@ export function renderSummaryHtml(markdown: string): string {
   };
 
   for (const rawLine of lines) {
-    // Fenced code: the V2 prompt may answer with a snippet. Everything
-    // between the fences is verbatim (escaped), and an unclosed fence while
-    // streaming still renders as code rather than as a stray paragraph.
+    // Fenced code: a summary may quote a query or a config line that was
+    // discussed. Everything between the fences is verbatim (escaped), and an
+    // unclosed fence while streaming still renders as code rather than as a
+    // stray paragraph.
     if (codeLines !== null) {
       if (/^\s*```/u.test(rawLine)) {
         html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);

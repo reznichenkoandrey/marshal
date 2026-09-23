@@ -134,7 +134,6 @@ export class LiveCaptionsService extends EventEmitter {
   private transcribing = false;
   private summaryTimer: NodeJS.Timeout | null = null;
   private fragmentTimer: NodeJS.Timeout | null = null;
-  private lastTurnWasQuestion = false;
   private summaryAbort: AbortController | null = null;
   private summaryText = "";
   private summaryStreaming = false;
@@ -501,9 +500,10 @@ export class LiveCaptionsService extends EventEmitter {
 
   /**
    * A stored line updates the overlay and schedules the summary: at once when
-   * the line is a question (the user is waiting for the answer), after the
-   * debounce otherwise. A held fragment starts a timer that stores it alone
-   * if no continuation arrives.
+   * the line is a question — a question closes a speaker's turn, so there is
+   * nothing to wait for — and after the debounce otherwise. The summary is
+   * the same scribe summary either way (#211). A held fragment starts a timer
+   * that stores it alone if no continuation arrives.
    */
   private applyTranscript(result: TranscriptPushResult): void {
     this.clearFragmentTimer();
@@ -515,7 +515,6 @@ export class LiveCaptionsService extends EventEmitter {
       return;
     }
     if (!result.accepted) return;
-    this.lastTurnWasQuestion = result.question;
     // The bullets on screen no longer cover the transcript; say so until the
     // replacement has its first words.
     if (this.summaryText.length > 0) this.summaryStale = true;
@@ -555,14 +554,13 @@ export class LiveCaptionsService extends EventEmitter {
     const controller = new AbortController();
     this.summaryAbort = controller;
 
-    // Re-checked before every summary: an edited CV applies at once, and the
-    // check is a readdir plus stats, not a re-read.
+    // Re-checked before every summary: an edited agenda or glossary applies
+    // at once, and the check is a readdir plus stats, not a re-read.
     this.lastReference = await this.referenceContext.get().catch(() => this.lastReference);
     const input = {
       transcript: this.buffer.transcriptText(),
       ocrContext: this.buffer.ocrText(),
       outputLanguage: process.env.MARSHAL_CAPTIONS_OUTPUT_LANGUAGE ?? "",
-      endsWithQuestion: this.lastTurnWasQuestion,
       referenceContext: this.lastReference.text
     };
     let streamed = "";
@@ -686,7 +684,6 @@ export class LiveCaptionsService extends EventEmitter {
     this.summaryAbort = null;
     this.summaryStreaming = false;
     this.clearFragmentTimer();
-    this.lastTurnWasQuestion = false;
     this.summaryQueued = false;
     this.summaryStale = false;
     this.provisional = null;
