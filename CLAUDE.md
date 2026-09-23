@@ -43,6 +43,18 @@
      під 100 МБ. Одна копія на всі білди, переживає перевстановлення; override —
      `MARSHAL_MODELS_DIR`. У packaged білді ставиться з tray → «Download Dictation Model…».
      `WHISPER_MODEL=ggml-small` — 465 МБ замість 1.5 ГБ, гірше на коротких фразах.
+     **Модель тримається в пам'яті — `whisper-server` (#218).** `whisper-cli` на кожну фразу
+     заново вантажить 1.5 ГБ і ініціалізує Metal: на M3 Pro це 1.6 с, **незалежно від
+     довжини** (3 с і 9 с однаково). Один `whisper-server` на весь застосунок відповідає за
+     ~0.6–0.7 с, а одночасні запити ставить у чергу замість того, щоб вантажити дві копії
+     моделі (так фінал субтитрів сповзав до 4.7–11.3 с, #219). Стартує при першій потребі,
+     гаситься після 10 хв простою (`desktop/dictation/whisper-server.ts`), зупиняється з
+     застосунком; усе, що заважає серверу, падає на `whisper-cli` — повільніше, але не зламано.
+     **Жоден запит не чекає на старт сервера:** поки він піднімається, фразу бере
+     `whisper-cli`. Перший старт після інсталу — **13 с** (Gatekeeper перевіряє свіжопідписаний
+     бінарник, заміряно), далі ~1 с; блокувати на цьому диктовку означало б зробити її
+     повільнішою, ніж до #218. `MARSHAL_WHISPER_SERVER=0` — вимкнути. `setup:dictation` збирає
+     обидва бінарники; підписує їх electron-builder разом з рештою бандла.
   2. **macOS permissions для `npm run desktop` (dev mode):**
      - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription` + `CFBundleIdentifier=com.marshal.desktop.dev`), підписує bundle stable identity `Marshal Self-Signed` (якщо cert встановлений) і підписує всі Swift helpers (`audio-recorder`, `screen-recorder`, `scroll-capture`, `scroll-stitch`, `apple-vision-ocr`, `send-keystroke`) тією ж identity. Скрипти: `scripts/patch-electron-info-plist.sh` + `scripts/postbuild.mjs`.
      - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).

@@ -25,7 +25,7 @@ Electron + Swift stack; these are the substitutions and why.
 
 | Spec | Marshal | Why |
 |---|---|---|
-| `faster-whisper` (int8 / float16) | whisper.cpp with `ggml-large-v3-turbo` | Same model family, already installed with dictation (`~/Library/Application Support/Marshal/models/`, #151). Adding a Python runtime to ship the same model twice buys nothing |
+| `faster-whisper` (int8 / float16) | whisper.cpp with `ggml-large-v3-turbo`, model kept resident in `whisper-server` (#218) | Same model family, already installed with dictation (`~/Library/Application Support/Marshal/models/`, #151), and on Apple Silicon it runs on the GPU. Measured on an M3 Pro: faster-whisper int8 on the CPU 3.6 s per utterance (Python prototype), whisper-cli 1.6 s, the resident server 0.6–0.7 s |
 | CoreAudio virtual device routing | ScreenCaptureKit (`swift/system-audio-tap.swift`) | No virtual device for the user to install; per-app capture with the OS permission prompt |
 | WASAPI loopback (Windows) | — | #178, deferred: macOS first |
 | Silero VAD on 30 ms blocks | Silero VAD v5 on 32 ms windows | 512 samples at 16 kHz is the only window size the v5 model accepts (`silero-vad.ts`) |

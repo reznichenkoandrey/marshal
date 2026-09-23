@@ -91,6 +91,25 @@ fi
 # Stable symlink so TS code doesn't have to know the internal build layout.
 ln -sf "$WHISPER_CLI" "$BIN_DIR/whisper-cli"
 
+# ── Build the resident server (#218) ──
+# Keeps the model loaded between utterances: ~0.7 s instead of whisper-cli's
+# 1.6 s, which is almost all model load. Built as a separate step so an
+# existing checkout that already has whisper-cli gains it on the next run.
+WHISPER_SERVER="$REPO_DIR/build/bin/whisper-server"
+if [[ ! -x "$WHISPER_SERVER" ]]; then
+  echo "[whisper] building whisper-server …"
+  pushd "$REPO_DIR" > /dev/null
+  [[ -d build ]] || cmake -S . -B build -DBUILD_SHARED_LIBS=OFF > /dev/null
+  cmake --build build -j --config Release --target whisper-server > /dev/null
+  popd > /dev/null
+fi
+if [[ -x "$WHISPER_SERVER" ]]; then
+  ln -sf "$WHISPER_SERVER" "$BIN_DIR/whisper-server"
+else
+  # Not fatal: the app falls back to whisper-cli without it.
+  echo "[whisper] WARNING — no whisper-server built; dictation and captions will use the slower whisper-cli" >&2
+fi
+
 # ── Download model ──
 if [[ ! -f "$MODEL_FILE" ]]; then
   echo "[whisper] downloading model $MODEL …"

@@ -30,6 +30,7 @@ import { DictationIndicator } from "./dictation/dictation-indicator.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
+import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import {
   DEFAULT_MODEL_NAME,
   findInstalledModel,
@@ -1013,6 +1014,8 @@ async function performTeardown(): Promise<void> {
   clipboardMonitor?.stop();
   layoutSwitcher?.stop();
   dictationService?.stop();
+  // The resident whisper model (#218) holds ~1.5 GB; it goes with the app.
+  stopSharedWhisperServer();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
   meetingIndicator?.hide();
