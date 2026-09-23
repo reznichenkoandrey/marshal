@@ -31,7 +31,7 @@ import { systemPreferences } from "electron";
 
 import { assertScreenRecordingGranted, readRegionText } from "./ocr-context.ts";
 import { shouldAcceptMouse, type OverlayStatus, type OverlayUpdate } from "./overlay-layout.ts";
-import { SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
+import { DEFAULT_SEGMENTER_OPTIONS, SpeechSegmenter, type SpeechSegment } from "./segmenter.ts";
 import { createSummaryStreamer, resolveSummaryProvider, type SummaryStreamer } from "./summarizer.ts";
 import { renderSummaryHtml } from "./summary-prompt.ts";
 import { SystemAudioTap } from "./system-audio-tap.ts";
@@ -93,6 +93,8 @@ export class LiveCaptionsService extends EventEmitter {
   private segmenter: SpeechSegmenter | null = null;
   private vad: SileroVad | null = null;
   private silenceMs = DEFAULT_CAPTIONS_SILENCE_MS;
+  /** Digital-silence floor under the classifier; tunable on a live call. */
+  private classifierMinRms = DEFAULT_SEGMENTER_OPTIONS.classifierMinRms;
   private vadChoice: "silero" | "energy" = "silero";
   private turnPolicy: TurnPolicy = "interrupt";
   private mixMicrophone = false;
@@ -172,6 +174,14 @@ export class LiveCaptionsService extends EventEmitter {
     this.silenceMs = Number.isFinite(silence)
       ? Math.min(Math.max(silence, MIN_CAPTIONS_SILENCE_MS), MAX_CAPTIONS_SILENCE_MS)
       : DEFAULT_CAPTIONS_SILENCE_MS;
+    // Raising this makes the classifier deaf to quiet speech and cuts
+    // sentences in half (#202); lowering it lets the model fire on the noise
+    // floor. Exposed because the right value depends on how loud the other
+    // side of the call is, which cannot be guessed from here.
+    const minRms = Number.parseInt(process.env.MARSHAL_CAPTIONS_MIN_RMS ?? "", 10);
+    this.classifierMinRms = Number.isFinite(minRms) && minRms >= 0
+      ? Math.min(minRms, DEFAULT_SEGMENTER_OPTIONS.minSpeechRms)
+      : DEFAULT_SEGMENTER_OPTIONS.classifierMinRms;
     this.vadChoice = (process.env.MARSHAL_CAPTIONS_VAD ?? "silero").trim().toLowerCase() === "energy" ? "energy" : "silero";
     this.turnPolicy = (process.env.MARSHAL_CAPTIONS_TURN_POLICY ?? "interrupt").trim().toLowerCase() === "queue" ? "queue" : "interrupt";
     this.speculativeStt = (process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT ?? "1").trim() !== "0";
@@ -199,6 +209,7 @@ export class LiveCaptionsService extends EventEmitter {
     }
     return new SpeechSegmenter((segment) => this.enqueueSegment(segment), {
       silenceEndMs: this.silenceMs,
+      classifierMinRms: this.classifierMinRms,
       // Speculate only when the real pause is long enough for it to pay off.
       provisionalSilenceMs: this.speculativeStt && this.silenceMs > PROVISIONAL_SILENCE_MS * 2 ? PROVISIONAL_SILENCE_MS : 0,
       classifyFrame
