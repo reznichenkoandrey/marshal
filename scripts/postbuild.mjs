@@ -180,11 +180,13 @@ if (process.platform === "darwin") {
     console.warn("[postbuild] No stable codesign identity found — Swift helpers will be ad-hoc signed. Run `npm run setup:codesign-cert` to fix.");
   }
 
+  let compiled = 0;
   for (const target of swiftTargets) {
     await fs.mkdir(path.dirname(target.out), { recursive: true });
     try {
       execFileSync("swiftc", [target.src, "-O", "-o", target.out], { stdio: "inherit" });
       console.log(`[postbuild] ${target.label} compiled →`, target.out);
+      compiled += 1;
     } catch (err) {
       console.warn(`[postbuild] swiftc ${target.label} failed — ${target.fallbackNote}:`, err.message);
       continue;
@@ -197,6 +199,18 @@ if (process.platform === "darwin") {
     } catch (err) {
       console.warn(`[postbuild] codesign ${target.label} failed:`, err.message);
     }
+  }
+
+  // One helper failing is a degraded feature and a warning. Every helper
+  // failing is a broken toolchain (a macOS SDK the installed swiftc cannot
+  // target, #148) and must not produce an app with no dictation, no OCR and
+  // no captions that only a full read of the build log would explain.
+  if (compiled === 0) {
+    console.error(
+      "[postbuild] no Swift helper compiled — check `swiftc -version` and `xcrun --show-sdk-path`; " +
+      "set MARSHAL_SKIP_SWIFT=1 to build without helpers on purpose"
+    );
+    if (process.env.MARSHAL_SKIP_SWIFT !== "1") process.exit(1);
   }
 
   // Patch the dev Electron.app Info.plist so TCC allows our Swift helpers to

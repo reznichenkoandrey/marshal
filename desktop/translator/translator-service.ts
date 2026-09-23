@@ -84,7 +84,26 @@ export class TranslatorService extends EventEmitter {
     this.sourceLang = init.sourceLang ?? DEFAULT_SOURCE;
     this.targetLang = init.targetLang ?? DEFAULT_TARGET;
     this.formality = init.formality ?? "default";
-    this.backend = createTranslatorBackend(this.resolveBackendId());
+    this.backend = this.buildBackend(this.resolveBackendId());
+  }
+
+  /**
+   * Builds a backend, falling back to the keyless mapping of the reasoning
+   * provider when the wanted one cannot be constructed. Backends should not
+   * throw in their constructors any more (#156), but one that does must not
+   * take the whole service — and everything initTranslator() sets up after
+   * it — down.
+   */
+  private buildBackend(id: TranslatorBackendId): TranslatorBackend {
+    try {
+      return createTranslatorBackend(id);
+    } catch (err) {
+      const fallback = translatorBackendForBridge(this.bridgeMode);
+      const detail = err instanceof Error ? err.message : String(err);
+      if (fallback === id) throw err;
+      console.warn(`[translator] backend ${id} unavailable (${detail.split("\n")[0]}); using ${fallback}`);
+      return createTranslatorBackend(fallback);
+    }
   }
 
   /** The concrete backend currently servicing translations. */
@@ -244,7 +263,13 @@ export class TranslatorService extends EventEmitter {
   private rebuildBackend(): void {
     const id = this.resolveBackendId();
     if (this.backend.id === id) return;
-    this.backend = createTranslatorBackend(id);
+    try {
+      this.backend = this.buildBackend(id);
+    } catch (err) {
+      // A Settings change must not orphan the service: keep the backend that
+      // was working and say why the new one is not.
+      console.warn(`[translator] keeping ${this.backend.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 

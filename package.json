@@ -1,5 +1,6 @@
 {
   "name": "local-chatgpt-agent",
+  "productName": "Marshal",
   "version": "0.3.0",
   "private": true,
   "type": "module",

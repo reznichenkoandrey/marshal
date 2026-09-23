@@ -46,12 +46,11 @@
   3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`).
   **Для встановленого застосунку — `npm run setup:env`**: packaged білд шукає `.env` у своїй
-  userData-теці, бо той, що в репо, лежить усередині `.app`. Тека зветься **не** `Marshal`, а
-  за `productName`/`name` з package.json — станом на зараз це
-  `~/Library/Application Support/local-chatgpt-agent/` (перевірено на 0.2.2; `CFBundleName`
-  при цьому «Marshal», тому вгадувати за назвою застосунку — помилка, #158). Шлях не
-  хардкодити: скрипт виводить його сам, а Settings → Setup health друкує те, що реально
-  зарезолвив запущений застосунок.
+  userData-теці, бо той, що в репо, лежить усередині `.app`. Тека зветься за top-level
+  `productName` з package.json — `~/Library/Application Support/Marshal/` (з #158; до того була
+  `local-chatgpt-agent/`, і перший запуск нової збірки один раз копіює її вміст, стару теку не
+  чіпає). Шлях не хардкодити: скрипт виводить його сам, а Settings → Setup health друкує те, що
+  реально зарезолвив запущений застосунок.
   Без ключа `auto` падає на CLI-backend і переклад займає ~10 с замість «менше секунди»,
   через що переклад під час набору перетворюється в лаг (#155).
 - **Marshal — LSUIElement застосунок: немає іконки в Dock і рядка в ⌘Tab.** Наслідок, який

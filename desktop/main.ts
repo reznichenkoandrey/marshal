@@ -42,6 +42,7 @@ import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingRecorder } from "./meeting/meeting-recorder.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
+import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
 import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
@@ -159,6 +160,17 @@ async function bootstrap(): Promise<void> {
     await app.whenReady();
     if (process.platform === "darwin") {
       app.setActivationPolicy("accessory");
+    }
+
+    // 0.3.x renamed the userData directory from the npm package name to the
+    // product name (#158). Carry a previous install's settings, .env and
+    // stores over once, before anything below reads them.
+    {
+      const userData = app.getPath("userData");
+      const migration = migrateLegacyUserData(userData, legacyUserDataPath(userData));
+      if (migration.performed) {
+        console.log(`[marshal] userData migrated from ${migration.from}: ${migration.copied.join(", ")}`);
+      }
     }
 
     // Second-pass .env load — production-only fallback. The top-of-file
@@ -2101,13 +2113,29 @@ async function hasMarshalCodesignIdentity(): Promise<boolean> {
 
 function initTranslator(): void {
   const settings = loadSettings();
-  translatorService = new TranslatorService({
-    choice: settings.translatorBackend,
-    bridgeMode: settings.bridgeMode,
-    sourceLang: settings.translatorSourceLang,
-    targetLang: settings.translatorTargetLang,
-    formality: settings.translatorFormality
-  });
+  // If the service cannot be built the translator is unavailable, but the
+  // clipboard monitor, layout switcher, screenshot service (which live
+  // captions also need) and the hotkeys still come up (#156).
+  try {
+    translatorService = new TranslatorService({
+      choice: settings.translatorBackend,
+      bridgeMode: settings.bridgeMode,
+      sourceLang: settings.translatorSourceLang,
+      targetLang: settings.translatorTargetLang,
+      formality: settings.translatorFormality
+    });
+  } catch (err) {
+    translatorService = null;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[marshal] translator unavailable:", message);
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Marshal — Translator unavailable",
+        body: `${message.split("\n")[0]} Other features keep working.`,
+        silent: true
+      }).show();
+    }
+  }
   translatorWindow = new TranslatorWindow(preloadPath, app.getPath("userData"));
   screenshotService = new ScreenshotService(preloadPath);
   // First exec of a freshly installed helper is slow enough to time out the
@@ -2115,12 +2143,12 @@ function initTranslator(): void {
   void warmUpAppleVisionOcr();
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
   translatorGlossary = new TranslatorGlossaryStore(app.getPath("userData"));
-  translatorService.setGlossary(translatorGlossary.list());
+  translatorService?.setGlossary(translatorGlossary.list());
 
   // A rejected API key makes `auto` swap to a keyless backend mid-session.
   // Say so once: the user's own symptom is otherwise just "why is this slow
   // now" (#160).
-  translatorService.on("fallback", (notice: TranslatorFallbackNotice) => {
+  translatorService?.on("fallback", (notice: TranslatorFallbackNotice) => {
     console.warn(
       `[marshal] translator: ${notice.from} unusable (${notice.reason}, HTTP ${notice.status}); using ${notice.to}`
     );
