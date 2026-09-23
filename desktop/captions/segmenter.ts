@@ -37,6 +37,13 @@ export interface SegmenterOptions {
    */
   provisionalSilenceMs: number;
   /**
+   * Emit a `partial` copy of the open utterance every this many ms of speech,
+   * so the overlay can show words while the speaker is still going (#203).
+   * Only emitted while speech is ongoing — a pause is `provisional`'s job.
+   * 0 disables.
+   */
+  partialIntervalMs: number;
+  /**
    * Absolute RMS floor used *instead of* `minSpeechRms` while `classifyFrame`
    * is set. It exists only to stop the model firing on digital silence, so it
    * sits far below `minSpeechRms`: that value was calibrated as the lower
@@ -68,7 +75,8 @@ export const DEFAULT_SEGMENTER_OPTIONS: SegmenterOptions = {
   silenceEndMs: 650,
   minSpeechMs: 450,
   maxSegmentMs: 9_000,
-  provisionalSilenceMs: 0
+  provisionalSilenceMs: 0,
+  partialIntervalMs: 0
 };
 
 export interface SpeechSegment {
@@ -77,9 +85,10 @@ export interface SpeechSegment {
   speechMs: number;
   /**
    * Why the segment was cut. `provisional` is an early copy of an utterance
-   * that is still open — see `provisionalSilenceMs`.
+   * that is still open — see `provisionalSilenceMs`. `partial` is a copy taken
+   * mid-speech for live display — see `partialIntervalMs`.
    */
-  reason: "silence" | "max-length" | "flush" | "provisional";
+  reason: "silence" | "max-length" | "flush" | "provisional" | "partial";
   /** Counts utterances; a provisional and its final segment share one. */
   utteranceId: number;
 }
@@ -103,7 +112,10 @@ export class SpeechSegmenter {
   private readonly silenceEndFrames: number;
   private readonly maxSegmentFrames: number;
   private readonly provisionalFrames: number;
+  private readonly partialFrames: number;
   private readonly listener: SegmentListener;
+  /** Frames appended since the last partial copy of this utterance. */
+  private framesSincePartial = 0;
   private utteranceId = 0;
   private provisionalSent = false;
 
@@ -125,6 +137,9 @@ export class SpeechSegmenter {
     this.maxSegmentFrames = Math.ceil(this.options.maxSegmentMs / this.options.frameMs);
     this.provisionalFrames = this.options.provisionalSilenceMs > 0
       ? Math.ceil(this.options.provisionalSilenceMs / this.options.frameMs)
+      : 0;
+    this.partialFrames = this.options.partialIntervalMs > 0
+      ? Math.ceil(this.options.partialIntervalMs / this.options.frameMs)
       : 0;
     this.noiseFloor = this.options.minSpeechRms / this.options.noiseFloorRatio;
   }
@@ -204,6 +219,7 @@ export class SpeechSegmenter {
         this.preroll = [];
         this.speechFrames = 1;
         this.trailingSilenceFrames = 0;
+        this.framesSincePartial = 0;
       } else {
         this.preroll.push(frame.slice());
         if (this.preroll.length > this.prerollFrames) this.preroll.shift();
@@ -212,6 +228,7 @@ export class SpeechSegmenter {
     }
 
     this.active.push(frame.slice());
+    this.framesSincePartial += 1;
     if (isSpeech) {
       this.speechFrames += 1;
       this.trailingSilenceFrames = 0;
@@ -219,6 +236,16 @@ export class SpeechSegmenter {
       this.provisionalSent = false;
     } else {
       this.trailingSilenceFrames += 1;
+    }
+
+    if (
+      this.partialFrames > 0 &&
+      isSpeech &&
+      this.framesSincePartial >= this.partialFrames &&
+      this.speechFrames * this.options.frameMs >= this.options.minSpeechMs
+    ) {
+      this.framesSincePartial = 0;
+      this.emit("partial");
     }
 
     if (
@@ -271,6 +298,7 @@ export class SpeechSegmenter {
     this.active = [];
     this.speechFrames = 0;
     this.trailingSilenceFrames = 0;
+    this.framesSincePartial = 0;
     this.inSpeech = false;
   }
 

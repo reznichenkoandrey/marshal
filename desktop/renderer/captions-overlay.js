@@ -28,14 +28,31 @@
     summaryEl.classList.toggle("stale", Boolean(update.summaryStale));
     updatingEl.hidden = !update.summaryStale;
 
-    captionsEl.replaceChildren(
-      ...(update.captions || []).map((text) => {
-        const line = document.createElement("div");
-        line.className = "line";
-        line.textContent = text;
-        return line;
-      })
-    );
+    const finals = update.captions || [];
+    const lines = finals.map((text, index) => {
+      const line = document.createElement("div");
+      line.className = index === finals.length - 1 ? "line latest" : "line";
+      line.textContent = text;
+      return line;
+    });
+    // The utterance still being spoken (#203). Its newest words are at the
+    // end, so it overflows to the left — an end ellipsis would hide exactly
+    // the part the user is waiting for.
+    if (update.partial) {
+      const line = document.createElement("div");
+      line.className = "line partial";
+      const text = document.createElement("span");
+      text.textContent = update.partial;
+      line.appendChild(text);
+      lines.push(line);
+    }
+    captionsEl.replaceChildren(...lines);
+    // Fade the cut edge only when there is a cut: on a short line the mask
+    // would dim the first letters for no reason.
+    const partialLine = captionsEl.querySelector(".line.partial");
+    if (partialLine) {
+      partialLine.classList.toggle("overflowing", partialLine.firstChild.offsetWidth > partialLine.clientWidth);
+    }
   }
 
   if (api && typeof api.onUpdate === "function") {

@@ -1,0 +1,98 @@
+// desktop/captions/partial-policy.ts
+//
+// Rolling partial captions (#203): while somebody is still talking, the open
+// utterance is transcribed every so often and shown as a live, provisional
+// line — instead of the overlay staying empty until the phrase closes, which
+// with a 9 s segment cap meant up to nine seconds of nothing.
+//
+// The partial pass is strictly subordinate to the final one, and every rule
+// here exists to keep it that way:
+//
+//   - It never enters the transcript buffer and never schedules a summary.
+//     A summary reacting to half a sentence would undo the turn policy (#189).
+//   - It never competes with a final: it does not start while a final is
+//     queued or being transcribed.
+//   - It never falls back to the local model. `hybrid` answers a Groq 429 by
+//     running whisper.cpp; a partial that tripped the rate limit would drag
+//     the *finals* onto the slow local path too. Partials therefore go
+//     straight to Groq, and the first failure switches them off for a while.
+//
+// Pure, so the rules are tested without the service.
+
+import type { BackendName } from "../dictation/whisper-backend.ts";
+
+/** Speech between two partial passes. Roughly one request per second of talking. */
+export const DEFAULT_PARTIAL_INTERVAL_MS = 1_000;
+/** Floor for the env override — below this the requests only queue up behind each other. */
+export const MIN_PARTIAL_INTERVAL_MS = 500;
+/**
+ * How long partials stay off after a failed pass. A rate limit is the likely
+ * cause, and the quota it protects is the one the final captions live on.
+ */
+export const PARTIAL_COOLDOWN_MS = 60_000;
+
+/**
+ * Which STT backend the partial pass uses, or null when partials are off.
+ *
+ * Unset: on whenever captions already use a remote STT, off on the local
+ * one — every partial pass there is real CPU time on the machine running the
+ * call. `1` forces them on (on `whisper-cpp` too, the user asked); `0` turns
+ * them off. `hybrid` maps to plain `groq`, see the header for why.
+ */
+export function resolvePartialBackend(raw: string | undefined, captionsBackend: BackendName): BackendName | null {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "0" || value === "off" || value === "false") return null;
+  const forced = value === "1" || value === "on" || value === "true";
+  if (captionsBackend === "whisper-cpp") return forced ? "whisper-cpp" : null;
+  return "groq";
+}
+
+export function resolvePartialIntervalMs(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_PARTIAL_INTERVAL_MS;
+  return Math.max(parsed, MIN_PARTIAL_INTERVAL_MS);
+}
+
+/**
+ * Admission control for partial passes: at most one in flight, none while a
+ * final is pending, none during the cool-down after a failure.
+ */
+export class PartialGate {
+  private inFlight = false;
+  private disabledUntil = 0;
+
+  constructor(private readonly cooldownMs = PARTIAL_COOLDOWN_MS) {}
+
+  /** Claims the slot. Returns false when the pass should be skipped. */
+  tryBegin(now: number, finalsPending: boolean): boolean {
+    if (this.inFlight || finalsPending || now < this.disabledUntil) return false;
+    this.inFlight = true;
+    return true;
+  }
+
+  /** Releases the slot; a failed pass starts the cool-down. */
+  end(ok: boolean, now: number): void {
+    this.inFlight = false;
+    if (!ok) this.disabledUntil = now + this.cooldownMs;
+  }
+
+  /** True while partials are switched off after a failure. */
+  isCoolingDown(now: number): boolean {
+    return now < this.disabledUntil;
+  }
+
+  reset(): void {
+    this.inFlight = false;
+    this.disabledUntil = 0;
+  }
+}
+
+/**
+ * Whether a partial result still describes an open utterance. Transcription
+ * is asynchronous, so a partial can land after the final for the same
+ * utterance — at which point showing it would replace a finished caption with
+ * an older, rougher guess of it.
+ */
+export function isPartialCurrent(utteranceId: number, lastFinalUtteranceId: number): boolean {
+  return utteranceId > lastFinalUtteranceId;
+}

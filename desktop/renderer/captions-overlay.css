@@ -19,6 +19,7 @@
   --captions-fs-summary: 15px;
   --captions-fs-caption: 13px;
   --captions-fs-meta: 11px;
+  --captions-partial-fade: 24px;
   --captions-pad-x: 14px;
   --captions-pad-y: 10px;
 }
@@ -185,7 +186,21 @@ body.interactive button.stop { display: inline-flex; }
   justify-content: flex-end;
 }
 .captions .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.captions .line:last-child { color: var(--captions-fg); }
+.captions .line.latest { color: var(--captions-fg); }
+/* Live line (#203): muted until the utterance closes, clipped on the left so
+   the newest words stay visible, with a fade marking the cut. */
+.captions .line.partial {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--captions-fg-muted);
+  font-style: italic;
+  text-overflow: clip;
+}
+.captions .line.partial > span { flex-shrink: 0; }
+.captions .line.partial.overflowing {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--captions-partial-fade));
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--captions-partial-fade));
+}
 .captions:empty { display: none; }
 
 .move-hint {

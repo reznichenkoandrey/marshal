@@ -19,6 +19,8 @@ export default defineConfig({
       include: [
         "desktop/settings-store.ts",
         "desktop/backend-client.ts",
+        "desktop/captions/partial-policy.ts",
+        "desktop/captions/segmenter.ts",
         "desktop/translator/translator-service.ts",
         "desktop/translator/languages.ts",
         "desktop/translator/glossary-store.ts",
