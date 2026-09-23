@@ -71,6 +71,12 @@ export interface OverlayUpdate {
   status: OverlayStatus;
   /** Recent raw utterances, oldest first. */
   captions: string[];
+  /**
+   * The utterance still being spoken, transcribed so far (#203). Empty when
+   * nobody is mid-sentence. Rendered after `captions` in a muted style and
+   * replaced by the final line once the utterance closes.
+   */
+  partial: string;
   /** Rendered HTML for the summary bullets (already escaped). */
   summaryHtml: string;
   /** True while the summary is still streaming. */

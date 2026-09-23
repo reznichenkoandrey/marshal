@@ -164,3 +164,69 @@ describe("SpeechSegmenter with a classifier (#202)", () => {
     expect(segments.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("SpeechSegmenter partial copies (#203)", () => {
+  function collectPartials(options = {}): { segments: SpeechSegment[]; segmenter: SpeechSegmenter } {
+    const segments: SpeechSegment[] = [];
+    const segmenter = new SpeechSegmenter((segment) => segments.push(segment), {
+      silenceEndMs: 900,
+      partialIntervalMs: 1_000,
+      ...options
+    });
+    return { segments, segmenter };
+  }
+
+  it("emits a partial roughly every interval while speech goes on", () => {
+    const { segments, segmenter } = collectPartials();
+    segmenter.pushSamples(tone(3_500, 6000));
+
+    const partials = segments.filter((segment) => segment.reason === "partial");
+    expect(partials.length).toBe(3);
+    // One utterance: every partial belongs to it.
+    expect(new Set(partials.map((segment) => segment.utteranceId)).size).toBe(1);
+    // Each copy holds everything spoken so far, so later ones are longer.
+    expect(partials[1].samples.length).toBeGreaterThan(partials[0].samples.length);
+  });
+
+  it("shares the utterance id with the final segment", () => {
+    const { segments, segmenter } = collectPartials();
+    segmenter.pushSamples(tone(2_200, 6000));
+    segmenter.pushSamples(silence(1_000));
+
+    const partial = segments.find((segment) => segment.reason === "partial");
+    const final = segments.find((segment) => segment.reason === "silence");
+    expect(partial).toBeDefined();
+    expect(final?.utteranceId).toBe(partial?.utteranceId);
+  });
+
+  it("does not emit partials during the pause — that is provisional's job", () => {
+    const { segments, segmenter } = collectPartials({ partialIntervalMs: 500 });
+    segmenter.pushSamples(tone(600, 6000));
+    const before = segments.filter((segment) => segment.reason === "partial").length;
+    segmenter.pushSamples(silence(850)); // under silenceEndMs, utterance still open
+    const after = segments.filter((segment) => segment.reason === "partial").length;
+    expect(after).toBe(before);
+  });
+
+  it("starts counting again for the next utterance", () => {
+    const { segments, segmenter } = collectPartials();
+    segmenter.pushSamples(tone(1_500, 6000));
+    segmenter.pushSamples(silence(1_000));
+    segmenter.pushSamples(tone(1_500, 6000));
+
+    const ids = segments.filter((segment) => segment.reason === "partial").map((segment) => segment.utteranceId);
+    expect(ids).toEqual([1, 2]);
+  });
+
+  it("is off by default", () => {
+    const { segments, segmenter } = collect();
+    segmenter.pushSamples(tone(5_000, 6000));
+    expect(segments.some((segment) => segment.reason === "partial")).toBe(false);
+  });
+
+  it("waits for the minimum speech length before the first partial", () => {
+    const { segments, segmenter } = collectPartials({ partialIntervalMs: 200, minSpeechMs: 450 });
+    segmenter.pushSamples(tone(300, 6000));
+    expect(segments.some((segment) => segment.reason === "partial")).toBe(false);
+  });
+});

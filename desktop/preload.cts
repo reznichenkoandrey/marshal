@@ -329,6 +329,7 @@ const captionsApi = {
       update: {
         status: string;
         captions: string[];
+        partial: string;
         summaryHtml: string;
         summaryStreaming: boolean;
         summaryStale: boolean;
@@ -341,6 +342,7 @@ const captionsApi = {
       {
         status: string;
         captions: string[];
+        partial: string;
         summaryHtml: string;
         summaryStreaming: boolean;
         summaryStale: boolean;

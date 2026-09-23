@@ -44,9 +44,16 @@ import {
   PROVISIONAL_SILENCE_MS
 } from "./captions-defaults.ts";
 import { decideSummaryAction, type TurnPolicy } from "./summary-policy.ts";
+import {
+  isPartialCurrent,
+  PartialGate,
+  resolvePartialBackend,
+  resolvePartialIntervalMs,
+  DEFAULT_PARTIAL_INTERVAL_MS
+} from "./partial-policy.ts";
 import { CONTEXT_DIR_NAME, ReferenceContextCache, type ReferenceContext } from "./context-store.ts";
 import { SileroVad } from "./silero-vad.ts";
-import { TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
+import { isLikelyHallucination, TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
 // Coalesces segments that land within a breath of each other. Short, because
@@ -71,6 +78,8 @@ export interface CaptionsServiceOptions {
   /** Opens the crop overlay and resolves with the chosen region (DIP). */
   pickRegion: () => Promise<OcrRegion | null>;
   whisper?: WhisperBackend;
+  /** STT for live partial lines; null turns partials off. Defaults from env. */
+  partialWhisper?: WhisperBackend | null;
   summarizer?: SummaryStreamer | null;
   audioTap?: SystemAudioTap;
 }
@@ -88,7 +97,7 @@ export class LiveCaptionsService extends EventEmitter {
   private prompt = DEFAULT_CAPTIONS_PROMPT;
   private providerHint = "";
   /** Injected in tests; when set, start() does not re-read the environment. */
-  private readonly injected: { whisper: boolean; summarizer: boolean };
+  private readonly injected: { whisper: boolean; partialWhisper: boolean; summarizer: boolean };
 
   private segmenter: SpeechSegmenter | null = null;
   private vad: SileroVad | null = null;
@@ -103,6 +112,15 @@ export class LiveCaptionsService extends EventEmitter {
   private speculativeStt = true;
   /** Result of a speculative transcription of the utterance still open. */
   private provisional: { utteranceId: number; speechMs: number; text: string } | null = null;
+  /** STT for the live partial line (#203); null when partials are off. */
+  private partialWhisper: WhisperBackend | null = null;
+  private partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
+  private readonly partialGate = new PartialGate();
+  /** The open utterance as transcribed so far — shown, never stored. */
+  private partialText = "";
+  private partialUtteranceId = 0;
+  /** Newest utterance whose final segment has been taken up. */
+  private lastFinalUtteranceId = 0;
   private summaryQueued = false;
   private summaryStale = false;
   private dragHotkey: PushToTalkBackend | null = null;
@@ -126,7 +144,12 @@ export class LiveCaptionsService extends EventEmitter {
     super();
     this.window = new CaptionsWindow(options.preloadPath, options.userDataDir);
     this.tap = options.audioTap ?? new SystemAudioTap();
-    this.injected = { whisper: options.whisper !== undefined, summarizer: options.summarizer !== undefined };
+    this.injected = {
+      whisper: options.whisper !== undefined,
+      partialWhisper: options.partialWhisper !== undefined,
+      summarizer: options.summarizer !== undefined
+    };
+    this.partialWhisper = options.partialWhisper ?? null;
     this.whisper = options.whisper ?? createWhisperBackend("whisper-cpp");
     this.summarizer = options.summarizer ?? null;
     this.pickRegion = options.pickRegion;
@@ -157,11 +180,15 @@ export class LiveCaptionsService extends EventEmitter {
    * makes a Settings change take effect without restarting the app (#179).
    */
   private configureFromEnv(): void {
+    const sttBackend = resolveBackendName(process.env.MARSHAL_CAPTIONS_STT_BACKEND ?? process.env.MARSHAL_DICTATION_BACKEND);
     if (!this.injected.whisper) {
-      this.whisper = createWhisperBackend(
-        resolveBackendName(process.env.MARSHAL_CAPTIONS_STT_BACKEND ?? process.env.MARSHAL_DICTATION_BACKEND)
-      );
+      this.whisper = createWhisperBackend(sttBackend);
     }
+    if (!this.injected.partialWhisper) {
+      const partialBackend = resolvePartialBackend(process.env.MARSHAL_CAPTIONS_PARTIALS, sttBackend);
+      this.partialWhisper = partialBackend ? createWhisperBackend(partialBackend) : null;
+    }
+    this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
     if (!this.injected.summarizer) this.summarizer = createSummaryStreamer(process.env);
     this.language = resolveDictationLanguage(
       process.env.MARSHAL_CAPTIONS_LANGUAGE ?? process.env.MARSHAL_DICTATION_LANGUAGE ?? "auto"
@@ -210,6 +237,7 @@ export class LiveCaptionsService extends EventEmitter {
     return new SpeechSegmenter((segment) => this.enqueueSegment(segment), {
       silenceEndMs: this.silenceMs,
       classifierMinRms: this.classifierMinRms,
+      partialIntervalMs: this.partialWhisper ? this.partialIntervalMs : 0,
       // Speculate only when the real pause is long enough for it to pay off.
       provisionalSilenceMs: this.speculativeStt && this.silenceMs > PROVISIONAL_SILENCE_MS * 2 ? PROVISIONAL_SILENCE_MS : 0,
       classifyFrame
@@ -343,6 +371,10 @@ export class LiveCaptionsService extends EventEmitter {
   // ── audio → text ──
 
   private enqueueSegment(segment: SpeechSegment): void {
+    if (segment.reason === "partial") {
+      void this.transcribePartial(segment);
+      return;
+    }
     // A provisional copy is only worth keeping while nothing newer waits:
     // drop queued provisionals when another arrives or the final lands, and
     // never let a provisional push out a final.
@@ -381,6 +413,10 @@ export class LiveCaptionsService extends EventEmitter {
     // utterance closed without another word, so its text stands and the
     // whisper round trip is skipped — that is where the sub-second turn
     // latency comes from (#189).
+    if (segment.reason !== "provisional") {
+      // From here on a partial for this utterance is older than what is coming.
+      this.lastFinalUtteranceId = Math.max(this.lastFinalUtteranceId, segment.utteranceId);
+    }
     const provisional = this.provisional;
     if (
       segment.reason !== "provisional" &&
@@ -389,6 +425,7 @@ export class LiveCaptionsService extends EventEmitter {
       provisional.speechMs === segment.speechMs
     ) {
       this.provisional = null;
+      this.dropPartial(segment.utteranceId);
       this.applyTranscript(this.buffer.pushTranscript(provisional.text));
       if (!this.summaryStreaming) this.setStatus("listening");
       return;
@@ -405,15 +442,61 @@ export class LiveCaptionsService extends EventEmitter {
         this.provisional = { utteranceId: segment.utteranceId, speechMs: segment.speechMs, text: result.text };
         return;
       }
+      this.dropPartial(segment.utteranceId);
       this.applyTranscript(this.buffer.pushTranscript(result.text));
       if (!this.summaryStreaming) this.setStatus("listening");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (segment.reason !== "provisional") this.dropPartial(segment.utteranceId);
       console.warn("[captions] transcription failed:", message);
       this.setStatus("listening", `transcription failed: ${message.split("\n")[0].slice(0, 120)}`);
     } finally {
       await fs.unlink(wavPath).catch(() => undefined);
     }
+  }
+
+  /**
+   * Transcribes the utterance still being spoken and shows it as the live
+   * line (#203). Display only: nothing here touches the transcript buffer
+   * or the summary, and a partial never waits in — or delays — the final
+   * queue. See partial-policy.ts for the admission rules.
+   */
+  private async transcribePartial(segment: SpeechSegment): Promise<void> {
+    const partialWhisper = this.partialWhisper;
+    if (!partialWhisper || this.state !== "running") return;
+    const finalsPending = this.transcribing || this.transcribeQueue.length > 0;
+    if (!this.partialGate.tryBegin(Date.now(), finalsPending)) return;
+
+    const wavPath = path.join(tmpdir(), `marshal-captions-partial-${randomUUID()}.wav`);
+    let ok = true;
+    try {
+      await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
+      const result = await partialWhisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+      if (this.state !== "running") return;
+      if (!isPartialCurrent(segment.utteranceId, this.lastFinalUtteranceId)) return;
+      const text = result.text.trim().replace(/\s+/gu, " ");
+      if (isLikelyHallucination(text)) return;
+      this.partialText = text;
+      this.partialUtteranceId = segment.utteranceId;
+      this.pushUpdate();
+    } catch (err) {
+      ok = false;
+      // Most likely a rate limit. Partials go quiet for the cool-down so the
+      // quota is left to the final captions; say so once, not per request.
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[captions] partial transcription failed, pausing partials:", message.split("\n")[0].slice(0, 160));
+    } finally {
+      this.partialGate.end(ok, Date.now());
+      await fs.unlink(wavPath).catch(() => undefined);
+    }
+  }
+
+  /** Clears the live line once the final for its utterance has been taken up. */
+  private dropPartial(utteranceId: number): void {
+    if (!this.partialText || this.partialUtteranceId > utteranceId) return;
+    this.partialText = "";
+    this.partialUtteranceId = 0;
+    this.pushUpdate();
   }
 
   /**
@@ -584,6 +667,7 @@ export class LiveCaptionsService extends EventEmitter {
     const update: OverlayUpdate = {
       status: this.status,
       captions: this.buffer.displayLines(),
+      partial: this.partialText,
       summaryHtml: renderSummaryHtml(this.summaryText),
       summaryStreaming: this.summaryStreaming,
       summaryStale: this.summaryStale,
@@ -606,6 +690,10 @@ export class LiveCaptionsService extends EventEmitter {
     this.summaryQueued = false;
     this.summaryStale = false;
     this.provisional = null;
+    this.partialText = "";
+    this.partialUtteranceId = 0;
+    this.lastFinalUtteranceId = 0;
+    this.partialGate.reset();
     this.transcribeQueue = [];
     this.tap.removeAllListeners("pcm");
     this.tap.stop();
