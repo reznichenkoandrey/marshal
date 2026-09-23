@@ -1468,7 +1468,16 @@ function initLiveCaptions(): void {
   const service = new LiveCaptionsService({
     preloadPath,
     userDataDir: app.getPath("userData"),
-    pickRegion
+    pickRegion,
+    // Read at call time, not captured: the translator is initialised
+    // separately and may come up after captions do. Through the service the
+    // Settings backend and the glossary apply to captions as they do to the
+    // translator window (#210).
+    translate: async (text, targetLang) => {
+      if (!translatorService) throw new Error("Translator is not initialized.");
+      const result = await translatorService.translateText(text, resolveLangCode(targetLang, "uk"), { sourceLang: "auto" });
+      return result.translation;
+    }
   });
   if (!service.isAvailable()) {
     console.warn("[captions] system-audio-tap helper missing — live captions disabled (run `npm run build`)");

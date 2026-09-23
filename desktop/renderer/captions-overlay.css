@@ -180,13 +180,24 @@ body.interactive button.stop { display: inline-flex; }
   line-height: 1.35;
   color: var(--captions-fg-muted);
   overflow: hidden;
-  max-height: 3.9em;
+  /* Three lines, plus the original under the latest translated one (#210). */
+  max-height: 5.1em;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
 }
 .captions .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .captions .line.latest { color: var(--captions-fg); }
+/* Translated line (#210): the translation is the caption; the original of
+   the latest line sits under it, small and muted, for checking a name or a
+   term against what was just said. */
+.captions .line.translated { display: flex; flex-direction: column; white-space: normal; }
+.captions .line.translated > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.captions .line.translated > .original {
+  font-size: var(--captions-fs-meta);
+  color: var(--captions-fg-faint);
+  line-height: 1.3;
+}
 /* Live line (#203): muted until the utterance closes, clipped on the left so
    the newest words stay visible, with a fade marking the cut. */
 .captions .line.partial {
