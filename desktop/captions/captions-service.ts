@@ -38,14 +38,19 @@ import {
   DEFAULT_CAPTIONS_PROMPT,
   DEFAULT_CAPTIONS_SILENCE_MS,
   MAX_CAPTIONS_SILENCE_MS,
-  MIN_CAPTIONS_SILENCE_MS
+  MIN_CAPTIONS_SILENCE_MS,
+  PROVISIONAL_SILENCE_MS
 } from "./captions-defaults.ts";
+import { decideSummaryAction, type TurnPolicy } from "./summary-policy.ts";
 import { CONTEXT_DIR_NAME, ReferenceContextCache, type ReferenceContext } from "./context-store.ts";
 import { SileroVad } from "./silero-vad.ts";
 import { TranscriptBuffer, type TranscriptPushResult } from "./transcript-buffer.ts";
 import { encodeWavPcm16Mono } from "./wav.ts";
 
-const SUMMARY_DEBOUNCE_MS = 600;
+// Coalesces segments that land within a breath of each other. Short, because
+// with speculative transcription the text is usually ready at the cut and
+// every millisecond here is on the critical path (#189).
+const SUMMARY_DEBOUNCE_MS = 300;
 /** A held half-sentence is shown on its own if nothing completes it within this long. */
 const FRAGMENT_HOLD_MS = 4_000;
 /** Segments waiting for whisper beyond this are dropped, oldest first. */
@@ -87,6 +92,12 @@ export class LiveCaptionsService extends EventEmitter {
   private vad: SileroVad | null = null;
   private silenceMs = DEFAULT_CAPTIONS_SILENCE_MS;
   private vadChoice: "silero" | "energy" = "silero";
+  private turnPolicy: TurnPolicy = "interrupt";
+  private speculativeStt = true;
+  /** Result of a speculative transcription of the utterance still open. */
+  private provisional: { utteranceId: number; speechMs: number; text: string } | null = null;
+  private summaryQueued = false;
+  private summaryStale = false;
   private dragHotkey: PushToTalkBackend | null = null;
   private state: CaptionsState = "stopped";
   private status: OverlayStatus = "stopped";
@@ -152,6 +163,8 @@ export class LiveCaptionsService extends EventEmitter {
       ? Math.min(Math.max(silence, MIN_CAPTIONS_SILENCE_MS), MAX_CAPTIONS_SILENCE_MS)
       : DEFAULT_CAPTIONS_SILENCE_MS;
     this.vadChoice = (process.env.MARSHAL_CAPTIONS_VAD ?? "silero").trim().toLowerCase() === "energy" ? "energy" : "silero";
+    this.turnPolicy = (process.env.MARSHAL_CAPTIONS_TURN_POLICY ?? "interrupt").trim().toLowerCase() === "queue" ? "queue" : "interrupt";
+    this.speculativeStt = (process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT ?? "1").trim() !== "0";
   }
 
   /**
@@ -175,6 +188,8 @@ export class LiveCaptionsService extends EventEmitter {
     }
     return new SpeechSegmenter((segment) => this.enqueueSegment(segment), {
       silenceEndMs: this.silenceMs,
+      // Speculate only when the real pause is long enough for it to pay off.
+      provisionalSilenceMs: this.speculativeStt && this.silenceMs > PROVISIONAL_SILENCE_MS * 2 ? PROVISIONAL_SILENCE_MS : 0,
       classifyFrame
     });
   }
@@ -291,10 +306,22 @@ export class LiveCaptionsService extends EventEmitter {
   // ── audio → text ──
 
   private enqueueSegment(segment: SpeechSegment): void {
-    this.transcribeQueue.push(segment);
-    while (this.transcribeQueue.length > MAX_TRANSCRIBE_BACKLOG) {
-      this.transcribeQueue.shift();
-      console.warn("[captions] whisper backlog — dropped oldest segment");
+    // A provisional copy is only worth keeping while nothing newer waits:
+    // drop queued provisionals when another arrives or the final lands, and
+    // never let a provisional push out a final.
+    if (segment.reason === "provisional") {
+      this.transcribeQueue = this.transcribeQueue.filter((queued) => queued.reason !== "provisional");
+      this.transcribeQueue.push(segment);
+    } else {
+      this.transcribeQueue = this.transcribeQueue.filter(
+        (queued) => !(queued.reason === "provisional" && queued.utteranceId === segment.utteranceId)
+      );
+      this.transcribeQueue.push(segment);
+      while (this.transcribeQueue.filter((queued) => queued.reason !== "provisional").length > MAX_TRANSCRIBE_BACKLOG) {
+        const index = this.transcribeQueue.findIndex((queued) => queued.reason !== "provisional");
+        this.transcribeQueue.splice(index, 1);
+        console.warn("[captions] whisper backlog — dropped oldest segment");
+      }
     }
     void this.drainTranscribeQueue();
   }
@@ -313,12 +340,34 @@ export class LiveCaptionsService extends EventEmitter {
   }
 
   private async transcribeSegment(segment: SpeechSegment): Promise<void> {
+    // The speculative pass already transcribed exactly this speech: the
+    // utterance closed without another word, so its text stands and the
+    // whisper round trip is skipped — that is where the sub-second turn
+    // latency comes from (#189).
+    const provisional = this.provisional;
+    if (
+      segment.reason !== "provisional" &&
+      provisional &&
+      provisional.utteranceId === segment.utteranceId &&
+      provisional.speechMs === segment.speechMs
+    ) {
+      this.provisional = null;
+      this.applyTranscript(this.buffer.pushTranscript(provisional.text));
+      if (!this.summaryStreaming) this.setStatus("listening");
+      return;
+    }
+    if (segment.reason !== "provisional") this.provisional = null;
+
     const wavPath = path.join(tmpdir(), `marshal-captions-${randomUUID()}.wav`);
-    this.setStatus("transcribing");
+    if (segment.reason !== "provisional") this.setStatus("transcribing");
     try {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
       const result = await this.whisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
       if (this.state !== "running") return;
+      if (segment.reason === "provisional") {
+        this.provisional = { utteranceId: segment.utteranceId, speechMs: segment.speechMs, text: result.text };
+        return;
+      }
       this.applyTranscript(this.buffer.pushTranscript(result.text));
       if (!this.summaryStreaming) this.setStatus("listening");
     } catch (err) {
@@ -347,6 +396,9 @@ export class LiveCaptionsService extends EventEmitter {
     }
     if (!result.accepted) return;
     this.lastTurnWasQuestion = result.question;
+    // The bullets on screen no longer cover the transcript; say so until the
+    // replacement has its first words.
+    if (this.summaryText.length > 0) this.summaryStale = true;
     this.pushUpdate();
     this.scheduleSummary(result.question ? 0 : SUMMARY_DEBOUNCE_MS);
   }
@@ -371,7 +423,15 @@ export class LiveCaptionsService extends EventEmitter {
 
   private async runSummary(): Promise<void> {
     if (!this.summarizer || this.state !== "running") return;
-    this.summaryAbort?.abort();
+    const action = decideSummaryAction({ policy: this.turnPolicy, streaming: this.summaryStreaming });
+    if (action === "queue") {
+      // Let the current bullets finish; one follow-up request covers
+      // everything that arrives meanwhile.
+      this.summaryQueued = true;
+      return;
+    }
+    this.summaryQueued = false;
+    if (action === "restart") this.summaryAbort?.abort();
     const controller = new AbortController();
     this.summaryAbort = controller;
 
@@ -397,6 +457,7 @@ export class LiveCaptionsService extends EventEmitter {
           // The previous summary stays on screen until the new one has
           // something to show — no blank flash between requests.
           this.summaryText = streamed;
+          this.summaryStale = false;
           this.pushUpdate();
         },
         controller.signal
@@ -414,6 +475,12 @@ export class LiveCaptionsService extends EventEmitter {
       this.setStatus("listening", `summary failed: ${message.split("\n")[0].slice(0, 120)}`);
     } finally {
       if (this.summaryAbort === controller) this.summaryAbort = null;
+      // `queue` policy: transcript that arrived during this request gets its
+      // own, single follow-up now.
+      if (!controller.signal.aborted && this.summaryQueued && this.state === "running") {
+        this.summaryQueued = false;
+        void this.runSummary();
+      }
     }
   }
 
@@ -454,7 +521,8 @@ export class LiveCaptionsService extends EventEmitter {
   private idleHint(): string {
     const files = this.lastReference.files.filter((file) => file.included > 0).length;
     const context = files > 0 ? ` · ctx: ${files} file${files === 1 ? "" : "s"}` : "";
-    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${context}`;
+    const turn = this.turnPolicy === "queue" ? " · queue" : "";
+    return `${this.providerHint} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${context}`;
   }
 
   /** Where the user drops reference files; created on demand by the Settings button. */
@@ -480,6 +548,7 @@ export class LiveCaptionsService extends EventEmitter {
       captions: this.buffer.displayLines(),
       summaryHtml: renderSummaryHtml(this.summaryText),
       summaryStreaming: this.summaryStreaming,
+      summaryStale: this.summaryStale,
       interactive: this.window.isInteractive(),
       hint: this.hint
     };
@@ -496,6 +565,9 @@ export class LiveCaptionsService extends EventEmitter {
     this.summaryStreaming = false;
     this.clearFragmentTimer();
     this.lastTurnWasQuestion = false;
+    this.summaryQueued = false;
+    this.summaryStale = false;
+    this.provisional = null;
     this.transcribeQueue = [];
     this.tap.removeAllListeners("pcm");
     this.tap.stop();

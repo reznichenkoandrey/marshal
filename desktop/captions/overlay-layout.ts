@@ -75,6 +75,8 @@ export interface OverlayUpdate {
   summaryHtml: string;
   /** True while the summary is still streaming. */
   summaryStreaming: boolean;
+  /** New transcript arrived and the bullets on screen do not cover it yet. */
+  summaryStale: boolean;
   /** Mouse is accepted (drag mode). */
   interactive: boolean;
   /** Short line under the header: provider, hotkey hint, or the error. */

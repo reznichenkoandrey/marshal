@@ -129,6 +129,8 @@ const dom = {
   settingsCaptionsContextOpen: document.getElementById("settings-captions-context-open"),
   settingsCaptionsContextInfo: document.getElementById("settings-captions-context-info"),
   settingsCaptionsSilenceMs: document.getElementById("settings-captions-silence-ms"),
+  settingsCaptionsTurnPolicy: document.getElementById("settings-captions-turn-policy"),
+  settingsCaptionsSpeculativeStt: document.getElementById("settings-captions-speculative-stt"),
   settingsCaptionsPromptReset: document.getElementById("settings-captions-prompt-reset"),
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
@@ -1034,8 +1036,12 @@ async function openSettings() {
       settingsCaptionsLanguage: current.captionsLanguage ?? "auto",
       settingsCaptionsPrompt: current.captionsPrompt ?? "",
       settingsCaptionsVad: current.captionsVad ?? "silero",
-      settingsCaptionsSilenceMs: String(current.captionsSilenceMs ?? 900)
+      settingsCaptionsSilenceMs: String(current.captionsSilenceMs ?? 900),
+      settingsCaptionsTurnPolicy: current.captionsTurnPolicy ?? "interrupt"
     };
+    if (dom.settingsCaptionsSpeculativeStt) {
+      dom.settingsCaptionsSpeculativeStt.checked = current.captionsSpeculativeStt ?? true;
+    }
     for (const [key, value] of Object.entries(captionsFields)) {
       if (dom[key]) dom[key].value = value;
     }
@@ -1174,6 +1180,8 @@ async function saveSettingsFromForm() {
     captionsPrompt: dom.settingsCaptionsPrompt?.value ?? "",
     captionsVad: dom.settingsCaptionsVad?.value ?? "silero",
     captionsSilenceMs: Number.parseInt(dom.settingsCaptionsSilenceMs?.value ?? "900", 10),
+    captionsTurnPolicy: dom.settingsCaptionsTurnPolicy?.value ?? "interrupt",
+    captionsSpeculativeStt: dom.settingsCaptionsSpeculativeStt?.checked ?? true,
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true

@@ -159,6 +159,8 @@ const desktopApi = {
     captionsOcrHotkey?: string;
     captionsVad?: string;
     captionsSilenceMs?: number;
+    captionsTurnPolicy?: string;
+    captionsSpeculativeStt?: boolean;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
@@ -316,6 +318,7 @@ const captionsApi = {
         captions: string[];
         summaryHtml: string;
         summaryStreaming: boolean;
+        summaryStale: boolean;
         interactive: boolean;
         hint: string;
       }
@@ -327,6 +330,7 @@ const captionsApi = {
         captions: string[];
         summaryHtml: string;
         summaryStreaming: boolean;
+        summaryStale: boolean;
         interactive: boolean;
         hint: string;
       }

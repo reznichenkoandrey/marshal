@@ -127,6 +127,8 @@ describe("saveSettings", () => {
       captionsOcrHotkey: "Control+Shift+S",
       captionsVad: "silero",
       captionsSilenceMs: 900,
+      captionsTurnPolicy: "interrupt",
+      captionsSpeculativeStt: true,
       captureDefaultFolder: "",
       captureEditorAlwaysOnTop: true,
       launchAtLogin: false,
@@ -281,6 +283,16 @@ describe("live captions settings (#179)", () => {
     applySettingsToEnv(saveSettings({ captionsVad: "energy", captionsSilenceMs: 1_400 }));
     expect(process.env.MARSHAL_CAPTIONS_VAD).toBe("energy");
     expect(process.env.MARSHAL_CAPTIONS_SILENCE_MS).toBe("1400");
+  });
+
+  it("round-trips the turn policy and speculative STT flag, rejecting unknown policies (#189)", () => {
+    expect(saveSettings({ captionsTurnPolicy: "queue", captionsSpeculativeStt: false }).captionsTurnPolicy).toBe("queue");
+    expect(loadSettings().captionsSpeculativeStt).toBe(false);
+    expect(saveSettings({ captionsTurnPolicy: "merge" as never }).captionsTurnPolicy).toBe("interrupt");
+    expect(saveSettings({ captionsSpeculativeStt: "yes" as never }).captionsSpeculativeStt).toBe(true);
+    applySettingsToEnv(saveSettings({ captionsTurnPolicy: "queue", captionsSpeculativeStt: false }));
+    expect(process.env.MARSHAL_CAPTIONS_TURN_POLICY).toBe("queue");
+    expect(process.env.MARSHAL_CAPTIONS_SPECULATIVE_STT).toBe("0");
   });
 
   it("keeps an explicitly blank captions prompt — blank means no prompting", () => {

@@ -102,6 +102,15 @@ body.interactive button { -webkit-app-region: no-drag; }
 }
 .overlay[data-status="error"] .hint { color: var(--captions-danger); }
 
+.updating {
+  flex-shrink: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--captions-keyword);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.summary.stale { opacity: 0.6; }
+
 button.stop {
   display: none;
   width: 20px;

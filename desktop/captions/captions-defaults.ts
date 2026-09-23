@@ -36,3 +36,9 @@ export const MAX_CAPTIONS_SILENCE_MS = 2_000;
 /** Per-frame speech detector: Silero VAD (ONNX on WASM) or the adaptive energy gate. */
 export type CaptionsVadChoice = "silero" | "energy";
 export const VALID_CAPTIONS_VAD: readonly CaptionsVadChoice[] = ["silero", "energy"];
+
+/** New transcript while a summary streams: restart it (fresh) or let it finish and run once more (stable). */
+export type CaptionsTurnPolicy = "interrupt" | "queue";
+export const VALID_CAPTIONS_TURN_POLICIES: readonly CaptionsTurnPolicy[] = ["interrupt", "queue"];
+/** Trailing silence after which an utterance is transcribed speculatively, before the real cut. */
+export const PROVISIONAL_SILENCE_MS = 300;

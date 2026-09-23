@@ -353,6 +353,23 @@
             </div>
 
             <div class="field">
+              <label for="settings-captions-turn-policy">New speech while a summary is streaming</label>
+              <select id="settings-captions-turn-policy" name="captionsTurnPolicy">
+                <option value="interrupt">Interrupt — restart with the fuller transcript (default, freshest)</option>
+                <option value="queue">Queue — let it finish, then run once more with everything new (steadier)</option>
+              </select>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="settings-captions-speculative-stt" name="captionsSpeculativeStt" type="checkbox" />
+              <span>Transcribe early at a 300 ms pause so the text is ready when the sentence ends</span>
+            </label>
+            <p class="field-hint">
+              Cuts roughly half a second off each turn. Costs extra whisper calls on mid-sentence
+              pauses — fine on Groq, noticeable CPU with local whisper.cpp.
+            </p>
+
+            <div class="field">
               <label for="settings-captions-language">Spoken language</label>
               <select id="settings-captions-language" name="captionsLanguage">
                 <option value="auto">Auto-detect (default)</option>

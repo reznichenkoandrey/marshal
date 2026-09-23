@@ -11,6 +11,7 @@
   const summaryEl = document.getElementById("summary");
   const captionsEl = document.getElementById("captions");
   const stopBtn = document.getElementById("stop");
+  const updatingEl = document.getElementById("updating");
 
   function render(update) {
     overlay.dataset.status = update.status;
@@ -22,6 +23,10 @@
     // which escapes the model output before adding its <strong>/<li> tags.
     summaryEl.innerHTML = update.summaryHtml || "";
     summaryEl.classList.toggle("streaming", Boolean(update.summaryStreaming));
+    // Stale: the bullets predate the latest transcript; keep them readable
+    // but say a replacement is on its way.
+    summaryEl.classList.toggle("stale", Boolean(update.summaryStale));
+    updatingEl.hidden = !update.summaryStale;
 
     captionsEl.replaceChildren(
       ...(update.captions || []).map((text) => {
