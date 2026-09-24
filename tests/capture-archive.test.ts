@@ -127,21 +127,31 @@ describe("CaptureArchive", () => {
   });
 
   it("prunes past the count cap on write", () => {
-    const archive = new CaptureArchive(dir, { maxEntries: 2 });
+    // Seeding runs through a cap-free instance so the pruner cannot fire
+    // before every mtime is set, and the mtimes are minutes back from *now*
+    // rather than a fixed calendar date: the final write below carries a real
+    // mtime and has to be the newest entry on any machine clock. A fixed date
+    // is in the past in one timezone and the future in another, and on a UTC
+    // CI runner it made the pruner discard the file that had just been
+    // written.
+    const seeding = new CaptureArchive(dir, { maxEntries: 99 });
+    const seeded: string[] = [];
     for (let i = 0; i < 4; i += 1) {
-      const written = archive.record(PNG_BASE64, "area", new Date(2026, 8, 24, 19, 26, i));
-      // mtime is what ordering keys off, and four writes land in the same
-      // millisecond here — set it explicitly so "oldest" is well defined.
-      fs.utimesSync(written!, new Date(2026, 8, 24, 19, 26, i), new Date(2026, 8, 24, 19, 26, i));
+      const written = seeding.record(PNG_BASE64, "area", new Date(2026, 8, 24, 19, 26, i))!;
+      const when = new Date(Date.now() - (10 - i) * 60_000);
+      fs.utimesSync(written, when, when);
+      seeded.push(path.basename(written));
     }
-    // The write that trips the cap prunes against the mtimes it can see, so
-    // one more write settles the folder at the cap.
-    archive.record(PNG_BASE64, "area", new Date(2026, 8, 24, 19, 27, 0));
+    expect(seeding.list()).toHaveLength(4);
 
-    const names = archive.list().map((e) => e.name);
+    const capped = new CaptureArchive(dir, { maxEntries: 2 });
+    const fresh = capped.record(PNG_BASE64, "area", new Date(2026, 8, 24, 19, 27, 0))!;
+
+    const names = capped.list().map((e) => e.name);
     expect(names).toHaveLength(2);
-    expect(names).toContain("Marshal 2026-09-24 19.27.00 area.png");
-    expect(names).not.toContain("Marshal 2026-09-24 19.26.00 area.png");
+    expect(names).toContain(path.basename(fresh));
+    expect(names).toContain(seeded[3]);
+    expect(names).not.toContain(seeded[0]);
   });
 
   it("replaces an entry in place so annotating leaves one history row", () => {
