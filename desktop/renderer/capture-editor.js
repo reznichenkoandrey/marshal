@@ -508,8 +508,10 @@ async function doSaveQuick() {
 async function doCopy() {
   try {
     const b64 = composeForExport();
+    // Main puts the image on the clipboard, keeps it in capture history, posts
+    // a system notification and closes this window (#224). No toast here: it
+    // would die with the window before it could be read.
     await api.copy(b64);
-    toast("Copied to clipboard");
   } catch (err) {
     toast(`Copy failed: ${err.message || err}`);
   }

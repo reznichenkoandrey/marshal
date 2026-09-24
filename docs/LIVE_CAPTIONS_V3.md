@@ -57,8 +57,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 
 | Requirement | Status | Where / issue |
 |---|---|---|
-| Transcribed lines go through Marshal's translator | ⬜ | #210 — reuses `TranslatorService`, its backend choice and glossary |
-| No overlapping text when translations arrive out of order | ⬜ | #210 — ordered by line number, not by response order |
+| Transcribed lines go through Marshal's translator | ✅ | #210 — `caption-translation.ts` sends every finished line through `TranslatorService` (Settings backend, glossary); the live line is not translated |
+| No overlapping text when translations arrive out of order | ✅ | #210 — translations are keyed by the line's text, not its position, so a late answer lands on its own line and a merged line (#202) gets its own request |
 
 ## 2.4 Real-time scribe summarization (Claude)
 
@@ -89,3 +89,4 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | `MARSHAL_CAPTIONS_MIN_RMS` | `120` | classifier energy floor (#202) |
 | `MARSHAL_CAPTIONS_SILENCE_MS` | `900` | end-of-utterance pause — #209 |
 | `MARSHAL_CAPTIONS_MIX_MIC` | `0` | also caption the microphone (#191, #212) |
+| `MARSHAL_CAPTIONS_TRANSLATE` | `uk` | target language of the live translation, or `off` (#210) |

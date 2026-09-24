@@ -77,6 +77,12 @@ export interface OverlayUpdate {
    * replaced by the final line once the utterance closes.
    */
   partial: string;
+  /**
+   * Translation of each `captions` entry, by index (#210): null while it is
+   * pending, failed, or would repeat the original. Empty when translation
+   * is off. The live line is never translated — it changes every second.
+   */
+  translations: Array<string | null>;
   /** Rendered HTML for the summary bullets (already escaped). */
   summaryHtml: string;
   /** True while the summary is still streaming. */

@@ -3,10 +3,10 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
-import { BrowserWindow, ipcMain, screen, systemPreferences } from "electron";
+import { BrowserWindow, screen, systemPreferences } from "electron";
 import type { Display } from "electron";
 
+import { openCropOverlay } from "../capture/crop-overlay.ts";
 import { captureDisplay } from "../capture/display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -84,82 +84,17 @@ export class ScreenshotService {
   }
 
   private openCropOverlay(screenshotDataUrl: string, display: Display): Promise<CropRegion | null> {
-    const { width, height } = display.bounds;
-    return new Promise((resolve) => {
-      const { x, y } = display.bounds;
-      // Per-invocation unique ipc channels prevent two concurrent overlays
-      // (e.g. hotkey + toolbar button fired in quick succession) from
-      // cross-firing each other's crop-selected / crop-cancelled events.
-      const token = randomUUID();
-      const selectChannel = `marshal:crop-selected:${token}`;
-      const cancelChannel = `marshal:crop-cancelled:${token}`;
-
-      this.cropWindow = new BrowserWindow({
-        // Cover the entire display without using fullscreen mode.
-        // setFullScreen(true) breaks transparency on macOS — avoid it.
-        width,
-        height,
-        x,
-        y,
-        frame: false,
-        transparent: true,
-        hasShadow: false,
-        alwaysOnTop: true,
-        skipTaskbar: true,
-        resizable: false,
-        movable: false,
-        focusable: true,
-        webPreferences: {
-          preload: this.preloadPath,
-          contextIsolation: true,
-          nodeIntegration: false
-        }
-      });
-
-      // screen-saver level puts the window above the macOS menu bar
-      this.cropWindow.setAlwaysOnTop(true, "screen-saver");
-      this.cropWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      // Do NOT call setFullScreen(true) — it enters a separate macOS Space
-      // and breaks window transparency, resulting in a black overlay.
-
-      void this.cropWindow.loadFile(path.join(this.rendererDir, "crop-overlay.html"));
-
-      // Send overlay init (channel names + legacy dataUrl) once ready.
-      this.cropWindow.webContents.on("did-finish-load", () => {
-        this.cropWindow?.webContents.send("crop-init", {
-          dataUrl: screenshotDataUrl,
-          channels: { select: selectChannel, cancel: cancelChannel }
-        });
-      });
-
-      // Receive selected region from renderer
-      const onRegion = (_event: Electron.IpcMainEvent, region: CropRegion) => {
-        cleanup();
-        resolve(region);
-      };
-
-      const onCancel = (): void => {
-        cleanup();
-        resolve(null);
-      };
-
-      ipcMain.once(selectChannel, onRegion);
-      ipcMain.once(cancelChannel, onCancel);
-
-      this.cropWindow.on("closed", () => {
-        ipcMain.removeListener(selectChannel, onRegion);
-        ipcMain.removeListener(cancelChannel, onCancel);
-        resolve(null);
-      });
-
-      const cleanup = (): void => {
-        ipcMain.removeListener(selectChannel, onRegion);
-        ipcMain.removeListener(cancelChannel, onCancel);
-        if (this.cropWindow && !this.cropWindow.isDestroyed()) {
-          this.cropWindow.close();
-        }
-        this.cropWindow = null;
-      };
-    });
+    // One shared overlay for the capture studio, this OCR crop and the
+    // live-captions region — including the macOS geometry fix it carries
+    // (see capture/crop-overlay.ts and #223).
+    return openCropOverlay({
+      display,
+      preloadPath: this.preloadPath,
+      rendererDir: this.rendererDir,
+      screenshotDataUrl,
+      onWindow: (window) => {
+        this.cropWindow = window;
+      }
+    }) as Promise<CropRegion | null>;
   }
 }

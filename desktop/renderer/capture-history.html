@@ -15,6 +15,15 @@
       <span id="folder-path" class="history-folder"></span>
     </div>
     <div class="history-actions">
+      <input
+        id="search"
+        class="history-search"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Search captures…"
+        aria-label="Search captures by name, date or type"
+      />
       <button id="refresh-btn" type="button" class="ghost-btn" title="Re-read folder">Refresh</button>
       <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the capture folder in Finder">Open folder</button>
       <button id="close-btn" type="button" class="ghost-btn" title="Close history">Close</button>
@@ -22,13 +31,13 @@
   </header>
 
   <main>
-    <div id="grid" class="history-grid"></div>
+    <div id="groups"></div>
     <div id="empty" class="history-empty hidden">
       <p>No Marshal captures yet.</p>
       <p class="history-empty-hint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
     </div>
   </main>
 
-  <script src="./capture-history.js"></script>
+  <script src="./capture-history.js" type="module"></script>
 </body>
 </html>

@@ -29,10 +29,32 @@
     updatingEl.hidden = !update.summaryStale;
 
     const finals = update.captions || [];
+    const translations = update.translations || [];
     const lines = finals.map((text, index) => {
+      const latest = index === finals.length - 1;
+      const translation = translations[index] || "";
       const line = document.createElement("div");
-      line.className = index === finals.length - 1 ? "line latest" : "line";
-      line.textContent = text;
+      line.className = latest ? "line latest" : "line";
+      // Translated lines (#210) show the translation as the caption. The
+      // original stays under the latest one only — names and terms are
+      // checked against what was just said, not against lines from a
+      // minute ago — and until the translation lands the original stands
+      // in, muted, rather than leaving a gap.
+      if (translation) {
+        line.classList.add("translated");
+        const main = document.createElement("span");
+        main.className = "translation";
+        main.textContent = translation;
+        line.appendChild(main);
+        if (latest) {
+          const original = document.createElement("span");
+          original.className = "original";
+          original.textContent = text;
+          line.appendChild(original);
+        }
+      } else {
+        line.textContent = text;
+      }
       return line;
     });
     // The utterance still being spoken (#203). Its newest words are at the

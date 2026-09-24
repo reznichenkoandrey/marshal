@@ -63,6 +63,7 @@ function update(overrides) {
     status: "listening",
     captions: [],
     partial: "",
+    translations: [],
     summaryHtml: "",
     summaryStreaming: false,
     summaryStale: false,
@@ -147,6 +148,53 @@ async function main() {
     return line ? { overflowing: line.classList.contains("overflowing"), text: line.textContent } : null;
   })()`);
   record("a short live line is not faded", short?.overflowing === false, JSON.stringify(short));
+
+  // ── Translated lines (#210): translation is the caption, original under the latest only ──
+  await js(`window.__captionsProbe.push(${update({
+    captions: ["We shard by tenant id.", "Reads go to the replicas."],
+    translations: ["Ми шардимо по tenant id.", null]
+  })})`);
+  await sleep(150);
+  const translated = await js(`(() => {
+    const lines = [...document.querySelectorAll("#captions .line:not(.partial)")];
+    return lines.map((line) => ({
+      translated: line.classList.contains("translated"),
+      text: line.querySelector(".translation")?.textContent ?? line.textContent,
+      original: line.querySelector(".original")?.textContent ?? null,
+      latest: line.classList.contains("latest")
+    }));
+  })()`);
+  record(
+    "a translated line shows the translation as the caption",
+    translated[0]?.translated === true && translated[0]?.text === "Ми шардимо по tenant id."
+  );
+  record(
+    "a line whose translation is pending shows the original",
+    translated[1]?.translated === false && translated[1]?.text === "Reads go to the replicas."
+  );
+  await js(`window.__captionsProbe.push(${update({
+    captions: ["We shard by tenant id.", "Reads go to the replicas."],
+    translations: ["Ми шардимо по tenant id.", "Читання йдуть на репліки."]
+  })})`);
+  await sleep(150);
+  const both = await js(`(() => {
+    const lines = [...document.querySelectorAll("#captions .line:not(.partial)")];
+    const body = document.getElementById("captions").getBoundingClientRect();
+    return {
+      originals: lines.map((line) => line.querySelector(".original")?.textContent ?? null),
+      latestOriginalSmaller:
+        parseFloat(getComputedStyle(lines[1].querySelector(".original")).fontSize) <
+        parseFloat(getComputedStyle(lines[1].querySelector(".translation")).fontSize),
+      latestVisible: lines[1].getBoundingClientRect().bottom <= body.bottom + 1
+    };
+  })()`);
+  record(
+    "only the latest line carries its original underneath",
+    Array.isArray(both.originals) && both.originals[0] === null && both.originals[1] === "Reads go to the replicas.",
+    JSON.stringify(both.originals)
+  );
+  record("the original is set smaller than the translation", both.latestOriginalSmaller === true);
+  record("the latest translated line fits inside the captions area", both.latestVisible === true);
 
   // ── The final lands: the live line goes away ──
   await js(`window.__captionsProbe.push(${update({ captions: ["Done.", "And then we fan out."], partial: "" })})`);

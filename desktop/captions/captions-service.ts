@@ -27,6 +27,8 @@ import {
 } from "../dictation/whisper-backend.ts";
 import { ResidentWhisperBackend } from "../dictation/whisper-server.ts";
 import { resolveCaptionsSttBackend } from "./stt-choice.ts";
+import { CaptionTranslator, resolveTranslationTarget, type TranslateLine } from "./caption-translation.ts";
+import { resolveLangCode } from "../translator/languages.ts";
 import { PushToTalkHotkey, type PushToTalkBackend } from "../dictation/hotkey-manager.ts";
 import { isSwiftPttCandidate, SwiftPushToTalkHotkey } from "../dictation/swift-ptt-monitor.ts";
 import { CaptionsWindow, type OcrRegion } from "./captions-window.ts";
@@ -92,6 +94,11 @@ export interface CaptionsServiceOptions {
   partialWhisper?: WhisperBackend | null;
   summarizer?: SummaryStreamer | null;
   audioTap?: SystemAudioTap;
+  /**
+   * Translates one finished line into `targetLang` (#210). main passes the
+   * app's TranslatorService; null keeps captions in the spoken language.
+   */
+  translate?: TranslateLine | null;
 }
 
 export class LiveCaptionsService extends EventEmitter {
@@ -127,6 +134,9 @@ export class LiveCaptionsService extends EventEmitter {
   private partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
   /** Which STT the captions run on, for the overlay hint. */
   private sttBackend: BackendName = "whisper-cpp";
+  private readonly translate: TranslateLine | null;
+  /** Live translation of finished lines (#210); null when off or unavailable. */
+  private translator: CaptionTranslator | null = null;
   private readonly partialGate = new PartialGate();
   /** The open utterance as transcribed so far — shown, never stored. */
   private partialText = "";
@@ -161,6 +171,7 @@ export class LiveCaptionsService extends EventEmitter {
       summarizer: options.summarizer !== undefined
     };
     this.partialWhisper = options.partialWhisper ?? null;
+    this.translate = options.translate ?? null;
     this.whisper = options.whisper ?? createWhisperBackend("whisper-cpp");
     this.summarizer = options.summarizer ?? null;
     this.pickRegion = options.pickRegion;
@@ -211,6 +222,19 @@ export class LiveCaptionsService extends EventEmitter {
         partialBackend === "whisper-cpp" && !(partialWhisper instanceof ResidentWhisperBackend) ? null : partialWhisper;
     }
     this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
+    const target = resolveTranslationTarget(process.env.MARSHAL_CAPTIONS_TRANSLATE, resolveLangCode);
+    this.translator =
+      this.translate && target
+        ? new CaptionTranslator({
+            translate: this.translate,
+            targetLang: target,
+            onUpdate: () => this.pushUpdate(),
+            onError: (err) => {
+              const message = err instanceof Error ? err.message : String(err);
+              console.warn("[captions] translation failed, pausing translation:", message.split("\n")[0].slice(0, 300));
+            }
+          })
+        : null;
     if (!this.injected.summarizer) {
       this.summarizer = createSummaryStreamer(process.env, (notice) => this.onSummaryFallback(notice));
     }
@@ -292,6 +316,7 @@ export class LiveCaptionsService extends EventEmitter {
       assertScreenRecordingGranted();
       this.configureFromEnv();
       this.buffer.clear();
+      this.translator?.clear();
       this.summaryText = "";
       this.transcribeQueue = [];
       this.window.show();
@@ -554,6 +579,8 @@ export class LiveCaptionsService extends EventEmitter {
       return;
     }
     if (!result.accepted) return;
+    // A merged line (#202) is new text, so it gets its own translation.
+    this.translator?.request(result.text);
     // The bullets on screen no longer cover the transcript; say so until the
     // replacement has its first words.
     if (this.summaryText.length > 0) this.summaryStale = true;
@@ -693,7 +720,8 @@ export class LiveCaptionsService extends EventEmitter {
     const turn = this.turnPolicy === "queue" ? " · queue" : "";
     const mic = this.micState === "on" ? " · mic" : this.micState === "off" ? "" : ` · mic ${this.micState}`;
     const stt = this.sttBackend === "whisper-cpp" ? "local" : this.sttBackend;
-    return `${this.providerHint} · stt: ${stt} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${mic}${context}`;
+    const translation = this.translator ? ` → ${this.translator.targetLang}` : "";
+    return `${this.providerHint} · stt: ${stt}${translation} · vad: ${this.vadChoice} · pause ${this.silenceMs} ms${turn}${mic}${context}`;
   }
 
   /** Where the user drops reference files; created on demand by the Settings button. */
@@ -717,6 +745,9 @@ export class LiveCaptionsService extends EventEmitter {
     const update: OverlayUpdate = {
       status: this.status,
       captions: this.buffer.displayLines(),
+      translations: this.translator
+        ? this.buffer.displayLines().map((line) => this.translator?.get(line) ?? null)
+        : [],
       partial: this.partialText,
       summaryHtml: renderSummaryHtml(this.summaryText),
       summaryStreaming: this.summaryStreaming,

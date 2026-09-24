@@ -1,8 +1,14 @@
 // desktop/capture/capture-history-window.ts
 //
-// Floating window that lists recent captures (PNG / MOV / GIF) saved into the
-// user's capture folder. The grid is renderer-side; main only reads the
-// directory once on demand and pushes the list in.
+// Floating window that lists recent captures (PNG / MOV / GIF). It reads two
+// places and shows them as one history: the user's capture folder (what they
+// chose to save, plus recordings and GIFs) and the archive in userData (every
+// capture that reached the editor, including the ones only copied — see
+// capture-archive.ts and #225).
+//
+// The grid is renderer-side; main reads both sources on demand and pushes the
+// merged list in. Search and date grouping happen in the renderer, over the
+// list it already holds, so typing filters instantly without another disk read.
 //
 // Reopening an image hands it back to the annotation editor for re-edits;
 // reopening a video / GIF asks the OS to open it in its default app.
@@ -14,17 +20,18 @@ import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, shell } from "electron";
 
+import type { CaptureArchive } from "./capture-archive.ts";
+import {
+  mergeHistoryEntries,
+  type CaptureHistoryEntry,
+  type CaptureKind
+} from "./capture-history-list.ts";
+
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 const rendererDir = path.join(desktopDistDir, "..", "renderer");
 
-export interface CaptureHistoryEntry {
-  path: string;
-  name: string;
-  kind: "image" | "video" | "gif" | "other";
-  bytes: number;
-  modifiedAt: number;
-}
+export type { CaptureHistoryEntry } from "./capture-history-list.ts";
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const VIDEO_EXT = new Set([".mov", ".mp4"]);
@@ -34,10 +41,12 @@ export class CaptureHistoryWindow {
   private window: BrowserWindow | null = null;
   private readonly preloadPath: string;
   private resolveFolder: () => string;
+  private readonly archive: CaptureArchive;
 
-  constructor(preloadPath: string, resolveFolder: () => string) {
+  constructor(preloadPath: string, resolveFolder: () => string, archive: CaptureArchive) {
     this.preloadPath = preloadPath;
     this.resolveFolder = resolveFolder;
+    this.archive = archive;
   }
 
   open(): void {
@@ -126,6 +135,7 @@ export class CaptureHistoryWindow {
    * cannot widen the allowlist.
    */
   private belongsToFolder(filePath: string): boolean {
+    if (this.archive.contains(filePath)) return true;
     const folder = path.resolve(this.resolveFolder() || defaultFolder());
     const resolved = path.resolve(filePath);
     return resolved === folder || resolved.startsWith(folder + path.sep);
@@ -134,8 +144,19 @@ export class CaptureHistoryWindow {
   private pushEntries(): void {
     if (!this.window || this.window.isDestroyed()) return;
     const folder = this.resolveFolder() || defaultFolder();
-    const entries = listFolder(folder);
+    const entries = mergeHistoryEntries(listFolder(folder), this.listArchive());
     this.window.webContents.send("marshal:capture-history-loaded", { folder, entries });
+  }
+
+  private listArchive(): CaptureHistoryEntry[] {
+    return this.archive.list().map((entry) => ({
+      path: entry.path,
+      name: entry.name,
+      kind: "image" as CaptureKind,
+      bytes: entry.bytes,
+      modifiedAt: entry.modifiedAt,
+      source: "archive" as const
+    }));
   }
 }
 
@@ -175,17 +196,17 @@ function listFolder(folder: string): CaptureHistoryEntry[] {
       name,
       kind,
       bytes: stat.size,
-      modifiedAt: stat.mtimeMs
+      modifiedAt: stat.mtimeMs,
+      source: "folder"
     });
   }
 
-  out.sort((a, b) => b.modifiedAt - a.modifiedAt);
-  // Cap the grid at 60 newest entries — older captures stay on disk but the
-  // window doesn't try to render 1000s of thumbnails.
-  return out.slice(0, 60);
+  // Ordering and the overall cap are mergeHistoryEntries' job — this list is
+  // only one of the two sources it combines.
+  return out;
 }
 
-function classify(ext: string): CaptureHistoryEntry["kind"] {
+function classify(ext: string): CaptureKind {
   if (IMAGE_EXT.has(ext)) return "image";
   if (VIDEO_EXT.has(ext)) return "video";
   if (GIF_EXT.has(ext)) return "gif";

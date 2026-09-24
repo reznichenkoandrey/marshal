@@ -330,6 +330,7 @@ const captionsApi = {
         status: string;
         captions: string[];
         partial: string;
+        translations: Array<string | null>;
         summaryHtml: string;
         summaryStreaming: boolean;
         summaryStale: boolean;
@@ -343,6 +344,7 @@ const captionsApi = {
         status: string;
         captions: string[];
         partial: string;
+        translations: Array<string | null>;
         summaryHtml: string;
         summaryStreaming: boolean;
         summaryStale: boolean;

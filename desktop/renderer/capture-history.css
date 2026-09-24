@@ -57,8 +57,32 @@ body {
 
 .history-actions {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
   -webkit-app-region: no-drag;
+}
+
+/* Search sits in the toolbar, so it has to opt out of the window drag region
+   or clicks in it would move the window instead of focusing the field. */
+.history-search {
+  -webkit-app-region: no-drag;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-default);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  width: 200px;
+  transition: border-color 0.15s ease, width 0.15s ease;
+}
+.history-search::placeholder {
+  color: var(--text-muted);
+}
+.history-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  width: 260px;
 }
 
 .ghost-btn {
@@ -87,6 +111,30 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--space-3);
+}
+
+/* Day sections: one heading, then that day's own grid. */
+.history-day + .history-day {
+  margin-top: var(--space-5);
+}
+.history-day-label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-wider);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-3);
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  background: var(--bg-app);
+  padding: var(--space-2) 0;
+  z-index: 1;
+}
+.history-day-count {
+  font-weight: var(--fw-regular);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: var(--space-2);
 }
 
 .tile {
@@ -147,6 +195,19 @@ main {
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+/* Archive-only entries: the capture exists in history but was never saved to
+   a file the user chose, so say so rather than letting them assume otherwise. */
+.tile-source {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-xs);
+  background: rgba(0, 0, 0, 0.55);
+  color: #f5f5f7;
 }
 
 .tile-badge {
