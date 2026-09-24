@@ -22,7 +22,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, screen, desktopCapturer, systemPreferences } from "electron";
+import { app, BrowserWindow, screen, systemPreferences } from "electron";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -96,18 +96,13 @@ app.whenReady().then(async () => {
     report.checks.displayCount = screen.getAllDisplays().length;
     report.checks.capturedDisplayId = display.id;
     report.checks.capturedActiveDisplay = display.id === screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id;
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(display.bounds.width * display.scaleFactor),
-        height: Math.round(display.bounds.height * display.scaleFactor)
-      }
-    });
-    // Match the source to the display rather than trusting source order.
-    const matched = sources.find((s) => s.display_id === String(display.id)) ?? sources[0];
-    report.checks.sourceMatchedDisplay =
-      sources.find((s) => s.display_id === String(display.id)) !== undefined;
-    const shot = matched.thumbnail;
+
+    // Through the shipped capture path, not desktopCapturer directly. Calling
+    // desktopCapturer here reproduced #182 — an empty thumbnail about one run
+    // in three — which is the defect display-capture.ts exists to avoid, and
+    // it made this harness fail for a reason the product does not have (#226).
+    const { captureDisplay } = await import(path.join(DIST, "capture", "display-capture.js"));
+    const { image: shot } = await captureDisplay(display);
     const shotSize = shot.getSize();
     log("captured screen", shotSize);
     report.checks.captureSize = shotSize;

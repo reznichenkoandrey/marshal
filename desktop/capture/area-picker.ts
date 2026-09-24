@@ -13,20 +13,23 @@
 // Contract:
 //   pickArea(opts) → Promise<PickResult | null>   (null = user cancelled)
 //
-// The function captures the display under the pointer, opens a transparent
-// full-screen BrowserWindow on that same display which loads
-// renderer/crop-overlay.html, and waits for the user to drag a region or press
-// Esc. Returned coordinates are in DIP (pre-scale) CSS pixels relative to that
+// The function captures the display under the pointer, opens the shared crop
+// overlay (crop-overlay.ts) on that same display, and waits for the user to
+// drag a region or press Esc. The overlay window itself lives there because
+// the translator and live captions open the same one, and getting its geometry
+// wrong offsets every selection (#223).
+//
+// Returned coordinates are in DIP (pre-scale) CSS pixels relative to that
 // display — callers multiply by the returned `scaleFactor` when slicing the
 // native PNG. Read it from the result, not from the primary display: scale
 // factors differ between a Retina laptop screen and an external monitor.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 
-import { BrowserWindow, ipcMain, systemPreferences, type Display } from "electron";
+import { systemPreferences, type Display } from "electron";
 
+import { openCropOverlay, type CropSelection } from "./crop-overlay.ts";
 import { captureDisplay } from "./display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -34,12 +37,8 @@ const desktopDistDir = path.dirname(currentFilePath);
 // area-picker.ts compiles to dist/desktop/capture/, overlay lives in dist/desktop/renderer/
 const rendererDir = path.join(desktopDistDir, "..", "renderer");
 
-export interface AreaRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+/** Selection rectangle in CSS pixels, relative to the captured display. */
+export type AreaRegion = CropSelection;
 
 export interface PickResult {
   /** Full-display PNG as base64 data URL (includes `data:image/png;base64,` prefix). */
@@ -83,79 +82,13 @@ export async function pickArea(opts: PickAreaOptions): Promise<PickResult | null
 
   const fullDataUrl = image.toDataURL();
 
-  const region = await openCropOverlay(fullDataUrl, display, opts.preloadPath);
+  const region = await openCropOverlay({
+    display,
+    preloadPath: opts.preloadPath,
+    rendererDir,
+    screenshotDataUrl: fullDataUrl
+  });
   if (!region) return null;
 
   return { fullDataUrl, region, scaleFactor, display };
-}
-
-function openCropOverlay(
-  screenshotDataUrl: string,
-  display: Display,
-  preloadPath: string
-): Promise<AreaRegion | null> {
-  const { width, height, x, y } = display.bounds;
-
-  return new Promise((resolve) => {
-    const token = randomUUID();
-    const selectChannel = `marshal:crop-selected:${token}`;
-    const cancelChannel = `marshal:crop-cancelled:${token}`;
-
-    const cropWindow = new BrowserWindow({
-      width,
-      height,
-      x,
-      y,
-      frame: false,
-      transparent: true,
-      hasShadow: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      movable: false,
-      focusable: true,
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false
-      }
-    });
-
-    cropWindow.setAlwaysOnTop(true, "screen-saver");
-    cropWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-    void cropWindow.loadFile(path.join(rendererDir, "crop-overlay.html"));
-
-    cropWindow.webContents.on("did-finish-load", () => {
-      cropWindow.webContents.send("crop-init", {
-        dataUrl: screenshotDataUrl,
-        channels: { select: selectChannel, cancel: cancelChannel }
-      });
-    });
-
-    const cleanup = (): void => {
-      ipcMain.removeListener(selectChannel, onRegion);
-      ipcMain.removeListener(cancelChannel, onCancel);
-      if (!cropWindow.isDestroyed()) cropWindow.close();
-    };
-
-    const onRegion = (_event: Electron.IpcMainEvent, region: AreaRegion): void => {
-      cleanup();
-      resolve(region);
-    };
-
-    const onCancel = (): void => {
-      cleanup();
-      resolve(null);
-    };
-
-    ipcMain.once(selectChannel, onRegion);
-    ipcMain.once(cancelChannel, onCancel);
-
-    cropWindow.on("closed", () => {
-      ipcMain.removeListener(selectChannel, onRegion);
-      ipcMain.removeListener(cancelChannel, onCancel);
-      resolve(null);
-    });
-  });
 }

@@ -11,6 +11,7 @@ import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
 import { CaptureWindow } from "./capture/capture-window.ts";
 import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
+import { CaptureArchive } from "./capture/capture-archive.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { ScrollCapture } from "./capture/scroll-capture.ts";
 import { UpdateChecker, type UpdateCheckOutcome } from "./updater/update-checker.ts";
@@ -89,6 +90,12 @@ let screenshotService: ScreenshotService | null = null;
 let captureService: CaptureService | null = null;
 let captureWindow: CaptureWindow | null = null;
 let captureHistoryWindow: CaptureHistoryWindow | null = null;
+let captureArchive: CaptureArchive | null = null;
+// The archive entry the open editor is backed by, so annotating and then
+// copying updates that one entry instead of leaving the original plus a
+// near-duplicate. Null when the editor is closed, or when it holds an image
+// that came from the user's own capture folder (#225).
+let currentArchiveEntry: { path: string; kind: string } | null = null;
 let floatingToolbar: FloatingToolbar | null = null;
 let updateChecker: UpdateChecker | null = null;
 let updateCheckTimer: NodeJS.Timeout | null = null;
@@ -605,6 +612,7 @@ function registerIpcHandlers(): void {
     });
     if (result.canceled || !result.filePath) return { path: null };
     fs.writeFileSync(result.filePath, Buffer.from(input.base64, "base64"));
+    keepInArchive(input.base64);
     return { path: result.filePath };
   });
 
@@ -614,22 +622,33 @@ function registerIpcHandlers(): void {
     if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
     const filePath = path.join(folder, defaultCaptureFilename());
     fs.writeFileSync(filePath, Buffer.from(input.base64, "base64"));
+    keepInArchive(input.base64);
+    captureHistoryWindow?.refresh();
     return { path: filePath };
   });
 
   handleIpc("marshal:capture-copy", (_event, input: { base64: string }) => {
     const image = nativeImage.createFromBuffer(Buffer.from(input.base64, "base64"));
     clipboard.writeImage(image);
-    return { ok: true };
+    // Copy is a terminal action: the user has what they came for. Keep the
+    // annotated version in history first, then get the window out of the way
+    // — it floats above everything until it closes (#224).
+    keepInArchive(input.base64);
+    notifyCaptureCopied();
+    captureWindow?.close();
+    currentArchiveEntry = null;
+    return { ok: true, closed: true };
   });
 
   handleIpc("marshal:capture-pin", (_event, input: { base64: string }) => {
     openPinnedWindow(input.base64);
+    keepInArchive(input.base64);
     return { ok: true };
   });
 
   handleIpc("marshal:capture-close", () => {
     captureWindow?.close();
+    currentArchiveEntry = null;
     return { ok: true };
   });
 
@@ -647,6 +666,12 @@ function registerIpcHandlers(): void {
     captureWindow.openEditor({
       capture: { base64: image.base64, width: image.width, height: image.height, kind: "area" }
     });
+    // Re-editing an archived capture updates that entry. An image from the
+    // user's own capture folder is left alone — a later copy records a fresh
+    // archive entry rather than rewriting their file.
+    currentArchiveEntry = captureArchive?.contains(input.path)
+      ? { path: input.path, kind: "area" }
+      : null;
     return { ok: true };
   });
   handleIpc("marshal:capture-history:open-external", async (_event, input: { path: string }) => {
@@ -797,7 +822,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
       result = await captureService.captureFullscreen();
     }
     if (!result) return;
-    captureWindow.openEditor({ capture: result });
+    openEditorWithArchive(result);
   } catch (err) {
     if (Notification.isSupported()) {
       new Notification({
@@ -900,6 +925,53 @@ async function runScrollingCapture(): Promise<void> {
   } finally {
     if (mainWasVisible) showMainWindow();
   }
+}
+
+/**
+ * Opens the annotation editor and archives the untouched capture first, so a
+ * capture that is only ever copied to the clipboard still shows up in history
+ * (#225). The archive write is best-effort — a failure logs and the editor
+ * opens anyway.
+ */
+function openEditorWithArchive(capture: CaptureResult): void {
+  if (!captureWindow) return;
+  const archived = captureArchive?.record(capture.base64, capture.kind) ?? null;
+  currentArchiveEntry = archived ? { path: archived, kind: capture.kind } : null;
+  captureWindow.openEditor({ capture });
+  captureHistoryWindow?.refresh();
+}
+
+/**
+ * Brings the current archive entry up to date with what the user exported, so
+ * one capture session leaves one history entry — holding the annotated version
+ * they actually used, not the original they annotated over.
+ *
+ * Records a fresh entry when there is nothing to update: the editor was opened
+ * from the user's capture folder, or the entry has already been pruned.
+ */
+function keepInArchive(base64: string): void {
+  if (!captureArchive) return;
+  if (currentArchiveEntry && captureArchive.replace(currentArchiveEntry.path, base64)) {
+    captureHistoryWindow?.refresh();
+    return;
+  }
+  const kind = currentArchiveEntry?.kind ?? "area";
+  const archived = captureArchive.record(base64, kind);
+  currentArchiveEntry = archived ? { path: archived, kind } : null;
+  captureHistoryWindow?.refresh();
+}
+
+/**
+ * The editor's own toast dies with the window, and Copy now closes it — so
+ * the confirmation has to outlive it. Silent: this follows a deliberate click.
+ */
+function notifyCaptureCopied(): void {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: "Marshal — Copied",
+    body: "Capture is on the clipboard.",
+    silent: true
+  }).show();
 }
 
 function defaultCaptureFilename(): string {
@@ -1593,9 +1665,14 @@ function initCapture(): void {
   captureService = new CaptureService(preloadPath);
   captureWindow = new CaptureWindow(preloadPath);
   captureWindow.setAlwaysOnTop(loadSettings().captureEditorAlwaysOnTop);
+  // The archive lives in userData, not the user's capture folder: it is
+  // pruned on a budget, and Marshal must never delete a file the user saved
+  // on purpose. See capture/capture-archive.ts.
+  captureArchive = new CaptureArchive(path.join(app.getPath("userData"), "capture-history"));
   captureHistoryWindow = new CaptureHistoryWindow(
     preloadPath,
-    () => loadSettings().captureDefaultFolder
+    () => loadSettings().captureDefaultFolder,
+    captureArchive
   );
   floatingToolbar = new FloatingToolbar(preloadPath);
   recordingIndicator = new RecordingIndicator(preloadPath);

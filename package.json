@@ -33,7 +33,9 @@
     "setup:env": "bash scripts/setup-env.sh",
     "test:e2e:capture": "npm run build && electron tests/e2e/capture-editor.mjs",
     "test:e2e:alternatives": "npm run build && electron tests/e2e/translator-alternatives.mjs",
-    "test:e2e:captions": "npm run build && electron tests/e2e/captions-partial.mjs"
+    "test:e2e:captions": "npm run build && electron tests/e2e/captions-partial.mjs",
+    "test:e2e:region": "npm run build && electron tests/e2e/capture-region.mjs",
+    "test:e2e:history": "npm run build && electron tests/e2e/capture-history.mjs"
   },
   "build": {
     "appId": "com.marshal.desktop",
