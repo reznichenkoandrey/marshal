@@ -64,6 +64,33 @@ export class VideoRecorder extends EventEmitter {
     );
   }
 
+  /** Low-bitrate full-display capture for call recordings; resolves once frames flow. */
+  startMeeting(outPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const onStarted = (): void => {
+        this.off("error", onError);
+        resolve();
+      };
+      const onError = (err: Error): void => {
+        this.off("started", onStarted);
+        this.recording = false;
+        reject(err);
+      };
+      this.once("started", onStarted);
+      this.once("error", onError);
+      try {
+        this.ensureSpawned();
+      } catch (err) {
+        this.off("started", onStarted);
+        this.off("error", onError);
+        reject(err as Error);
+        return;
+      }
+      this.recording = true;
+      this.child!.stdin.write(`start-meeting ${outPath}\n`);
+    });
+  }
+
   pause(): void {
     if (!this.child) return;
     this.child.stdin.write("pause\n");

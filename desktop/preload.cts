@@ -318,6 +318,33 @@ const meetingApi = {
 
 contextBridge.exposeInMainWorld("marshalMeeting", meetingApi);
 
+// ── Meeting recordings API ──
+// Used exclusively by renderer/meeting-history.html.
+type MeetingHistoryEntry = {
+  id: string;
+  mode: "audio" | "screen";
+  state: "recording" | "finalizing" | "done" | "error" | "interrupted";
+  startedAt: string;
+  durationMs: number | null;
+  folder: string;
+  audioPath: string | null;
+  videoPath: string | null;
+  bytes: number;
+  error: string | null;
+  warnings: string[];
+};
+const meetingHistoryApi = {
+  onLoaded: (cb: (event: IpcRendererEvent, payload: { folder: string; entries: MeetingHistoryEntry[] }) => void) =>
+    registerListener<[{ folder: string; entries: MeetingHistoryEntry[] }]>("marshal:meeting-history-loaded", cb),
+  refresh: () => ipcRenderer.invoke("marshal:meeting-history:refresh"),
+  reveal: (filePath: string) => ipcRenderer.invoke("marshal:meeting-history:reveal", { path: filePath }),
+  revealFolder: () => ipcRenderer.invoke("marshal:meeting-history:reveal-folder"),
+  trash: (id: string) => ipcRenderer.invoke("marshal:meeting-history:trash", { id }),
+  close: () => ipcRenderer.invoke("marshal:meeting-history:close")
+};
+
+contextBridge.exposeInMainWorld("marshalMeetingHistory", meetingHistoryApi);
+
 // ── Live captions API ──
 // The overlay is a view only: main pushes fully rendered updates, the
 // renderer has one control (Stop) that is reachable only in drag mode.
@@ -421,6 +448,7 @@ declare global {
     marshalTranslator: typeof translatorApi;
     marshalCapture: typeof captureApi;
     marshalMeeting: typeof meetingApi;
+    marshalMeetingHistory: typeof meetingHistoryApi;
     marshalCaptions: typeof captionsApi;
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
