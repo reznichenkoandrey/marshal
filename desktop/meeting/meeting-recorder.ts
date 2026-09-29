@@ -17,6 +17,9 @@ const DEFAULT_RECORDER_BIN = path.join(
   "audio-recorder"
 );
 const DEFAULT_CHUNK_MS = 5 * 60 * 1000;
+// Covers the first exec of a freshly signed helper, which Gatekeeper holds
+// for up to ~35 s after an install (#181).
+const HELPER_READY_TIMEOUT_MS = 45_000;
 
 export const MEETING_AUDIO_FILE = "meeting.m4a";
 export const MEETING_VIDEO_FILE = "meeting.mp4";
@@ -291,6 +294,12 @@ export class MeetingRecorder extends EventEmitter {
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
     const args = micUid ? [micPath, "--device", micUid] : [micPath];
     const child = spawn(this.recorderBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    // Listen before awaiting anything else: if the helper exits while the
+    // system-audio start is pending, a listener attached afterwards never
+    // hears the exit and the recording hangs before it begins.
+    const micReady = this.waitForReady(child);
+    micReady.catch(() => undefined);
+    console.log(`[meeting] ${chunkName}: microphone recorder spawned`);
     let systemRecorder: SystemAudioRecorder | null = null;
     let activeSystemPath: string | null = null;
     if (this.systemAudioRecorder) {
@@ -298,8 +307,10 @@ export class MeetingRecorder extends EventEmitter {
         await this.systemAudioRecorder.start(systemPath);
         systemRecorder = this.systemAudioRecorder;
         activeSystemPath = systemPath;
+        console.log(`[meeting] ${chunkName}: system audio started`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[meeting] ${chunkName}: system audio unavailable: ${message}`);
         this.manifest.warnings ??= [];
         this.manifest.warnings.push(`System audio unavailable for ${chunkName}: ${message}`);
       }
@@ -318,7 +329,14 @@ export class MeetingRecorder extends EventEmitter {
       systemRecorder,
       index
     };
-    await this.waitForReady(child);
+    try {
+      await micReady;
+    } catch (err) {
+      this.currentChunk = null;
+      systemRecorder?.kill();
+      throw err;
+    }
+    console.log(`[meeting] ${chunkName}: microphone ready`);
     // Stamped once the microphone is actually capturing: this is the chunk's
     // position on the timeline the final audio and the screen video share.
     this.manifest.chunks.push({
@@ -395,6 +413,7 @@ export class MeetingRecorder extends EventEmitter {
       const finish = (err?: Error): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         child.stdout?.removeListener("data", onData);
         child.stderr?.removeListener("data", onStderr);
         child.removeListener("error", onError);
@@ -402,13 +421,20 @@ export class MeetingRecorder extends EventEmitter {
         if (err) reject(err);
         else resolve();
       };
+      let stderrTail = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGTERM");
+        finish(new Error(`Microphone recorder did not become ready within ${HELPER_READY_TIMEOUT_MS / 1000} s.`));
+      }, HELPER_READY_TIMEOUT_MS);
       const onData = (): void => finish();
       const onStderr = (chunk: Buffer): void => {
-        console.warn("[meeting] recorder stderr:", chunk.toString("utf8").trim());
+        const text = chunk.toString("utf8").trim();
+        stderrTail = (stderrTail + " " + text).slice(-500);
+        console.warn("[meeting] recorder stderr:", text);
       };
       const onError = (err: Error): void => finish(err);
       const onExit = (code: number | null): void => {
-        finish(new Error(`Meeting audio recorder exited before ready (${code ?? "signal"}).`));
+        finish(new Error(`Microphone recorder exited before ready (${code ?? "signal"}):${stderrTail}`));
       };
       child.stdout?.once("data", onData);
       child.stderr?.on("data", onStderr);
