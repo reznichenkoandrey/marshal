@@ -14,6 +14,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 const localRequire = createRequire(import.meta.url);
 
 export interface GifOptions {
@@ -101,7 +103,8 @@ export class GifEncoder {
   private static resolveBundled(): string | null {
     try {
       const mod = localRequire("ffmpeg-static") as unknown;
-      const p = typeof mod === "string" ? mod : null;
+      // ffmpeg-static resolves inside app.asar; spawn needs the unpacked copy.
+      const p = typeof mod === "string" ? asarUnpacked(mod) : null;
       if (p && fs.existsSync(p)) return p;
     } catch {
       // Package not installed.

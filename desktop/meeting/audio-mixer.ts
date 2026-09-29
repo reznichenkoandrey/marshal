@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 
+import { asarUnpacked } from "../utils/asar-paths.ts";
+
 const localRequire = createRequire(import.meta.url);
 
 // Recordings are for listening back, not for Whisper: 48 kHz keeps voices
@@ -115,7 +117,8 @@ export class MeetingAudioMixer {
     if (this.cachedBinaryPath !== undefined) return this.cachedBinaryPath;
     try {
       const mod = localRequire("ffmpeg-static") as unknown;
-      const ffmpegPath = typeof mod === "string" ? mod : null;
+      // ffmpeg-static resolves inside app.asar; spawn needs the unpacked copy.
+      const ffmpegPath = typeof mod === "string" ? asarUnpacked(mod) : null;
       if (ffmpegPath && fs.existsSync(ffmpegPath)) {
         this.cachedBinaryPath = ffmpegPath;
         return ffmpegPath;
