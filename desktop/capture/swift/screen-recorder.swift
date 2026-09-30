@@ -10,6 +10,7 @@
 // Commands (stdin, one per line):
 //   start-fullscreen <outPath>
 //   start-area <x> <y> <w> <h> <outPath>
+//   start-meeting <outPath>      (primary display, 1x, 15 fps, low bitrate)
 //   pause
 //   resume
 //   stop
@@ -54,6 +55,29 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         )
     }
 
+    // Meeting profile: an hour-long call at the capture defaults (Retina,
+    // 30 fps, w*h*6 bps) is ~16 GB. Point resolution at 15 fps and a fixed
+    // 2.5 Mbps keeps slides and faces readable at roughly 1.1 GB per hour.
+    private static let meetingFps: Int32 = 15
+    private static let meetingBitRate = 2_500_000
+
+    func startMeeting(outPath: String) async throws {
+        let (display, _) = try await pickPrimaryDisplay()
+        let config = SCStreamConfiguration()
+        config.width = display.width
+        config.height = display.height
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.minimumFrameInterval = CMTime(value: 1, timescale: Recorder.meetingFps)
+        config.queueDepth = 6
+        config.showsCursor = true
+        try await startCapture(
+            filter: SCContentFilter(display: display, excludingWindows: []),
+            config: config,
+            outPath: outPath,
+            bitRate: Recorder.meetingBitRate
+        )
+    }
+
     func startArea(x: Double, y: Double, w: Double, h: Double, outPath: String) async throws {
         let (display, scale) = try await pickPrimaryDisplay()
         let config = SCStreamConfiguration()
@@ -89,7 +113,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private func startCapture(
         filter: SCContentFilter,
         config: SCStreamConfiguration,
-        outPath: String
+        outPath: String,
+        bitRate: Int? = nil
     ) async throws {
         let url = URL(fileURLWithPath: outPath)
         try? FileManager.default.removeItem(at: url)
@@ -100,7 +125,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             AVVideoWidthKey: config.width,
             AVVideoHeightKey: config.height,
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: max(2_000_000, config.width * config.height * 6)
+                AVVideoAverageBitRateKey: bitRate ?? max(2_000_000, config.width * config.height * 6)
             ]
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
@@ -224,6 +249,20 @@ DispatchQueue.global(qos: .userInitiated).async {
             Task {
                 do {
                     try await recorder.startFullscreen(outPath: outPath)
+                    emitLine("started")
+                } catch {
+                    emitLine("error \(error.localizedDescription)")
+                }
+            }
+        case "start-meeting":
+            guard parts.count >= 2 else {
+                emitLine("error usage: start-meeting <outPath>")
+                continue
+            }
+            let outPath = parts.dropFirst().joined(separator: " ")
+            Task {
+                do {
+                    try await recorder.startMeeting(outPath: outPath)
                     emitLine("started")
                 } catch {
                     emitLine("error \(error.localizedDescription)")

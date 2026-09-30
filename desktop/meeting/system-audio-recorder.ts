@@ -13,6 +13,10 @@ const DEFAULT_BINARY_PATH = path.join(
   "system-audio-recorder"
 );
 
+// Generous for Gatekeeper's first-exec check after an install (#181); a start
+// that never answers must not hold the whole recording hostage.
+const START_TIMEOUT_MS = 45_000;
+
 export class SystemAudioRecorder extends EventEmitter {
   private readonly binPath: string;
   private child: ChildProcess | null = null;
@@ -86,9 +90,18 @@ export class SystemAudioRecorder extends EventEmitter {
       this.outputPath = null;
     });
     child.stdin?.write(`start ${outputPath}\n`);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`System audio did not start within ${START_TIMEOUT_MS / 1000} s: ${stderrTail}`)),
+        START_TIMEOUT_MS
+      );
+    });
     try {
-      await ready;
+      await Promise.race([ready, timeout]);
+      clearTimeout(timer);
     } catch (err) {
+      clearTimeout(timer);
       child.stdin?.write("quit\n");
       child.kill("SIGTERM");
       this.child = null;

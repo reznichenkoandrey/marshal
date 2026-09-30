@@ -41,7 +41,9 @@ import {
   modelsDir
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
-import { MeetingRecorder } from "./meeting/meeting-recorder.ts";
+import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { MeetingLibrary } from "./meeting/meeting-library.ts";
+import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
@@ -120,6 +122,7 @@ let isDictating = false;
 const DICTATION_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+M";
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
+let meetingHistoryWindow: MeetingHistoryWindow | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
@@ -367,6 +370,26 @@ function registerIpcHandlers(): void {
   });
   handleIpc("marshal:meeting-stop", async () => {
     await stopMeetingRecording();
+    return { ok: true };
+  });
+  handleIpc("marshal:meeting-history:refresh", () => {
+    meetingHistoryWindow?.refresh();
+    return { ok: true };
+  });
+  handleIpc("marshal:meeting-history:reveal", (_event, input: { path: string }) => {
+    return meetingHistoryWindow?.reveal(input.path) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
+  handleIpc("marshal:meeting-history:reveal-folder", async () => {
+    const folder = MeetingRecorder.meetingsDir(app.getPath("userData"));
+    await fs.promises.mkdir(folder, { recursive: true });
+    const failure = await shell.openPath(folder);
+    return failure ? { ok: false, error: failure } : { ok: true };
+  });
+  handleIpc("marshal:meeting-history:trash", async (_event, input: { id: string }) => {
+    return (await meetingHistoryWindow?.trash(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
+  handleIpc("marshal:meeting-history:close", () => {
+    meetingHistoryWindow?.close();
     return { ok: true };
   });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
@@ -1091,6 +1114,7 @@ async function performTeardown(): Promise<void> {
   dictationIndicator?.hide();
   meetingRecorder?.kill();
   meetingIndicator?.hide();
+  meetingHistoryWindow?.close();
   captionsService?.stop();
   captureWindow?.close();
   recordingIndicator?.hide();
@@ -1478,40 +1502,37 @@ function restartDictation(): void {
 function initMeetingRecorder(): void {
   meetingRecorder = new MeetingRecorder({ userDataDir: app.getPath("userData") });
   meetingIndicator = new MeetingIndicator(preloadPath);
+  const meetingsRoot = MeetingRecorder.meetingsDir(app.getPath("userData"));
+  const recorder = meetingRecorder;
+  meetingHistoryWindow = new MeetingHistoryWindow(
+    preloadPath,
+    new MeetingLibrary(meetingsRoot),
+    meetingsRoot,
+    () => recorder.activeId()
+  );
 
   meetingRecorder.on("recording-start", () => {
     isMeetingRecording = true;
     meetingIndicator?.show();
+    meetingHistoryWindow?.refresh();
     void refreshTrayState();
   });
-  meetingRecorder.on("recording-stop", ({ session }) => {
-    isMeetingRecording = false;
-    meetingIndicator?.hide();
-    void refreshTrayState();
+  meetingRecorder.on("saved", ({ session }) => {
+    meetingHistoryWindow?.refresh();
     if (!Notification.isSupported()) return;
     const notif = new Notification({
-      title: "Marshal — Meeting audio saved",
-      body: "Transcription is running…",
+      title: "Marshal — Meeting recording saved",
+      body: session.videoPath ? "Screen and audio are in Meeting Recordings." : "Audio is in Meeting Recordings.",
       silent: true
     });
-    notif.on("click", () => void shell.showItemInFolder(session.audioPath));
-    notif.show();
-  });
-  meetingRecorder.on("transcribed", ({ session, result }) => {
-    if (!Notification.isSupported()) return;
-    const preview = result.text.length > 100 ? `${result.text.slice(0, 97)}…` : result.text;
-    const notif = new Notification({
-      title: "Marshal — Meeting transcribed",
-      body: preview || "Transcript saved.",
-      silent: true
-    });
-    notif.on("click", () => void shell.showItemInFolder(session.transcriptPath ?? session.audioPath));
+    notif.on("click", () => meetingHistoryWindow?.open());
     notif.show();
   });
   meetingRecorder.on("error", (err: Error) => {
     console.error("[meeting] error:", err);
     isMeetingRecording = false;
     meetingIndicator?.hide();
+    meetingHistoryWindow?.refresh();
     void refreshTrayState();
     if (!Notification.isSupported()) return;
     new Notification({ title: "Marshal — Meeting recording error", body: err.message, silent: true }).show();
@@ -1519,7 +1540,7 @@ function initMeetingRecorder(): void {
 
   globalShortcut.unregister(MEETING_TOGGLE_ACCELERATOR);
   const registered = globalShortcut.register(MEETING_TOGGLE_ACCELERATOR, () => {
-    void toggleMeetingRecording();
+    void toggleMeetingRecording("audio");
   });
   if (registered) {
     console.log(`[marshal] meeting: toggle accelerator ${MEETING_TOGGLE_ACCELERATOR} registered`);
@@ -1629,19 +1650,21 @@ async function toggleLiveCaptions(): Promise<void> {
   }
 }
 
-async function toggleMeetingRecording(): Promise<void> {
+async function toggleMeetingRecording(mode: MeetingMode): Promise<void> {
   if (!meetingRecorder) return;
-  if (isMeetingRecording || meetingRecorder.isRecording()) {
+  if (isMeetingRecording) {
     await stopMeetingRecording();
-  } else {
-    await startMeetingRecording();
+  } else if (!meetingRecorder.isRecording()) {
+    // isRecording() without isMeetingRecording = the previous call is still
+    // being saved; starting now would be refused anyway.
+    await startMeetingRecording(mode);
   }
 }
 
-async function startMeetingRecording(): Promise<void> {
+async function startMeetingRecording(mode: MeetingMode): Promise<void> {
   if (!meetingRecorder || isMeetingRecording) return;
   try {
-    await meetingRecorder.start();
+    await meetingRecorder.start(mode);
   } catch (err) {
     isMeetingRecording = false;
     meetingIndicator?.hide();
@@ -1657,8 +1680,14 @@ async function startMeetingRecording(): Promise<void> {
 }
 
 async function stopMeetingRecording(): Promise<void> {
-  if (!meetingRecorder || (!isMeetingRecording && !meetingRecorder.isRecording())) return;
+  if (!meetingRecorder || !isMeetingRecording) return;
+  // The call is over for the user the moment they press Stop; saving the
+  // files afterwards takes seconds and should not keep the pill on screen.
+  isMeetingRecording = false;
+  meetingIndicator?.hide();
+  void refreshTrayState();
   await meetingRecorder.stop();
+  meetingHistoryWindow?.refresh();
 }
 
 function initCapture(): void {
@@ -2083,11 +2112,29 @@ function buildTrayMenu(): Electron.Menu {
       enabled: dictationAvailable,
       click: () => dictationService?.toggleRecording()
     },
+    ...(isMeetingRecording
+      ? [{
+          label: "Stop Meeting Recording",
+          accelerator: MEETING_TOGGLE_ACCELERATOR,
+          click: () => void stopMeetingRecording()
+        }]
+      : [
+          {
+            label: "Record Meeting (Audio)",
+            accelerator: MEETING_TOGGLE_ACCELERATOR,
+            enabled: meetingAvailable,
+            click: () => void startMeetingRecording("audio")
+          },
+          {
+            label: "Record Meeting (Audio + Screen)",
+            enabled: meetingAvailable,
+            click: () => void startMeetingRecording("screen")
+          }
+        ]),
     {
-      label: isMeetingRecording ? "Stop Meeting Recording" : "Start Meeting Recording",
-      accelerator: MEETING_TOGGLE_ACCELERATOR,
+      label: "Meeting Recordings…",
       enabled: meetingAvailable,
-      click: () => void toggleMeetingRecording()
+      click: () => meetingHistoryWindow?.open()
     },
     {
       label: captionsRunning ? "Stop Live Captions" : "Start Live Captions",

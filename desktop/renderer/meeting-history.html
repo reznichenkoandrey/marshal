@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src file:; object-src 'none'; base-uri 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marshal — Meeting Recordings</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./capture-history.css" />
+  <link rel="stylesheet" href="./meeting-history.css" />
+</head>
+<body>
+  <header class="history-toolbar">
+    <div class="history-title">
+      <span class="history-title-label">Meeting Recordings</span>
+      <span id="folder-path" class="history-folder"></span>
+    </div>
+    <div class="history-actions">
+      <button id="refresh-btn" type="button" class="ghost-btn">Refresh</button>
+      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the recordings folder in Finder">Open folder</button>
+      <button id="close-btn" type="button" class="ghost-btn">Close</button>
+    </div>
+  </header>
+
+  <main>
+    <ul id="list" class="meeting-list"></ul>
+    <div id="empty" class="history-empty hidden">
+      <p>No meeting recordings yet.</p>
+      <p class="history-empty-hint">Tray → Record Meeting (Audio) or (Audio + Screen), or <kbd>⌘⌥⇧M</kbd>.</p>
+    </div>
+  </main>
+
+  <script src="./meeting-history.js" type="module"></script>
+</body>
+</html>

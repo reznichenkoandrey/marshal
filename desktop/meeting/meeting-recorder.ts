@@ -5,18 +5,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+import { VideoRecorder } from "../capture/video-recorder.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
-import {
-  createWhisperBackend,
-  resolveBackendName,
-  resolveDictationLanguage,
-  resolveDictationPrompt,
-  type TranscribeResult,
-  type WhisperBackend
-} from "../dictation/whisper-backend.ts";
-import { MeetingAudioMixer } from "./audio-mixer.ts";
+import { buildMeetingMuxArgs, buildTimelineToAacArgs, MeetingAudioMixer } from "./audio-mixer.ts";
 import { SystemAudioRecorder } from "./system-audio-recorder.ts";
-import { stitchWavPcm16Mono16k } from "./wav-stitcher.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -25,11 +17,19 @@ const DEFAULT_RECORDER_BIN = path.join(
   "audio-recorder"
 );
 const DEFAULT_CHUNK_MS = 5 * 60 * 1000;
+// Covers the first exec of a freshly signed helper, which Gatekeeper holds
+// for up to ~35 s after an install (#181).
+const HELPER_READY_TIMEOUT_MS = 45_000;
+
+export const MEETING_AUDIO_FILE = "meeting.m4a";
+export const MEETING_VIDEO_FILE = "meeting.mp4";
+const RAW_SCREEN_FILE = "screen.mov";
+
+export type MeetingMode = "audio" | "screen";
 
 export type MeetingRecordingEvents = {
-  "recording-start": [];
-  "recording-stop": [{ session: MeetingSessionSummary }];
-  transcribed: [{ session: MeetingSessionSummary; result: TranscribeResult }];
+  "recording-start": [{ mode: MeetingMode }];
+  saved: [{ session: MeetingSessionSummary }];
   error: [Error];
 };
 
@@ -45,17 +45,17 @@ export type MeetingChunkManifest = {
 
 export type MeetingManifest = {
   id: string;
-  state: "recording" | "stitching" | "transcribing" | "done" | "error";
+  mode: MeetingMode;
+  state: "recording" | "finalizing" | "done" | "error";
   source: "microphone" | "microphone+system";
   startedAt: string;
   stoppedAt?: string;
   folder: string;
   chunks: MeetingChunkManifest[];
+  videoStartedAt?: string;
   warnings?: string[];
   audioPath?: string;
-  transcriptPath?: string;
-  transcriptText?: string;
-  language?: string;
+  videoPath?: string;
   error?: string;
 };
 
@@ -63,7 +63,7 @@ export type MeetingSessionSummary = {
   id: string;
   folder: string;
   audioPath: string;
-  transcriptPath?: string;
+  videoPath?: string;
 };
 
 type ActiveChunk = {
@@ -73,24 +73,22 @@ type ActiveChunk = {
   systemPath: string | null;
   systemRecorder: SystemAudioRecorder | null;
   index: number;
-  startedAt: string;
 };
 
 type MeetingRecorderOptions = {
   userDataDir: string;
   recorderBin?: string;
-  backend?: WhisperBackend;
   chunkMs?: number;
 };
 
 export class MeetingRecorder extends EventEmitter {
   private readonly userDataDir: string;
   private readonly recorderBin: string;
-  private readonly backend: WhisperBackend;
   private readonly chunkMs: number;
   private readonly systemAudioRecorder: SystemAudioRecorder | null;
   private manifest: MeetingManifest | null = null;
   private currentChunk: ActiveChunk | null = null;
+  private videoRecorder: VideoRecorder | null = null;
   private chunkTimer: NodeJS.Timeout | null = null;
   private rotationPromise: Promise<void> | null = null;
   private stopping = false;
@@ -99,7 +97,6 @@ export class MeetingRecorder extends EventEmitter {
     super();
     this.userDataDir = options.userDataDir;
     this.recorderBin = options.recorderBin ?? process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
-    this.backend = options.backend ?? createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     const systemRecorder = new SystemAudioRecorder();
     this.systemAudioRecorder = systemRecorder.isAvailable() ? systemRecorder : null;
     const configuredChunkMs = Number.parseInt(process.env.MARSHAL_MEETING_CHUNK_MS ?? "", 10);
@@ -108,26 +105,38 @@ export class MeetingRecorder extends EventEmitter {
       : DEFAULT_CHUNK_MS);
   }
 
-  isRecording(): boolean {
-    return this.manifest?.state === "recording" || this.manifest?.state === "stitching";
+  static meetingsDir(userDataDir: string): string {
+    return path.join(userDataDir, "meetings");
   }
 
-  async start(): Promise<MeetingManifest> {
+  activeId(): string | null {
+    return this.manifest?.id ?? null;
+  }
+
+  isRecording(): boolean {
+    return this.manifest?.state === "recording" || this.manifest?.state === "finalizing";
+  }
+
+  async start(mode: MeetingMode): Promise<MeetingManifest> {
     if (this.isRecording() || this.currentChunk) {
       throw new Error("Meeting recording is already active.");
     }
     if (!existsSync(this.recorderBin)) {
       throw new Error(`Meeting recorder binary missing at ${this.recorderBin}. Run \`npm run build\`.`);
     }
+    if (mode === "screen" && !VideoRecorder.isAvailable()) {
+      throw new Error("screen-recorder binary missing. Run `npm run build`.");
+    }
 
     try {
       this.stopping = false;
       const now = new Date();
       const id = `meeting-${formatStamp(now)}-${randomUUID().slice(0, 8)}`;
-      const folder = path.join(this.userDataDir, "meetings", id);
+      const folder = path.join(MeetingRecorder.meetingsDir(this.userDataDir), id);
       await fs.mkdir(folder, { recursive: true });
       this.manifest = {
         id,
+        mode,
         state: "recording",
         source: this.systemAudioRecorder ? "microphone+system" : "microphone",
         startedAt: now.toISOString(),
@@ -135,13 +144,15 @@ export class MeetingRecorder extends EventEmitter {
         chunks: []
       };
       await this.writeManifest();
+      if (mode === "screen") await this.startVideo(path.join(folder, RAW_SCREEN_FILE));
       await this.startChunk();
-      this.emit("recording-start");
+      this.emit("recording-start", { mode });
       return this.manifest;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.clearChunkTimer();
       this.killCurrentChunk();
+      this.killVideo();
       if (this.manifest) {
         this.manifest.state = "error";
         this.manifest.error = error.message;
@@ -154,42 +165,61 @@ export class MeetingRecorder extends EventEmitter {
   }
 
   async stop(): Promise<MeetingSessionSummary | null> {
-    if (!this.manifest) return null;
-    let summary: MeetingSessionSummary | null = null;
+    if (!this.manifest || this.stopping) return null;
     try {
       this.stopping = true;
       this.clearChunkTimer();
       if (this.rotationPromise) await this.rotationPromise;
       if (this.currentChunk) await this.stopCurrentChunk();
+      const rawVideoPath = await this.stopVideo();
 
       const manifest = this.manifest;
-      manifest.state = "stitching";
+      manifest.state = "finalizing";
       manifest.stoppedAt = new Date().toISOString();
       await this.writeManifest();
 
-      const audioPath = path.join(manifest.folder, "meeting.wav");
-      await stitchWavPcm16Mono16k(manifest.chunks.map((chunk) => chunk.path), audioPath);
+      const recorded = manifest.chunks.filter((chunk) => (chunk.bytes ?? 0) > 0);
+      const timelineStart = Date.parse(recorded[0]?.startedAt ?? manifest.startedAt);
+      const audioPath = path.join(manifest.folder, MEETING_AUDIO_FILE);
+      await MeetingAudioMixer.run(
+        buildTimelineToAacArgs(
+          recorded.map((chunk) => ({ path: chunk.path, offsetMs: Date.parse(chunk.startedAt) - timelineStart })),
+          audioPath
+        ),
+        "meeting audio assembly"
+      );
       manifest.audioPath = audioPath;
-      manifest.state = "transcribing";
-      await this.writeManifest();
 
-      summary = { id: manifest.id, folder: manifest.folder, audioPath };
-      this.emit("recording-stop", { session: summary });
+      let videoPath: string | undefined;
+      if (rawVideoPath && manifest.videoStartedAt) {
+        videoPath = path.join(manifest.folder, MEETING_VIDEO_FILE);
+        await MeetingAudioMixer.run(
+          buildMeetingMuxArgs({
+            videoPath: rawVideoPath,
+            audioPath,
+            audioOffsetSec: (timelineStart - Date.parse(manifest.videoStartedAt)) / 1000,
+            outputPath: videoPath
+          }),
+          "meeting video mux"
+        );
+        manifest.videoPath = videoPath;
+        await fs.rm(rawVideoPath, { force: true });
+      }
 
-      const result = await this.backend.transcribe(audioPath, {
-        language: resolveDictationLanguage(process.env.MARSHAL_DICTATION_LANGUAGE),
-        prompt: resolveDictationPrompt(process.env.MARSHAL_MEETING_PROMPT ?? process.env.MARSHAL_DICTATION_PROMPT)
-      });
-      const transcriptPath = path.join(manifest.folder, "transcript.txt");
-      await fs.writeFile(transcriptPath, result.text, "utf8");
+      // Raw chunks go only after the final files exist: until then they are
+      // the only copy of the call.
+      await Promise.all(
+        manifest.chunks.flatMap((chunk) =>
+          [chunk.path, chunk.micPath, chunk.systemPath].filter((p): p is string => Boolean(p)).map((p) => fs.rm(p, { force: true }))
+        )
+      );
+      manifest.chunks = [];
       manifest.state = "done";
-      manifest.transcriptPath = transcriptPath;
-      manifest.transcriptText = result.text;
-      manifest.language = result.language;
       await this.writeManifest();
-      summary.transcriptPath = transcriptPath;
-      this.emit("transcribed", { session: summary, result });
-      return summary;
+
+      const session: MeetingSessionSummary = { id: manifest.id, folder: manifest.folder, audioPath, videoPath };
+      this.emit("saved", { session });
+      return session;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (this.manifest) {
@@ -198,8 +228,9 @@ export class MeetingRecorder extends EventEmitter {
         await this.writeManifest().catch(() => undefined);
       }
       this.emit("error", error);
-      return summary;
+      return null;
     } finally {
+      this.killVideo();
       this.manifest = null;
       this.stopping = false;
     }
@@ -209,7 +240,40 @@ export class MeetingRecorder extends EventEmitter {
     this.stopping = true;
     this.clearChunkTimer();
     this.killCurrentChunk();
+    this.killVideo();
     this.manifest = null;
+  }
+
+  private async startVideo(outPath: string): Promise<void> {
+    const recorder = new VideoRecorder();
+    this.videoRecorder = recorder;
+    // VideoRecorder emits "error" for mid-recording failures; without a
+    // listener EventEmitter would throw it out of the stdout handler.
+    recorder.on("error", (err: Error) => {
+      console.error("[meeting] screen recorder:", err.message);
+      if (!this.manifest) return;
+      this.manifest.warnings ??= [];
+      this.manifest.warnings.push(`Screen recording: ${err.message}`);
+    });
+    await recorder.startMeeting(outPath);
+    if (this.manifest) this.manifest.videoStartedAt = new Date().toISOString();
+  }
+
+  private async stopVideo(): Promise<string | null> {
+    const recorder = this.videoRecorder;
+    if (!recorder?.isRecording) return null;
+    try {
+      return await recorder.stop();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.manifest?.warnings?.push(`Screen recording stop failed: ${message}`);
+      return null;
+    }
+  }
+
+  private killVideo(): void {
+    this.videoRecorder?.kill();
+    this.videoRecorder = null;
   }
 
   private killCurrentChunk(): void {
@@ -230,7 +294,12 @@ export class MeetingRecorder extends EventEmitter {
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
     const args = micUid ? [micPath, "--device", micUid] : [micPath];
     const child = spawn(this.recorderBin, args, { stdio: ["ignore", "pipe", "pipe"] });
-    const startedAt = new Date().toISOString();
+    // Listen before awaiting anything else: if the helper exits while the
+    // system-audio start is pending, a listener attached afterwards never
+    // hears the exit and the recording hangs before it begins.
+    const micReady = this.waitForReady(child);
+    micReady.catch(() => undefined);
+    console.log(`[meeting] ${chunkName}: microphone recorder spawned`);
     let systemRecorder: SystemAudioRecorder | null = null;
     let activeSystemPath: string | null = null;
     if (this.systemAudioRecorder) {
@@ -238,8 +307,10 @@ export class MeetingRecorder extends EventEmitter {
         await this.systemAudioRecorder.start(systemPath);
         systemRecorder = this.systemAudioRecorder;
         activeSystemPath = systemPath;
+        console.log(`[meeting] ${chunkName}: system audio started`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[meeting] ${chunkName}: system audio unavailable: ${message}`);
         this.manifest.warnings ??= [];
         this.manifest.warnings.push(`System audio unavailable for ${chunkName}: ${message}`);
       }
@@ -256,18 +327,26 @@ export class MeetingRecorder extends EventEmitter {
       micPath,
       systemPath: activeSystemPath,
       systemRecorder,
-      index,
-      startedAt
+      index
     };
+    try {
+      await micReady;
+    } catch (err) {
+      this.currentChunk = null;
+      systemRecorder?.kill();
+      throw err;
+    }
+    console.log(`[meeting] ${chunkName}: microphone ready`);
+    // Stamped once the microphone is actually capturing: this is the chunk's
+    // position on the timeline the final audio and the screen video share.
     this.manifest.chunks.push({
       index,
       path: chunkPath,
       micPath,
       systemPath: activeSystemPath ?? undefined,
-      startedAt
+      startedAt: new Date().toISOString()
     });
     await this.writeManifest();
-    await this.waitForReady(child);
     if (!this.stopping) {
       this.chunkTimer = setTimeout(() => {
         this.rotationPromise = this.rotateChunk().finally(() => {
@@ -279,13 +358,21 @@ export class MeetingRecorder extends EventEmitter {
 
   private async rotateChunk(): Promise<void> {
     if (this.stopping || !this.currentChunk) return;
-    await this.stopCurrentChunk();
+    // The next chunk starts before the finished one is mixed: the mix takes
+    // seconds, and every one of them would be a hole in the recording.
+    const ended = await this.endCurrentChunk();
     await this.startChunk();
+    if (ended) await this.finalizeChunk(ended);
   }
 
   private async stopCurrentChunk(): Promise<void> {
+    const ended = await this.endCurrentChunk();
+    if (ended) await this.finalizeChunk(ended);
+  }
+
+  private async endCurrentChunk(): Promise<ActiveChunk | null> {
     const chunk = this.currentChunk;
-    if (!chunk || !this.manifest) return;
+    if (!chunk || !this.manifest) return null;
     this.clearChunkTimer();
     await new Promise<void>((resolve) => {
       if (chunk.child.exitCode !== null) return resolve();
@@ -300,6 +387,12 @@ export class MeetingRecorder extends EventEmitter {
         this.manifest.warnings.push(`System audio stop failed for chunk ${chunk.index + 1}: ${message}`);
       });
     }
+    this.currentChunk = null;
+    return chunk;
+  }
+
+  private async finalizeChunk(chunk: ActiveChunk): Promise<void> {
+    if (!this.manifest) return;
     await MeetingAudioMixer.mix({
       micPath: chunk.micPath,
       systemPath: chunk.systemPath ?? undefined,
@@ -311,7 +404,6 @@ export class MeetingRecorder extends EventEmitter {
       entry.stoppedAt = new Date().toISOString();
       entry.bytes = stat?.size ?? 0;
     }
-    this.currentChunk = null;
     await this.writeManifest();
   }
 
@@ -321,6 +413,7 @@ export class MeetingRecorder extends EventEmitter {
       const finish = (err?: Error): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         child.stdout?.removeListener("data", onData);
         child.stderr?.removeListener("data", onStderr);
         child.removeListener("error", onError);
@@ -328,13 +421,20 @@ export class MeetingRecorder extends EventEmitter {
         if (err) reject(err);
         else resolve();
       };
+      let stderrTail = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGTERM");
+        finish(new Error(`Microphone recorder did not become ready within ${HELPER_READY_TIMEOUT_MS / 1000} s.`));
+      }, HELPER_READY_TIMEOUT_MS);
       const onData = (): void => finish();
       const onStderr = (chunk: Buffer): void => {
-        console.warn("[meeting] recorder stderr:", chunk.toString("utf8").trim());
+        const text = chunk.toString("utf8").trim();
+        stderrTail = (stderrTail + " " + text).slice(-500);
+        console.warn("[meeting] recorder stderr:", text);
       };
       const onError = (err: Error): void => finish(err);
       const onExit = (code: number | null): void => {
-        finish(new Error(`Meeting audio recorder exited before ready (${code ?? "signal"}).`));
+        finish(new Error(`Microphone recorder exited before ready (${code ?? "signal"}):${stderrTail}`));
       };
       child.stdout?.once("data", onData);
       child.stderr?.on("data", onStderr);
