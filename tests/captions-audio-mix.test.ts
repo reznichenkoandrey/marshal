@@ -4,11 +4,15 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 // The mixer lives inside the Swift helper; its --self-test runs the checks on
-// synthetic samples (#212). Needs `npm run build`, so it is skipped elsewhere.
-const bin = path.resolve(import.meta.dirname, "..", "dist", "desktop", "captions", "system-audio-tap");
+// synthetic samples (#212). Needs a helper built from the current source: a
+// stale one ignores --self-test and starts a real capture.
+const root = path.resolve(import.meta.dirname, "..");
+const bin = path.join(root, "dist", "desktop", "captions", "system-audio-tap");
+const src = path.join(root, "desktop", "captions", "swift", "system-audio-tap.swift");
+const built = fs.existsSync(bin) && fs.statSync(bin).mtimeMs >= fs.statSync(src).mtimeMs;
 
-describe.skipIf(!fs.existsSync(bin))("system-audio-tap mixer", () => {
+describe.skipIf(!built)("system-audio-tap mixer", () => {
   it("passes quiet sums through and soft-limits overlap instead of hard clipping", () => {
-    expect(() => execFileSync(bin, ["--self-test"], { stdio: "pipe" })).not.toThrow();
+    expect(() => execFileSync(bin, ["--self-test"], { stdio: "pipe", timeout: 5_000 })).not.toThrow();
   });
 });
