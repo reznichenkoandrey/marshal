@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
 
+import { resolveDataPath } from "../config/data-path.ts";
 import { limits } from "../config/limits.ts";
 import { withRetry } from "../resilience/retry.ts";
 import { clickNewChatIfAvailable, createSelectorCache, resolveComposer } from "./selectors.ts";
@@ -33,12 +34,10 @@ export class ChatGPTBridge {
     this.options = {
       chatgptUrl: options.chatgptUrl ?? process.env.CHATGPT_URL ?? "https://chatgpt.com",
       headless: parseBoolean(process.env.CHATGPT_HEADLESS, options.headless ?? false),
-      storageStatePath:
-        options.storageStatePath ??
-        process.env.CHATGPT_STORAGE_STATE_PATH ??
-        path.resolve(process.cwd(), "agent/.auth/chatgpt-storage.json"),
-      userDataDir:
-        process.env.CHATGPT_USER_DATA_DIR ?? path.resolve(process.cwd(), "agent/.chrome-profile"),
+      storageStatePath: resolveDataPath(
+        options.storageStatePath ?? process.env.CHATGPT_STORAGE_STATE_PATH ?? "agent/.auth/chatgpt-storage.json"
+      ),
+      userDataDir: resolveDataPath(process.env.CHATGPT_USER_DATA_DIR ?? "agent/.chrome-profile"),
       executablePath: resolveChromeExecutable(
         process.env.CHATGPT_BROWSER_EXECUTABLE_PATH ?? undefined
       ),

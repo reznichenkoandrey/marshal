@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveDataPath } from "../agent/config/data-path.ts";
 import type { ExecutionRoute } from "../agent/runtime/types.ts";
 import type {
   OperatorAttachment,
@@ -44,8 +45,7 @@ export class OperatorSessionStore {
   legacySessionsDir: string;
   private sessionLocks = new Map<string, Promise<unknown>>();
 
-  // A packaged app launched from Finder has cwd = "/", so main points this at userData (#206).
-  constructor(rootDir = process.env.MARSHAL_OPERATOR_DATA_DIR ?? path.resolve(process.cwd(), "operator-data")) {
+  constructor(rootDir = process.env.MARSHAL_OPERATOR_DATA_DIR ?? resolveDataPath("operator-data")) {
     this.rootDir = rootDir;
     this.projectsDir = path.join(rootDir, "projects");
     this.legacySessionsDir = path.join(rootDir, "sessions");

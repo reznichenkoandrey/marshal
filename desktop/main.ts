@@ -85,8 +85,8 @@ const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 const execFileAsync = promisify(execFile);
 
 if (app.isPackaged) {
-  // The backend utility process inherits this env; without it session data resolves to /operator-data (#206).
-  process.env.MARSHAL_OPERATOR_DATA_DIR ??= path.join(app.getPath("userData"), "operator-data");
+  // The backend utility process inherits this env; without it agent state resolves against cwd "/" (#206, #233).
+  process.env.MARSHAL_DATA_DIR ??= app.getPath("userData");
 }
 const backendClient = new DesktopBackendClient();
 
