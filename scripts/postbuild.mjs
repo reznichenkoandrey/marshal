@@ -57,6 +57,19 @@ for (const filePath of sanitizedScripts) {
 await fs.rm(desktopRendererDistDir, { recursive: true, force: true });
 await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 
+// The version does not move between dev builds, so Setup health names the
+// revision the bundle came from (#228).
+await fs.writeFile(
+  path.join(root, "dist", "desktop", "build-info.json"),
+  JSON.stringify({
+    revision: git(["rev-parse", "--short", "HEAD"]),
+    branch: git(["rev-parse", "--abbrev-ref", "HEAD"]),
+    dirty: git(["status", "--porcelain", "--untracked-files=no"]) !== "",
+    builtAt: new Date().toISOString()
+  }, null, 2) + "\n",
+  "utf8"
+);
+
 // Stage the whisper-cli binary into dist/ so electron-builder ships it inside
 // the packaged app: building it needs git + cmake, which an installed app
 // cannot assume. `whisper-backend.ts` resolves it relative to the compiled JS
@@ -237,6 +250,14 @@ if (process.platform === "darwin") {
     execFileSync("bash", [patchScript], { stdio: "inherit" });
   } catch (err) {
     console.warn("[postbuild] patch-electron-info-plist failed:", err.message);
+  }
+}
+
+function git(args) {
+  try {
+    return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
   }
 }
 

@@ -228,4 +228,32 @@ describe("microphone in setup health", () => {
   it("reports a real grant as ok", () => {
     expect(micItem("granted")?.status).toBe("ok");
   });
+
+  describe("build row (#228)", () => {
+    const base = {
+      platform: "darwin" as const,
+      dictationEnabled: false,
+      dictationBackend: "whisper-cpp" as const,
+      apiKeyPresent: true,
+      whisperBinPath: "/w",
+      whisperModelPath: "/m",
+      launchAtLogin: false,
+      exists: () => true
+    };
+
+    it("names the version, revision and branch the bundle was built from", () => {
+      const build = buildSetupHealth({
+        ...base,
+        appVersion: "0.3.0",
+        buildInfo: { revision: "ab0d14a", branch: "main", dirty: true, builtAt: "2026-09-30T12:00:00.000Z" }
+      }).items.find((item) => item.id === "build");
+      expect(build?.status).toBe("ok");
+      expect(build?.detail).toMatch(/^0\.3\.0 · ab0d14a \+ uncommitted changes \(main\) · built 30 Sept? 2026/);
+    });
+
+    it("says so when there is no build-info.json", () => {
+      const build = buildSetupHealth({ ...base, appVersion: "0.3.0", buildInfo: null }).items.find((item) => item.id === "build");
+      expect(build).toMatchObject({ status: "unknown", detail: "0.3.0 · dev, unbuilt (no build-info.json)" });
+    });
+  });
 });
