@@ -228,6 +228,10 @@
   знімає атрибут і перевіряє підпис — діалогу немає взагалі (#153). Нотаризація прибрала б
   його і для сторонніх, але потребує `Developer ID Application`, тобто платного Apple
   Developer Program — поки не купуємо.
+  **Що саме встановлено — Settings → Setup health → Build** (#228): версія, git-ревізія,
+  гілка, «+ uncommitted changes» і час збирання. `CFBundleVersion` між dev-білдами не
+  змінюється, тож «це вже той білд з фіксом?» інакше не з'ясувати. Пише це
+  `scripts/postbuild.mjs` у `dist/desktop/build-info.json`.
 
 ---
 

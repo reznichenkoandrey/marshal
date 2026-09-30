@@ -13,8 +13,18 @@ export type SetupHealthItem = {
   action?: string;
 };
 
+export type BuildInfo = {
+  revision: string | null;
+  branch: string | null;
+  dirty: boolean;
+  builtAt: string;
+};
+
 export type SetupHealthInput = {
   platform: NodeJS.Platform;
+  appVersion?: string;
+  /** Written by scripts/postbuild.mjs; absent when running unbuilt sources. */
+  buildInfo?: BuildInfo | null;
   dictationEnabled: boolean;
   dictationBackend: DictationBackend;
   microphoneStatus?: MediaPermissionStatus;
@@ -46,6 +56,8 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
   const whisperBinExists = exists(input.whisperBinPath);
   const whisperModelExists = exists(input.whisperModelPath);
   const items: SetupHealthItem[] = [];
+
+  if (input.appVersion !== undefined) items.push(buildItem(input.appVersion, input.buildInfo));
 
   items.push(input.dictationEnabled
     ? permissionItem({
@@ -134,6 +146,20 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
     items,
     counts: countStatuses(items)
   };
+}
+
+function buildItem(version: string, info: BuildInfo | null | undefined): SetupHealthItem {
+  if (!info) {
+    return { id: "build", label: "Build", status: "unknown", detail: `${version} · dev, unbuilt (no build-info.json)` };
+  }
+  const revision = info.revision
+    ? `${info.revision}${info.dirty ? " + uncommitted changes" : ""}${info.branch ? ` (${info.branch})` : ""}`
+    : "unknown revision";
+  const builtAt = new Date(info.builtAt);
+  const when = Number.isNaN(builtAt.getTime())
+    ? info.builtAt
+    : builtAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  return { id: "build", label: "Build", status: "ok", detail: `${version} · ${revision} · built ${when}` };
 }
 
 function launchAtLoginItem(input: SetupHealthInput): SetupHealthItem {

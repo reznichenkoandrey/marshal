@@ -47,7 +47,7 @@ import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
-import { buildSetupHealth, type SetupHealthSummary } from "./setup-health.ts";
+import { buildSetupHealth, type BuildInfo, type SetupHealthSummary } from "./setup-health.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import {
@@ -2256,6 +2256,8 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
   const isDarwin = process.platform === "darwin";
   return buildSetupHealth({
     platform: process.platform,
+    appVersion: app.getVersion(),
+    buildInfo: readBuildInfo(),
     dictationEnabled: settings.dictationEnabled,
     dictationBackend: settings.dictationBackend,
     microphoneStatus: isDarwin ? systemPreferences.getMediaAccessStatus("microphone") : undefined,
@@ -2272,6 +2274,14 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
       : undefined,
     launchAtLoginLastError: settings.launchAtLoginLastError
   });
+}
+
+function readBuildInfo(): BuildInfo | null {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(desktopDistDir, "build-info.json"), "utf8")) as BuildInfo;
+  } catch {
+    return null;
+  }
 }
 
 async function hasMarshalCodesignIdentity(): Promise<boolean> {
