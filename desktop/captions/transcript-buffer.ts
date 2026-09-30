@@ -20,7 +20,7 @@ export interface OcrSnapshot {
   at: number;
 }
 
-import { isFragment, isQuestion, joinFragment, stripFillers } from "./transcript-normalize.ts";
+import { isFragment, isQuestion, joinFragment, repairSelfCorrections, stripFillers } from "./transcript-normalize.ts";
 
 export interface TranscriptPushResult {
   /** A line was added (possibly the held fragment joined with this one). */
@@ -130,15 +130,16 @@ export class TranscriptBuffer {
   }
 
   /**
-   * Adds a transcribed utterance. Hallucinations are dropped, fillers are
-   * stripped, and a half-sentence is held back until the next utterance
+   * Adds a transcribed utterance. Hallucinations are dropped, self-corrections
+   * keep their last version, fillers are stripped, and a half-sentence is held back until the next utterance
    * completes it (or `flushFragment` gives up on it).
    */
   pushTranscript(text: string, at = Date.now()): TranscriptPushResult {
     const rejected: TranscriptPushResult = { accepted: false, text: "", question: false, held: false };
     const cleaned = text.trim().replace(/\s+/gu, " ");
     if (isLikelyHallucination(cleaned)) return rejected;
-    const stripped = stripFillers(cleaned);
+    // Before fillers: "I mean" is both, and stripping it first hides the repair.
+    const stripped = stripFillers(repairSelfCorrections(cleaned));
     if (stripped.length === 0) return rejected;
 
     const joined = this.fragment ? joinFragment(this.fragment, stripped) : stripped;

@@ -48,9 +48,9 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 |---|---|---|
 | Continuous listening, no hotkey per utterance | ✅ | one toggle (`⌘⌥⇧C`) starts the pipeline; segmentation is automatic |
 | Silero VAD, local | ✅ | `silero-vad.ts` (#186); classifier floor fixed in #202 |
-| Silence threshold 1.1–1.4 s, configurable | 🟡 | configurable 400–2000 ms; default is 900 — #209 moves it to 1200 now that the live line (#203) covers the wait |
+| Silence threshold 1.1–1.4 s, configurable | ✅ | default 1200 ms, configurable 400–2000 ms (#209); the live line (#203) covers the wait |
 | Filler removal | ✅ | `transcript-normalize.ts` → `stripFillers` (EN/UK, #187) |
-| Mid-speech self-correction keeps the latest wording | ⬜ | #209 |
+| Mid-speech self-correction keeps the latest wording | ✅ | `repairSelfCorrections` (#209): restart of the phrase or a name/number swap after `sorry` / `I mean` / `rather` / `точніше` / `вибачте`; apologies are left alone |
 | Sentence split at a thinking pause is rejoined | ✅ | `transcript-buffer.ts` continuation merge (#202) |
 
 ## 2.3 Live Ukrainian translation & queue
@@ -87,6 +87,6 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | `MARSHAL_CAPTIONS_PARTIALS` | on | `0` turns the live line off (#203); locally it runs only through the resident server (#208) |
 | `MARSHAL_CAPTIONS_PARTIAL_MS` | `1500` | speech between live-line updates (#207) |
 | `MARSHAL_CAPTIONS_MIN_RMS` | `120` | classifier energy floor (#202) |
-| `MARSHAL_CAPTIONS_SILENCE_MS` | `900` | end-of-utterance pause — #209 |
+| `MARSHAL_CAPTIONS_SILENCE_MS` | `1200` | end-of-utterance pause (#209) |
 | `MARSHAL_CAPTIONS_MIX_MIC` | `0` | also caption the microphone (#191, #212) |
 | `MARSHAL_CAPTIONS_TRANSLATE` | `uk` | target language of the live translation, or `off` (#210) |

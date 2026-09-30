@@ -119,6 +119,79 @@ export function isQuestion(text: string): boolean {
   return INTERROGATIVE_START.test(trimmed) && wordCount(trimmed) >= 2;
 }
 
+/** Longest first, so "or rather" wins over "rather" and takes the "or" with it. */
+const CORRECTION_MARKERS = [
+  "or rather", "rather", "sorry", "i mean",
+  "або точніше", "а точніше", "точніше", "вірніше", "вибачте", "вибач", "перепрошую"
+].sort((a, b) => b.length - a.length);
+/** A marker only counts as a repair when set off from what it corrects. */
+const CORRECTION_PATTERN = new RegExp(
+  `\\s*[,—–-]\\s*(?:${CORRECTION_MARKERS.map(escapeRegExp).join("|")})(?!\\p{L})[\\s,—–-]*`,
+  "giu"
+);
+
+type Token = { word: string; raw: string; start: number };
+
+function tokens(text: string): Token[] {
+  return [...text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)].map((match) => ({
+    word: match[0].toLocaleLowerCase(),
+    raw: match[0],
+    start: match.index ?? 0
+  }));
+}
+
+/**
+ * Keeps the speaker's last version when they correct themselves mid-sentence
+ * (#209): "use Redis — sorry, Kafka for this" → "use Kafka for this". Two
+ * shapes only, because an apology looks the same as a correction ("I'll be
+ * late, sorry, the train…") and eating what was said is worse than keeping
+ * a redundant word:
+ *   - restart: the text after the marker repeats two words from before it,
+ *     so everything from that repeat on is replaced;
+ *   - swap: the word before the marker and the word after it are both names
+ *     (capitalised mid-sentence) or both numbers.
+ */
+export function repairSelfCorrections(text: string): string {
+  let out = text;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const repaired = repairFirst(out);
+    if (repaired === null) break;
+    out = repaired;
+  }
+  return out;
+}
+
+function repairFirst(text: string): string | null {
+  for (const match of text.matchAll(CORRECTION_PATTERN)) {
+    const index = match.index ?? 0;
+    const before = text.slice(0, index);
+    const after = text.slice(index + match[0].length);
+    const head = tokens(before);
+    const tail = tokens(after);
+    if (head.length === 0 || tail.length === 0) continue;
+
+    if (tail.length >= 2) {
+      for (let i = head.length - 2; i >= 0; i -= 1) {
+        if (head[i].word === tail[0].word && head[i + 1].word === tail[1].word) {
+          const prefix = before.slice(0, head[i].start);
+          return prefix.length > 0 || !/^\p{Lu}/u.test(head[0].raw) ? prefix + after : capitalize(after);
+        }
+      }
+    }
+
+    const last = head[head.length - 1];
+    const first = tail[0];
+    const bothNames = head.length >= 2 && /^\p{Lu}/u.test(last.raw) && /^\p{Lu}/u.test(first.raw);
+    const bothNumbers = /^\p{N}+$/u.test(last.raw) && /^\p{N}+$/u.test(first.raw);
+    if (bothNames || bothNumbers) return before.slice(0, last.start) + after;
+  }
+  return null;
+}
+
+function capitalize(text: string): string {
+  return text.length > 0 ? text[0].toLocaleUpperCase() + text.slice(1) : text;
+}
+
 /** Joins a held fragment with the utterance that followed it. */
 export function joinFragment(fragment: string, next: string): string {
   const head = fragment.trim().replace(/[-–—…]+$/u, "").trim();

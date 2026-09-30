@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { DEFAULT_DICTATION_PROMPT } from "../desktop/dictation/whisper-backend.ts";
-import { DEFAULT_CAPTIONS_PROMPT } from "../desktop/captions/captions-defaults.ts";
+import { DEFAULT_CAPTIONS_PROMPT, DEFAULT_CAPTIONS_SILENCE_MS } from "../desktop/captions/captions-defaults.ts";
 
 // Electron's real `app.getPath("userData")` needs a running app instance.
 // Stub it with a tmp dir that we clean up after each test.
@@ -126,7 +126,7 @@ describe("saveSettings", () => {
       captionsHotkey: "CommandOrControl+Alt+Shift+C",
       captionsOcrHotkey: "Control+Shift+S",
       captionsVad: "silero",
-      captionsSilenceMs: 900,
+      captionsSilenceMs: DEFAULT_CAPTIONS_SILENCE_MS,
       captionsTurnPolicy: "interrupt",
       captionsSpeculativeStt: true,
       captionsMixMicrophone: false,
@@ -278,7 +278,7 @@ describe("live captions settings (#179)", () => {
     expect(saveSettings({ captionsSilenceMs: 50 }).captionsSilenceMs).toBe(400);
     expect(saveSettings({ captionsSilenceMs: 9_999 }).captionsSilenceMs).toBe(2_000);
     expect(saveSettings({ captionsSilenceMs: "1250" as never }).captionsSilenceMs).toBe(1_250);
-    expect(saveSettings({ captionsSilenceMs: Number.NaN }).captionsSilenceMs).toBe(900);
+    expect(saveSettings({ captionsSilenceMs: Number.NaN }).captionsSilenceMs).toBe(DEFAULT_CAPTIONS_SILENCE_MS);
     expect(saveSettings({ captionsVad: "webrtc" as never }).captionsVad).toBe("silero");
     expect(saveSettings({ captionsVad: "energy" }).captionsVad).toBe("energy");
     applySettingsToEnv(saveSettings({ captionsVad: "energy", captionsSilenceMs: 1_400 }));
