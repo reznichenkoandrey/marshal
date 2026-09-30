@@ -28,8 +28,8 @@ export const VALID_CAPTIONS_PROVIDERS: readonly CaptionsProviderChoice[] = ["aut
 export type CaptionsSttChoice = "auto" | "whisper-cpp" | "groq" | "hybrid";
 export const VALID_CAPTIONS_STT: readonly CaptionsSttChoice[] = ["auto", "whisper-cpp", "groq", "hybrid"];
 
-/** Trailing silence that closes an utterance. The spec suggests 1.2–1.5 s; 900 ms is the middle ground between cutting slow speakers and adding latency. */
-export const DEFAULT_CAPTIONS_SILENCE_MS = 900;
+/** Trailing silence that closes an utterance (spec: 1.1–1.4 s). The live line (#203) shows speech while it waits, so a longer pause no longer delays the screen and cuts fewer phrases (#209). */
+export const DEFAULT_CAPTIONS_SILENCE_MS = 1_200;
 export const MIN_CAPTIONS_SILENCE_MS = 400;
 export const MAX_CAPTIONS_SILENCE_MS = 2_000;
 

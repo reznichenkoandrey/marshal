@@ -6,7 +6,7 @@ import {
   looksUnfinished,
   TranscriptBuffer
 } from "../desktop/captions/transcript-buffer.ts";
-import { isFragment, isQuestion, joinFragment, stripFillers } from "../desktop/captions/transcript-normalize.ts";
+import { isFragment, isQuestion, joinFragment, repairSelfCorrections, stripFillers } from "../desktop/captions/transcript-normalize.ts";
 
 describe("isLikelyHallucination", () => {
   it("rejects whisper's silence fillers", () => {
@@ -227,5 +227,41 @@ describe("looksUnfinished / looksLikeContinuation (#202)", () => {
   it("does not treat a number or symbol opening as a continuation", () => {
     expect(looksLikeContinuation("300 ms is the budget.")).toBe(false);
     expect(looksLikeContinuation("— and then.")).toBe(false);
+  });
+});
+
+describe("repairSelfCorrections (#209)", () => {
+  it("keeps the corrected name or number", () => {
+    expect(repairSelfCorrections("We should use Redis — sorry, Kafka for this.")).toBe("We should use Kafka for this.");
+    expect(repairSelfCorrections("Deploy at 5, I mean 6 o'clock.")).toBe("Deploy at 6 o'clock.");
+    expect(repairSelfCorrections("Put it on Postgres, or rather MySQL.")).toBe("Put it on MySQL.");
+    expect(repairSelfCorrections("Беремо Redis, точніше Kafka для подій.")).toBe("Беремо Kafka для подій.");
+  });
+
+  it("drops the first attempt when the speaker restarts the phrase", () => {
+    expect(repairSelfCorrections("We should use Redis, sorry, we should use Kafka for this."))
+      .toBe("We should use Kafka for this.");
+    expect(repairSelfCorrections("Ми деплоїмо в понеділок, вибачте, ми деплоїмо у вівторок."))
+      .toBe("Ми деплоїмо у вівторок.");
+    expect(repairSelfCorrections("Then the cache is warm, I mean the cache is cold."))
+      .toBe("Then the cache is cold.");
+  });
+
+  it("leaves apologies and asides alone", () => {
+    for (const text of [
+      "I will be late, sorry, the train was delayed.",
+      "Запізнюсь, вибачте, потяг затримали.",
+      "Sorry, I missed that.",
+      "It's, I mean, fine.",
+      "I would rather use Kafka."
+    ]) {
+      expect(repairSelfCorrections(text)).toBe(text);
+    }
+  });
+
+  it("runs before filler stripping in the buffer", () => {
+    const buffer = new TranscriptBuffer({ maxTranscriptChars: 400, maxDisplayLines: 4 });
+    expect(buffer.pushTranscript("We should use Redis, I mean Kafka for the events.").text)
+      .toBe("We should use Kafka for the events.");
   });
 });
