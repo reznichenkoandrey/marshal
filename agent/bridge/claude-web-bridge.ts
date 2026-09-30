@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import path from "node:path";
 
 import { chromium } from "playwright";
 import type { BrowserContext, Locator, Page } from "playwright";
 
+import { resolveDataPath } from "../config/data-path.ts";
 import { limits } from "../config/limits.ts";
 import { withRetry } from "../resilience/retry.ts";
 import { waitForStableText } from "./stabilizer.ts";
@@ -34,9 +34,7 @@ export class ClaudeWebBridge implements ReasoningBridge {
     this.options = {
       claudeUrl: process.env.CLAUDE_WEB_URL ?? "https://claude.ai/new",
       headless: (process.env.CLAUDE_WEB_HEADLESS ?? "false").toLowerCase() === "true",
-      userDataDir:
-        process.env.CLAUDE_WEB_USER_DATA_DIR ??
-        path.resolve(process.cwd(), "agent/.claude-web-profile"),
+      userDataDir: resolveDataPath(process.env.CLAUDE_WEB_USER_DATA_DIR ?? "agent/.claude-web-profile"),
       executablePath: resolveChromeExecutable(
         process.env.CLAUDE_WEB_BROWSER_PATH ?? undefined
       )
