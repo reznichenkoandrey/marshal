@@ -1,4 +1,3 @@
-import path from "node:path";
 
 import { createReasoningBridge, getBridgeMode } from "../bridge/factory.ts";
 import type { ReasoningBridge } from "../bridge/types.ts";
@@ -121,14 +120,6 @@ export async function runMarshalTask(options: RunMarshalTaskOptions): Promise<st
 
 export function getAllowedTools(route: ExecutionRoute): ToolName[] {
   return ROUTE_TOOL_MAP[route];
-}
-
-export function getDefaultSessionWorkspace(sessionId: string): string {
-  return path.resolve(process.cwd(), "operator-data", "sessions", sessionId, "workspace");
-}
-
-export function getDefaultSessionMemory(sessionId: string): string {
-  return path.resolve(process.cwd(), "operator-data", "sessions", sessionId, "memory");
 }
 
 /**
