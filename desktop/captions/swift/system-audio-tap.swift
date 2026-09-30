@@ -23,6 +23,7 @@
 //                         queue — no cross-process alignment needed.
 //   --mic-device <uid>    Core Audio unique ID of the microphone; default input otherwise
 //   --verbose             report the microphone level every ~5 s on stderr
+//   --self-test           check the mixer on synthetic samples and exit (0 = pass)
 //
 // Needs Screen Recording permission (audio capture rides on SCStream), which
 // the parent Electron bundle already requests for screen capture.
@@ -35,6 +36,36 @@ import CoreMedia
 func status(_ line: String) {
     guard let data = (line + "\n").data(using: .utf8) else { return }
     FileHandle.standardError.write(data)
+}
+
+// Sum of both sides of the call with a soft knee instead of a hard clip (#212).
+// Below the knee the sum passes untouched, so the segmenter's RMS thresholds
+// (#202) see the same levels as before; above it tanh bends toward full scale.
+let mixKnee: Float = 24_576 // 0.75 of full scale
+
+func mixSamples(_ system: Int16, _ mic: Int16) -> Int16 {
+    let sum = Float(system) + Float(mic)
+    let magnitude = abs(sum)
+    if magnitude <= mixKnee { return Int16(sum) }
+    let headroom = Float(Int16.max) - mixKnee
+    let limited = mixKnee + headroom * tanh((magnitude - mixKnee) / headroom)
+    return Int16(sum < 0 ? -limited : limited)
+}
+
+func mixSelfTest() -> Bool {
+    let quiet = mixSamples(1_000, -300) == 700
+    let atKnee = mixSamples(12_288, 12_288) == 24_576
+    let loud = mixSamples(30_000, 30_000)
+    let loudNegative = mixSamples(-30_000, -30_000)
+    let noHardClip = loud < Int16.max && loud > 30_000 && loudNegative > Int16.min && loudNegative < -30_000
+    var monotonic = true
+    var previous = mixSamples(0, 20_000)
+    for step in stride(from: 500, through: 32_000, by: 500) {
+        let next = mixSamples(Int16(step), 20_000)
+        if next < previous { monotonic = false }
+        previous = next
+    }
+    return quiet && atKnee && noHardClip && monotonic
 }
 
 @available(macOS 13.0, *)
@@ -193,12 +224,8 @@ final class SystemAudioTap: NSObject, SCStreamOutput, SCStreamDelegate {
         }
 
         if micRing.count > micHead {
-            // Sum with clipping: the other side of the call plus the user's
-            // own voice, at their natural levels.
             for i in 0..<frames {
-                let mic = takeMicSample()
-                let mixed = Int32(channel[0][i]) + Int32(mic)
-                channel[0][i] = Int16(max(-32768, min(32767, mixed)))
+                channel[0][i] = mixSamples(channel[0][i], takeMicSample())
             }
         }
         FileHandle.standardOutput.write(Data(bytes: channel[0], count: frames * MemoryLayout<Int16>.size))
@@ -246,6 +273,12 @@ final class SystemAudioTap: NSObject, SCStreamOutput, SCStreamDelegate {
 guard #available(macOS 13.0, *) else {
     status("error requires macOS 13.0 or newer")
     exit(2)
+}
+
+if CommandLine.arguments.contains("--self-test") {
+    let passed = mixSelfTest()
+    status(passed ? "self-test ok" : "self-test failed")
+    exit(passed ? 0 : 1)
 }
 
 let tap = SystemAudioTap()
