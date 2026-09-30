@@ -84,6 +84,10 @@ const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 const execFileAsync = promisify(execFile);
 
+if (app.isPackaged) {
+  // The backend utility process inherits this env; without it session data resolves to /operator-data (#206).
+  process.env.MARSHAL_OPERATOR_DATA_DIR ??= path.join(app.getPath("userData"), "operator-data");
+}
 const backendClient = new DesktopBackendClient();
 
 let translatorService: TranslatorService | null = null;
