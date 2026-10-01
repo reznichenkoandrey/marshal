@@ -173,8 +173,8 @@ export class DictationService extends EventEmitter {
 
   /**
    * True while audio is being recorded (between recording-start and the WAV
-   * file being shipped off to the transcriber). Used by the tray menu and the
-   * globalShortcut toggle to decide which action to fire next.
+   * file being shipped off to the transcriber). Used by the tray menu to
+   * decide which action to fire next.
    */
   isCurrentlyRecording(): boolean {
     return this.recorderProcess !== null;
@@ -182,9 +182,8 @@ export class DictationService extends EventEmitter {
 
   /**
    * Manual entry point that mirrors a push-to-talk down event. Used by the
-   * tray menu's "Start Dictation" and by the globalShortcut toggle when the
-   * uiohook key listener cannot fire (e.g. Input Monitoring revoked after a
-   * self-signed bundle replace — #84).
+   * tray menu's "Start Dictation" when the push-to-talk listener cannot fire
+   * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
    */
   startRecording(): void {
     this.handleHoldStart();
@@ -212,9 +211,8 @@ export class DictationService extends EventEmitter {
   }
 
   /**
-   * Convenience for the globalShortcut path — start if idle, stop if already
-   * recording. globalShortcut fires a single event per accelerator press, so
-   * we can't model push-to-talk with it; toggle is the natural fit.
+   * Tray menu path — start if idle, stop if already recording. A menu click
+   * is a single event, so push-to-talk can't be modelled with it.
    */
   toggleRecording(): void {
     if (this.isCurrentlyRecording()) {

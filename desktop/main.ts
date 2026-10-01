@@ -123,7 +123,6 @@ let modelDownload: { name: string; percent: number; abort: AbortController } | n
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
 let isDictating = false;
-const DICTATION_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+M";
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
@@ -1467,28 +1466,9 @@ function initDictation(): void {
     });
     notif.show();
   });
-
-  // Register an Electron-native global shortcut as a toggle (start/stop) for
-  // dictation. globalShortcut goes through the macOS Carbon hotkey API which
-  // only needs Accessibility — not Input Monitoring — so it survives the TCC
-  // reset that hits every self-signed bundle replace (#84). The uiohook
-  // push-to-talk path stays available for users who can hold Input Monitoring
-  // grants stable; the toggle is the dependable fallback.
-  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
-  const registered = globalShortcut.register(DICTATION_TOGGLE_ACCELERATOR, () => {
-    if (!dictationService) return;
-    console.log(`[marshal] dictation: ${DICTATION_TOGGLE_ACCELERATOR} pressed, toggling`);
-    dictationService.toggleRecording();
-  });
-  if (registered) {
-    console.log(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} registered`);
-  } else {
-    console.warn(`[marshal] dictation: toggle accelerator ${DICTATION_TOGGLE_ACCELERATOR} could not register (already in use?)`);
-  }
 }
 
 function stopDictationForReconfigure(): void {
-  globalShortcut.unregister(DICTATION_TOGGLE_ACCELERATOR);
   dictationService?.removeAllListeners();
   dictationService?.stop();
   dictationService = null;
@@ -2107,12 +2087,11 @@ function buildTrayMenu(): Electron.Menu {
     { label: "Open Marshal", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
-    // Dictation toggle — visible primary action so the user always has a path
-    // to start/stop recording even when the hotkey listener is dead (Input
-    // Monitoring revoked after a self-signed bundle replace, #84).
+    // Dictation toggle — the path to start/stop recording when the hotkey
+    // listener is dead (#84). No global accelerator: Cmd+Alt+M sat next to the
+    // meeting toggle and started dictation instead of a recording (#240).
     {
       label: recording ? "Stop Dictation" : "Start Dictation",
-      accelerator: "CommandOrControl+Alt+M",
       enabled: dictationAvailable,
       click: () => dictationService?.toggleRecording()
     },

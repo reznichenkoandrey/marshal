@@ -119,7 +119,7 @@ export class SwiftPushToTalkHotkey extends EventEmitter {
     } catch (err) {
       // Binary missing or unexecutable. Treat as "silent" so the main
       // process surfaces the same actionable notification it does for
-      // uiohook failures — at worst the user falls back to Cmd+Alt+M.
+      // uiohook failures — at worst the user falls back to the tray menu.
       console.warn(
         "[hotkey:swift] failed to spawn ptt-monitor:",
         err instanceof Error ? err.message : err

@@ -455,10 +455,10 @@ export class PushToTalkHotkey extends EventEmitter implements PushToTalkBackend 
     } catch (err) {
       // uiohook needs macOS Accessibility — when it's denied the native helper
       // throws UIOHOOK_ERROR_AXAPI_DISABLED. Swallow it here so dictation can
-      // still be triggered via the globalShortcut toggle and the tray menu
-      // (neither of which goes through uiohook). #82.
+      // still be triggered via the tray menu, which doesn't go through
+      // uiohook. #82.
       console.warn(
-        "[hotkey] acquireUiohook() failed — hold-to-talk disabled, use Cmd+Alt+M toggle or tray menu instead:",
+        "[hotkey] acquireUiohook() failed — hold-to-talk disabled, use the tray menu instead:",
         err instanceof Error ? err.message : err
       );
       uIOhook.off("keydown", this.downHandler);
