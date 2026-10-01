@@ -28,6 +28,9 @@
   `npm run test:e2e:alternatives`
   (перекладач: клік по слову → альтернативи), `npm run test:e2e:captions` (живий рядок
   субтитрів)
+  У CI (macOS) крутяться smoke, alternatives, captions і history: вони працюють через
+  stub-preload і не потребують TCC. `capture` і `region` — лише локально, бо їм потрібен
+  Screen Recording, якого GitHub runner дати не може. Чіпаєш захоплення — запусти їх руками.
 - Тести живуть у `tests/` на рівні проєкту
 - Нові pure helpers мають бути `export`-нуті з testable форми (не внутрішні методи)
 - Перед коммітом: `npm run check` (typecheck + test)

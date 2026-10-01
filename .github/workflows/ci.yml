@@ -98,3 +98,10 @@ jobs:
         # the partial line's layout, which unit tests cannot see (#203).
         run: npx electron tests/e2e/captions-partial.mjs
         timeout-minutes: 5
+
+      - name: capture history
+        # Stub `window.marshalHistory` with a fixed entry list — no files, no
+        # IPC, no screen. capture-editor and capture-region stay local-only:
+        # they need Screen Recording, which a runner cannot grant.
+        run: npx electron tests/e2e/capture-history.mjs
+        timeout-minutes: 5
