@@ -21,13 +21,7 @@ import { BrowserWindow, clipboard } from "electron";
 
 import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
-import {
-  decideAutoPaste,
-  insertTextIntoFocused,
-  isAxBlind,
-  probeFocusedElement,
-  sendPasteKeystroke
-} from "./focus-paste.ts";
+import { deliverTranscript, probeFocusedElement } from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -374,67 +368,16 @@ export class DictationService extends EventEmitter {
     });
   }
 
-  /**
-   * Deliver the transcript to wherever the user's cursor is. Primary path:
-   * a direct AX insertion at the caret of the focused element (#102) — no
-   * clipboard round-trip, no synthetic Cmd+V, the text simply appears where
-   * the user is typing. This is what works for native AppKit text fields.
-   *
-   * If the focused element refuses an inline insert (no text field in focus,
-   * or a Chromium / Electron contenteditable that won't accept
-   * kAXSelectedText), fall back to the focus-aware Cmd+V paste, which in turn
-   * degrades to clipboard-only (#90). The clipboard was already populated by
-   * the caller, so the user always has a manual paste as the last resort.
-   */
+  // The caller has already put the transcript on the clipboard, so every
+  // outcome leaves a manual paste available.
   private async deliverText(text: string): Promise<void> {
-    // Diagnostic: where is keyboard focus right now? Synthetic typing lands in
-    // whatever app is frontmost, so logging it tells us whether the transcript
-    // is going to the user's target field or somewhere else (e.g. Marshal
-    // grabbing frontmost). probeFocusedElement reads frontmost reliably here;
-    // its AX role is usually blind (-25204) on self-signed helpers — expected.
     const focus = await probeFocusedElement();
+    const result = await deliverTranscript(text, focus);
     debug(
-      "deliverText → frontmost=", focus.frontmostApp || "?",
+      "deliverText →", result, "frontmost=", focus.frontmostApp || "?",
       "(role=", focus.role || "?", "axError=", focus.axError, ")",
       "marshalFocusedWindow=", BrowserWindow.getFocusedWindow()?.getTitle() ?? "none"
     );
-
-    const typed = await insertTextIntoFocused(text);
-    if (typed) {
-      debug("typed transcript into frontmost focused field");
-      return;
-    }
-    debug("typing failed — falling back to clipboard / Cmd+V");
-    await this.maybeAutoPaste();
-  }
-
-  private async maybeAutoPaste(): Promise<void> {
-    const focus = await probeFocusedElement();
-    const shouldPaste = decideAutoPaste(focus);
-    if (!shouldPaste) {
-      debug(
-        "clipboard only — role=", focus.role || "?",
-        "axError=", focus.axError,
-        "frontmost=", focus.frontmostApp || "?"
-      );
-      return;
-    }
-    if (isAxBlind(focus)) {
-      debug(
-        "AX silent on target — fail-open paste (frontmost=", focus.frontmostApp || "?",
-        "axError=", focus.axError,
-        "axTrusted=", focus.axTrusted,
-        ")"
-      );
-    } else {
-      debug("focused element accepts text — auto-pasting (role=", focus.role, ")");
-    }
-    try {
-      await sendPasteKeystroke();
-    } catch (err) {
-      // Don't surface as a fatal error — clipboard fallback is still usable.
-      debug("auto-paste failed, leaving clipboard for manual paste:", err);
-    }
   }
 
   private async finishRecording(child: ChildProcess, wavPath: string): Promise<void> {
@@ -486,11 +429,8 @@ export class DictationService extends EventEmitter {
       // need the raw output.
       const cleanText = collapseRepeats(result.text);
       if (cleanText.length > 0) {
-        // Always populate the clipboard first as the dependable fallback the
-        // user can paste by hand (#102). deliverText() then tries the primary
-        // path — a direct AX insert at the caret — and only synthesises Cmd+V
-        // if that's declined. Both paths are best-effort: worst case the text
-        // is still sitting on the clipboard.
+        // The clipboard is both what deliverText() pastes and the manual
+        // fallback when delivery fails (#102, #244).
         clipboard.writeText(cleanText);
         await this.deliverText(cleanText);
         this.emit("transcribed", result);
