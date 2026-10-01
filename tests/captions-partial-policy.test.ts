@@ -16,7 +16,8 @@ import {
   PartialGate,
   parseRetryAfterMs,
   resolvePartialBackend,
-  resolvePartialIntervalMs
+  resolvePartialIntervalMs,
+  resolveSttRpm
 } from "../desktop/captions/partial-policy.ts";
 
 describe("resolvePartialBackend", () => {
@@ -137,4 +138,51 @@ describe("PartialGate cool-down from the provider (#207)", () => {
 
 it("defaults to a partial every 1.5 s of speech (#207)", () => {
   expect(DEFAULT_PARTIAL_INTERVAL_MS).toBe(1_500);
+});
+
+describe("PartialGate STT budget (#217)", () => {
+  const pass = (gate: PartialGate, now: number): boolean => {
+    const admitted = gate.tryBegin(now, false);
+    if (admitted) gate.end(true, now);
+    return admitted;
+  };
+
+  it("keeps half of 20 RPM for finals arriving every 8 s", () => {
+    const gate = new PartialGate();
+    gate.setBudget(20);
+    let partials = 0;
+    let finals = 0;
+    for (let now = 0; now < 60_000; now += 1_500) {
+      if (now % 8_000 < 1_500) {
+        gate.noteRequest(now);
+        finals += 1;
+      }
+      if (pass(gate, now)) partials += 1;
+    }
+    expect(finals).toBe(8);
+    expect(partials).toBeGreaterThan(0);
+    expect(partials).toBeLessThanOrEqual(10);
+    expect(partials + finals).toBeLessThanOrEqual(20);
+  });
+
+  it("admits partials again once old requests leave the 60 s window", () => {
+    const gate = new PartialGate();
+    gate.setBudget(20);
+    for (let i = 0; i < 10; i += 1) gate.noteRequest(i * 100);
+    expect(pass(gate, 5_000)).toBe(false);
+    expect(pass(gate, 61_000)).toBe(true);
+  });
+
+  it("has no budget for local whisper", () => {
+    const gate = new PartialGate();
+    gate.setBudget(null);
+    for (let i = 0; i < 100; i += 1) gate.noteRequest(i);
+    expect(pass(gate, 200)).toBe(true);
+  });
+
+  it("falls back to 20 RPM for a missing or nonsensical override", () => {
+    expect(resolveSttRpm(undefined)).toBe(20);
+    expect(resolveSttRpm("1")).toBe(20);
+    expect(resolveSttRpm("30")).toBe(30);
+  });
 });

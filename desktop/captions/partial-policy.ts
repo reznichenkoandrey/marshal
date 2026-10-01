@@ -38,6 +38,18 @@ export const PARTIAL_COOLDOWN_MS = 60_000;
 export const MIN_PARTIAL_COOLDOWN_MS = 5_000;
 export const MAX_PARTIAL_COOLDOWN_MS = 10 * 60_000;
 
+/**
+ * Groq's on_demand tier for whisper-large-v3: 20 requests per minute, shared
+ * by partials and finals (#217). `MARSHAL_CAPTIONS_STT_RPM` for other tiers.
+ */
+export const DEFAULT_STT_RPM = 20;
+const STT_RPM_WINDOW_MS = 60_000;
+
+export function resolveSttRpm(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 2 ? parsed : DEFAULT_STT_RPM;
+}
+
 const RETRY_HINT = /try again in\s+([\d.hms]+)/iu;
 const RETRY_PART = /(\d+(?:\.\d+)?)(ms|h|m|s)/gu;
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 };
@@ -92,12 +104,34 @@ export function resolvePartialIntervalMs(raw: string | undefined): number {
 export class PartialGate {
   private inFlight = false;
   private disabledUntil = 0;
+  private rpm: number | null = null;
+  private requests: number[] = [];
 
   constructor(private readonly cooldownMs = PARTIAL_COOLDOWN_MS) {}
+
+  /**
+   * Request budget for a rate-limited STT (#217); null for local whisper,
+   * which has no quota. Partials may use only half of it — the other half
+   * is kept for the finals, which share the same limit.
+   */
+  setBudget(rpm: number | null): void {
+    this.rpm = rpm;
+    this.requests = [];
+  }
+
+  /** Counts a final's STT request against the shared budget. */
+  noteRequest(now: number): void {
+    if (this.rpm !== null) this.requests.push(now);
+  }
 
   /** Claims the slot. Returns false when the pass should be skipped. */
   tryBegin(now: number, finalsPending: boolean): boolean {
     if (this.inFlight || finalsPending || now < this.disabledUntil) return false;
+    if (this.rpm !== null) {
+      this.requests = this.requests.filter((at) => now - at < STT_RPM_WINDOW_MS);
+      if (this.requests.length >= this.rpm - Math.ceil(this.rpm / 2)) return false;
+      this.requests.push(now);
+    }
     this.inFlight = true;
     return true;
   }
@@ -119,6 +153,7 @@ export class PartialGate {
   reset(): void {
     this.inFlight = false;
     this.disabledUntil = 0;
+    this.requests = [];
   }
 }
 
