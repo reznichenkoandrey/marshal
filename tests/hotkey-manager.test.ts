@@ -294,3 +294,145 @@ describe("GesturePushToTalkHotkey", () => {
     expect(events).toEqual(["start", "end"]);
   });
 });
+
+describe("GesturePushToTalkHotkey cancel (#239)", () => {
+  const make = (toggleTapCount = 0) => {
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, { holdDelayMs: 200, toggleTapCount, toggleTapThresholdMs: 350 });
+    const events: string[] = [];
+    hotkey.on("hold-start", () => events.push("start"));
+    hotkey.on("hold-end", () => events.push("end"));
+    hotkey.on("hold-cancel", () => events.push("cancel"));
+    return { inner, hotkey, events };
+  };
+
+  it("drops a pending hold so a quick chord never starts recording", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    inner.down();
+    vi.advanceTimersByTime(100);
+    inner.emit("hold-cancel");
+    vi.advanceTimersByTime(500);
+
+    expect(events).toEqual([]);
+  });
+
+  it("cancels an active hold instead of ending it", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    inner.down();
+    vi.advanceTimersByTime(200);
+    inner.emit("hold-cancel");
+    inner.up();
+
+    expect(events).toEqual(["start", "cancel"]);
+  });
+
+  it("accepts a normal hold right after a cancelled one", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    inner.down();
+    vi.advanceTimersByTime(200);
+    inner.emit("hold-cancel");
+    inner.down();
+    vi.advanceTimersByTime(200);
+    inner.up();
+
+    expect(events).toEqual(["start", "cancel", "start", "end"]);
+  });
+
+  it("does not count a chord as a toggle tap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const { inner, events } = make(2);
+
+    inner.down();
+    inner.emit("hold-cancel");
+    vi.setSystemTime(1_100);
+    inner.down();
+    inner.up();
+
+    expect(events).toEqual([]);
+  });
+});
+
+describe("GesturePushToTalkHotkey double-tap (#242)", () => {
+  const make = (toggleTapCount = 0) => {
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, { holdDelayMs: 200, toggleTapCount, toggleTapThresholdMs: 350 });
+    const events: string[] = [];
+    for (const name of ["hold-start", "hold-end", "hold-cancel", "double-tap"]) {
+      hotkey.on(name, () => events.push(name));
+    }
+    return { inner, events };
+  };
+
+  const tap = (inner: FakePttBackend, gapMs: number) => {
+    inner.down();
+    vi.advanceTimersByTime(80);
+    inner.up();
+    vi.advanceTimersByTime(gapMs);
+  };
+
+  it("emits double-tap for two quick taps and never starts dictation", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    tap(inner, 150);
+    tap(inner, 1_000);
+
+    expect(events).toEqual(["double-tap"]);
+  });
+
+  it("ignores taps further apart than the threshold", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    tap(inner, 500);
+    tap(inner, 500);
+
+    expect(events).toEqual([]);
+  });
+
+  it("starts a fresh pair after a double-tap, so three taps toggle once", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    tap(inner, 150);
+    tap(inner, 150);
+    tap(inner, 1_000);
+
+    expect(events).toEqual(["double-tap"]);
+  });
+
+  it("does not pair a tap with a dictation hold or a chord", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+
+    inner.down();
+    vi.advanceTimersByTime(300);
+    inner.up();
+    vi.advanceTimersByTime(100);
+    tap(inner, 1_000);
+
+    inner.down();
+    inner.emit("hold-cancel");
+    vi.advanceTimersByTime(100);
+    tap(inner, 1_000);
+
+    expect(events).toEqual(["hold-start", "hold-end"]);
+  });
+
+  it("leaves taps to hands-free dictation when tap toggling is on", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make(2);
+
+    tap(inner, 150);
+    tap(inner, 1_000);
+
+    expect(events).toEqual(["hold-start"]);
+  });
+});

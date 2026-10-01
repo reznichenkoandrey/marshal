@@ -82,7 +82,7 @@ export class FloatingToolbar {
     // only sets the initial state. Re-apply with `visibleOnFullScreen: true`
     // so we follow the user into fullscreen.
     if (process.platform === "darwin") {
-      this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
       // "screen-saver" floats above almost everything; "floating" alone would
       // sit under fullscreen apps' menu bar overlay.
       this.window.setAlwaysOnTop(true, "screen-saver");
