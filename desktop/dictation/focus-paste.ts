@@ -324,3 +324,32 @@ export function insertTextIntoFocused(text: string, options: InsertOptions = {})
     }
   });
 }
+
+export type DeliveryResult = "pasted" | "typed" | "clipboard";
+
+export interface DeliveryDeps {
+  paste: () => Promise<void>;
+  type: (text: string) => Promise<boolean>;
+}
+
+/**
+ * Deliver a transcript that is already on the clipboard. Cmd+V is one event,
+ * so rich editors (Claude, Slack) can't drop part of it the way they drop
+ * typed chunks (#244). Typing stays for targets where Cmd+V is not text
+ * entry and for a failed paste; "clipboard" leaves the manual paste.
+ */
+export async function deliverTranscript(
+  text: string,
+  focus: FocusProbeResult,
+  deps: DeliveryDeps = { paste: () => sendPasteKeystroke(), type: (value) => insertTextIntoFocused(value) }
+): Promise<DeliveryResult> {
+  if (decideAutoPaste(focus)) {
+    try {
+      await deps.paste();
+      return "pasted";
+    } catch {
+      // Fall through to typing.
+    }
+  }
+  return (await deps.type(text)) ? "typed" : "clipboard";
+}

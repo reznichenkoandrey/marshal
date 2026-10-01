@@ -10,6 +10,7 @@ import os from "node:os";
 
 import {
   decideAutoPaste,
+  deliverTranscript,
   isAxBlind,
   parseFocusProbe,
   probeFocusedElement,
@@ -272,5 +273,51 @@ describe("sendPasteKeystroke", () => {
     } finally {
       await rm(path.dirname(bin), { recursive: true, force: true });
     }
+  });
+});
+
+describe("deliverTranscript (#244)", () => {
+  const textField: FocusProbeResult = {
+    isTextInput: false,
+    role: "",
+    subrole: "",
+    axError: -25204,
+    axTrusted: true,
+    frontmostApp: "Claude"
+  };
+
+  const deps = (pasteFails = false, typeOk = true) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      deps: {
+        paste: async () => {
+          calls.push("paste");
+          if (pasteFails) throw new Error("send-keystroke exited 1");
+        },
+        type: async (text: string) => {
+          calls.push(`type:${text}`);
+          return typeOk;
+        }
+      }
+    };
+  };
+
+  it("pastes into a text target instead of typing chunks", async () => {
+    const { calls, deps: d } = deps();
+    await expect(deliverTranscript("привіт", textField, d)).resolves.toBe("pasted");
+    expect(calls).toEqual(["paste"]);
+  });
+
+  it("types when the paste keystroke fails", async () => {
+    const { calls, deps: d } = deps(true);
+    await expect(deliverTranscript("привіт", textField, d)).resolves.toBe("typed");
+    expect(calls).toEqual(["paste", "type:привіт"]);
+  });
+
+  it("never pastes into an app where Cmd+V is not text entry", async () => {
+    const { calls, deps: d } = deps(false, false);
+    await expect(deliverTranscript("привіт", { ...textField, frontmostApp: "Finder" }, d)).resolves.toBe("clipboard");
+    expect(calls).toEqual(["type:привіт"]);
   });
 });
