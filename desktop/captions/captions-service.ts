@@ -60,6 +60,7 @@ import {
   parseRetryAfterMs,
   PARTIAL_COOLDOWN_MS,
   resolvePartialBackend,
+  resolveSttRpm,
   resolvePartialIntervalMs,
   DEFAULT_PARTIAL_INTERVAL_MS
 } from "./partial-policy.ts";
@@ -220,6 +221,7 @@ export class LiveCaptionsService extends EventEmitter {
       // next to the final and slow it down several times over (#219).
       this.partialWhisper =
         partialBackend === "whisper-cpp" && !(partialWhisper instanceof ResidentWhisperBackend) ? null : partialWhisper;
+      this.partialGate.setBudget(partialBackend === "groq" ? resolveSttRpm(process.env.MARSHAL_CAPTIONS_STT_RPM) : null);
     }
     this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
     const target = resolveTranslationTarget(process.env.MARSHAL_CAPTIONS_TRANSLATE, resolveLangCode);
@@ -485,6 +487,7 @@ export class LiveCaptionsService extends EventEmitter {
     if (segment.reason !== "provisional") this.setStatus("transcribing");
     try {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
+      this.partialGate.noteRequest(Date.now());
       const result = await this.whisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
       if (this.state !== "running") return;
       if (segment.reason === "provisional") {
