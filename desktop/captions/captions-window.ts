@@ -187,7 +187,7 @@ export class CaptionsWindow {
     // The privacy property. Must be set before the window is shown.
     win.setContentProtection(true);
     win.setAlwaysOnTop(true, "screen-saver");
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.setIgnoreMouseEvents(!this.interactive);
 
     win.on("resize", () => this.captureBoundsDebounced());

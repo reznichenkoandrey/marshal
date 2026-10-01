@@ -43,7 +43,7 @@ export function runCountdown(preloadPath: string, seconds = 3): Promise<void> {
     });
 
     win.setAlwaysOnTop(true, "screen-saver");
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     // Click-through — user should not be able to interact with the countdown.
     win.setIgnoreMouseEvents(true);
 

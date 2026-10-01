@@ -199,6 +199,7 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
   private toggleActive = false;
   private lastTapAt = 0;
   private tapCount = 0;
+  private pressedAt = 0;
 
   constructor(inner: PushToTalkBackend, options: Partial<DictationGestureOptions> = {}) {
     super();
@@ -214,6 +215,7 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
 
     this.inner.on("hold-start", () => this.handleRawHoldStart());
     this.inner.on("hold-end", () => this.handleRawHoldEnd());
+    this.inner.on("hold-cancel", () => this.handleRawHoldCancel());
     this.inner.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
   }
 
@@ -250,6 +252,7 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
 
     if (this.pendingHold || this.activeHold) return;
     this.pendingHold = true;
+    this.pressedAt = Date.now();
 
     if (this.options.holdDelayMs === 0) {
       this.promotePendingHold();
@@ -265,12 +268,45 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
     if (this.pendingHold) {
       this.pendingHold = false;
       this.clearHoldTimer();
+      this.registerShortTap();
       return;
     }
 
     if (!this.activeHold) return;
     this.activeHold = false;
+    this.lastTapAt = 0;
     this.emit("hold-end");
+  }
+
+  // Two taps too short to start dictation = the meeting recording toggle (#242).
+  private registerShortTap(): void {
+    if (this.lastTapAt > 0 && this.pressedAt - this.lastTapAt <= this.options.toggleTapThresholdMs) {
+      this.lastTapAt = 0;
+      this.emit("double-tap");
+      return;
+    }
+    this.lastTapAt = Date.now();
+  }
+
+  // The key turned out to be part of a shortcut (#239): drop the press
+  // without the hold-end that would ship the recording to the transcriber.
+  private handleRawHoldCancel(): void {
+    if (this.options.toggleTapCount >= 2) {
+      this.tapCount = 0;
+      this.lastTapAt = 0;
+      return;
+    }
+
+    this.lastTapAt = 0;
+    if (this.pendingHold) {
+      this.pendingHold = false;
+      this.clearHoldTimer();
+      return;
+    }
+
+    if (!this.activeHold) return;
+    this.activeHold = false;
+    this.emit("hold-cancel");
   }
 
   private promotePendingHold(): void {

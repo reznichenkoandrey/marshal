@@ -1021,7 +1021,7 @@ function openPinnedWindow(base64Png: string): void {
     webPreferences: { contextIsolation: true, nodeIntegration: false }
   });
   win.setAlwaysOnTop(true, "floating");
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   const dataUrl = `data:image/png;base64,${base64Png}`;
   const html = `<!doctype html><html><head><style>
     *{margin:0;padding:0;box-sizing:border-box}
@@ -1401,6 +1401,9 @@ function initDictation(): void {
     isDictating = false;
     dictationIndicator?.hide();
     void refreshTrayState();
+  });
+  dictationService.on("double-tap", () => {
+    void toggleMeetingRecording("audio");
   });
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
@@ -2465,7 +2468,6 @@ function createTrayAndWindow(): void {
       nodeIntegration: false
     }
   });
-  mainWindow.setVisibleOnAllWorkspaces(false);
   mainWindow.loadFile(rendererHtmlPath).catch((err) => {
     console.error("[marshal] failed to load renderer:", err);
   });

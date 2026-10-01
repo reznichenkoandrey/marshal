@@ -100,7 +100,7 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
 
     // screen-saver level clears the menu bar the overlay now covers.
     cropWindow.setAlwaysOnTop(true, "screen-saver");
-    cropWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    cropWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
 
     void cropWindow.loadFile(path.join(opts.rendererDir, "crop-overlay.html"));
 

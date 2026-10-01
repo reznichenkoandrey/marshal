@@ -17,7 +17,7 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { clipboard } from "electron";
+import { BrowserWindow, clipboard } from "electron";
 
 import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
@@ -141,6 +141,8 @@ export class DictationService extends EventEmitter {
 
     this.hotkey.on("hold-start", () => this.handleHoldStart());
     this.hotkey.on("hold-end", () => this.handleHoldEnd());
+    this.hotkey.on("hold-cancel", () => this.handleHoldCancel());
+    this.hotkey.on("double-tap", () => this.emit("double-tap"));
     this.hotkey.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
   }
 
@@ -254,6 +256,9 @@ export class DictationService extends EventEmitter {
       // "ready" — engine is up. Safe to treat as recording.
       debug("  recorder ready");
       this.recorderReady = true;
+      // Already released or cancelled: announcing a start now would leave the
+      // indicator up after its recording-stop.
+      if (this.isStopping) return;
       this.emit("recording-start");
     });
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -304,6 +309,23 @@ export class DictationService extends EventEmitter {
     void this.finishRecording(child, wavPath).catch((err: unknown) => {
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
+  }
+
+  // Push-to-talk key was part of a shortcut (#239): discard the audio
+  // instead of transcribing, copying or pasting it.
+  private handleHoldCancel(): void {
+    debug("hold-cancel");
+    const child = this.recorderProcess;
+    const wavPath = this.currentWavPath;
+    if (!child || this.isStopping) return;
+    this.isStopping = true;
+    this.clearSafetyTimer();
+    this.currentWavPath = null;
+    this.emit("recording-stop");
+    child.once("exit", () => {
+      if (wavPath) void fs.unlink(wavPath).catch(() => undefined);
+    });
+    child.kill("SIGTERM");
   }
 
   private clearSafetyTimer(): void {
@@ -373,7 +395,8 @@ export class DictationService extends EventEmitter {
     const focus = await probeFocusedElement();
     debug(
       "deliverText → frontmost=", focus.frontmostApp || "?",
-      "(role=", focus.role || "?", "axError=", focus.axError, ")"
+      "(role=", focus.role || "?", "axError=", focus.axError, ")",
+      "marshalFocusedWindow=", BrowserWindow.getFocusedWindow()?.getTitle() ?? "none"
     );
 
     const typed = await insertTextIntoFocused(text);

@@ -207,6 +207,12 @@ export class SwiftPushToTalkHotkey extends EventEmitter {
       this.emit("hold-end");
       return;
     }
+    if (line === "cancel") {
+      if (!this.holding) return;
+      this.holding = false;
+      this.emit("hold-cancel");
+      return;
+    }
     if (this.debug) console.log("[hotkey:swift] unknown line:", line);
   }
 

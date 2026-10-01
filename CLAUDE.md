@@ -61,7 +61,15 @@
      - `npm run build` автоматично патчить `node_modules/electron/dist/Electron.app/Contents/Info.plist` (додає `NSMicrophoneUsageDescription` + `NSScreenCaptureUsageDescription` + `CFBundleIdentifier=com.marshal.desktop.dev`), підписує bundle stable identity `Marshal Self-Signed` (якщо cert встановлений) і підписує всі Swift helpers (`audio-recorder`, `screen-recorder`, `scroll-capture`, `scroll-stitch`, `apple-vision-ocr`, `send-keystroke`) тією ж identity. Скрипти: `scripts/patch-electron-info-plist.sh` + `scripts/postbuild.mjs`.
      - При першому запуску системний prompt → **Allow** для Microphone (а також Accessibility для push-to-talk hotkey, якщо ще не ввімкнено).
      - Packaged build отримує ті ж keys через `package.json > build.mac.extendInfo` + stable identity `099164E16AE88B2052B842BE1036FB10411B7239`.
-  3. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
+  3. **Жести правого ⌘ (`desktop/dictation/hotkey-manager.ts`, `GesturePushToTalkHotkey`):**
+     утримання довше `holdDelayMs` (200) — диктовка; два короткі натискання з паузою до
+     `toggleTapThresholdMs` (350) — тумблер запису дзвінка, лише аудіо (#242; тільки поки
+     `dictationToggleTapCount = 0`, інакше тапи належать hands-free диктовці). Якщо під час
+     утримання натиснуто інший модифікатор чи клавішу, це шорткат, а не диктовка:
+     `ptt-monitor` шле `cancel`, запис викидається без транскрипції й вставки (#239).
+     Глобального `⌘⌥M` для диктовки більше немає (#240): він стояв поруч із `⌘⌥⇧M`, і
+     замість запису дзвінка вмикалась диктовка, яка потім вставляла текст.
+  4. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`).
   **Для встановленого застосунку — `npm run setup:env`**: packaged білд шукає `.env` у своїй
   userData-теці, бо той, що в репо, лежить усередині `.app`. Тека зветься за top-level
@@ -84,6 +92,10 @@
   `alwaysOnTop`, а не тому, що «так гарніше» (#168). Додаєш нове вікно — або роби його
   floating, або дай шлях назад через tray; `BrowserWindow.focus()` сам по собі для
   LSUIElement не спрацьовує, потрібен `app.focus({ steal: true })`.
+  `setVisibleOnAllWorkspaces(…)` — **будь-який виклик лише з `skipTransformProcessType: true`**:
+  без нього Electron робить `DockShow`/`DockHide`, і `false` перетворює Marshal на Foreground-app
+  (`lsappinfo` → `type="Foreground"`). Тоді будь-яке вікно чи індикатор активує застосунок,
+  Marshal стає frontmost без жодного вікна, і диктовка «вставляє» текст у нікуди (#243).
 - **Вікно перекладача не ховається, поки в полі є текст** (#166). `blur` прилітає від
   нотифікацій і застосунків, що стартують, — це не рішення викинути набране. Порожнє вікно
   ховається як і раніше. Правила живуть у `desktop/translator/window-policy.ts` окремо від
@@ -214,7 +226,7 @@
   усередині вікна помер би разом із ним. `Save`/`Pin` вікно не закривають — просили
   саме про Copy.
 - **Запис дзвінків (Meet / Zoom / Slack) — `desktop/meeting/`** (#229). Tray → «Record Meeting
-  (Audio)» (`⌘⌥⇧M`) або «Record Meeting (Audio + Screen)»; «Meeting Recordings…» — історія з
+  (Audio)» (`⌘⌥⇧M` або **двічі правий ⌘**, #242) або «Record Meeting (Audio + Screen)»; «Meeting Recordings…» — історія з
   плеєром, Show in Finder і Delete (у Кошик, не `unlink`). Звук — мікрофон + системний
   (ScreenCaptureKit), тож застосунок дзвінка не має значення. Результат у
   `<userData>/meetings/<id>/`: `meeting.m4a` (AAC 96k, ~40 МБ/год) і в режимі екрана ще

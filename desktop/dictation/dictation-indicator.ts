@@ -54,6 +54,9 @@ export class DictationIndicator {
       skipTaskbar: true,
       resizable: false,
       focusable: false,
+      // Shown only via showInactive(): the default show activates Marshal and
+      // the next dictation types into Marshal instead of the user's field (#243).
+      show: false,
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,
@@ -62,7 +65,9 @@ export class DictationIndicator {
     });
 
     this.window.setAlwaysOnTop(true, "screen-saver");
-    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // Without skipTransformProcessType Electron flips Marshal to a foreground app,
+    // which steals frontmost and the next dictation types into nothing (#243).
+    this.window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     this.window.on("closed", () => {
       this.window = null;
     });
