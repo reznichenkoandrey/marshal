@@ -1,7 +1,7 @@
 {
   "name": "local-chatgpt-agent",
   "productName": "Marshal",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
