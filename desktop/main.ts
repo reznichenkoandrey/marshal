@@ -1505,6 +1505,11 @@ function initMeetingRecorder(): void {
     void refreshTrayState();
   });
   meetingRecorder.on("saved", ({ session }) => {
+    // The recorder also stops itself when it can no longer capture; the pill
+    // must not outlive the recording.
+    isMeetingRecording = false;
+    meetingIndicator?.hide();
+    void refreshTrayState();
     meetingHistoryWindow?.refresh();
     if (!Notification.isSupported()) return;
     const notif = new Notification({
@@ -1514,6 +1519,12 @@ function initMeetingRecorder(): void {
     });
     notif.on("click", () => meetingHistoryWindow?.open());
     notif.show();
+  });
+  meetingRecorder.on("warning", (message: string) => {
+    console.warn("[meeting] warning:", message);
+    meetingHistoryWindow?.refresh();
+    if (!Notification.isSupported()) return;
+    new Notification({ title: "Marshal — Meeting recording problem", body: message, silent: true }).show();
   });
   meetingRecorder.on("error", (err: Error) => {
     console.error("[meeting] error:", err);

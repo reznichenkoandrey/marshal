@@ -30,6 +30,8 @@ export type MeetingMode = "audio" | "screen";
 export type MeetingRecordingEvents = {
   "recording-start": [{ mode: MeetingMode }];
   saved: [{ session: MeetingSessionSummary }];
+  /** Something went wrong mid-call; the recording goes on, but the user should know now, not at save. */
+  warning: [string];
   error: [Error];
 };
 
@@ -79,13 +81,15 @@ type MeetingRecorderOptions = {
   userDataDir: string;
   recorderBin?: string;
   chunkMs?: number;
+  /** Returns a fresh system-audio recorder per chunk, or null when there is none. */
+  createSystemAudioRecorder?: () => SystemAudioRecorder | null;
 };
 
-export class MeetingRecorder extends EventEmitter {
+export class MeetingRecorder extends EventEmitter<MeetingRecordingEvents> {
   private readonly userDataDir: string;
   private readonly recorderBin: string;
   private readonly chunkMs: number;
-  private readonly systemAudioRecorder: SystemAudioRecorder | null;
+  private readonly createSystemAudioRecorder: () => SystemAudioRecorder | null;
   private manifest: MeetingManifest | null = null;
   private currentChunk: ActiveChunk | null = null;
   private videoRecorder: VideoRecorder | null = null;
@@ -97,8 +101,12 @@ export class MeetingRecorder extends EventEmitter {
     super();
     this.userDataDir = options.userDataDir;
     this.recorderBin = options.recorderBin ?? process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
-    const systemRecorder = new SystemAudioRecorder();
-    this.systemAudioRecorder = systemRecorder.isAvailable() ? systemRecorder : null;
+    // One recorder per chunk: a shared one let the previous chunk's helper,
+    // exiting after the next was spawned, drop the handle to the live one (#250).
+    this.createSystemAudioRecorder = options.createSystemAudioRecorder ?? (() => {
+      const recorder = new SystemAudioRecorder();
+      return recorder.isAvailable() ? recorder : null;
+    });
     const configuredChunkMs = Number.parseInt(process.env.MARSHAL_MEETING_CHUNK_MS ?? "", 10);
     this.chunkMs = options.chunkMs ?? (Number.isFinite(configuredChunkMs) && configuredChunkMs > 0
       ? configuredChunkMs
@@ -138,7 +146,7 @@ export class MeetingRecorder extends EventEmitter {
         id,
         mode,
         state: "recording",
-        source: this.systemAudioRecorder ? "microphone+system" : "microphone",
+        source: this.createSystemAudioRecorder() ? "microphone+system" : "microphone",
         startedAt: now.toISOString(),
         folder,
         chunks: []
@@ -207,13 +215,18 @@ export class MeetingRecorder extends EventEmitter {
       }
 
       // Raw chunks go only after the final files exist: until then they are
-      // the only copy of the call.
+      // the only copy of the call. A chunk that never made it into the final
+      // file keeps its raw files — they are the only copy of that stretch.
+      const left = manifest.chunks.filter((chunk) => !recorded.includes(chunk));
       await Promise.all(
-        manifest.chunks.flatMap((chunk) =>
+        recorded.flatMap((chunk) =>
           [chunk.path, chunk.micPath, chunk.systemPath].filter((p): p is string => Boolean(p)).map((p) => fs.rm(p, { force: true }))
         )
       );
-      manifest.chunks = [];
+      if (left.length > 0) {
+        this.warn(`Chunks ${left.map((chunk) => chunk.index + 1).join(", ")} are missing from the final audio; raw files kept in the folder.`);
+      }
+      manifest.chunks = left;
       manifest.state = "done";
       await this.writeManifest();
 
@@ -251,9 +264,7 @@ export class MeetingRecorder extends EventEmitter {
     // listener EventEmitter would throw it out of the stdout handler.
     recorder.on("error", (err: Error) => {
       console.error("[meeting] screen recorder:", err.message);
-      if (!this.manifest) return;
-      this.manifest.warnings ??= [];
-      this.manifest.warnings.push(`Screen recording: ${err.message}`);
+      this.warn(`Screen recording: ${err.message}`);
     });
     await recorder.startMeeting(outPath);
     if (this.manifest) this.manifest.videoStartedAt = new Date().toISOString();
@@ -302,17 +313,20 @@ export class MeetingRecorder extends EventEmitter {
     console.log(`[meeting] ${chunkName}: microphone recorder spawned`);
     let systemRecorder: SystemAudioRecorder | null = null;
     let activeSystemPath: string | null = null;
-    if (this.systemAudioRecorder) {
+    const candidate = this.createSystemAudioRecorder();
+    if (candidate) {
       try {
-        await this.systemAudioRecorder.start(systemPath);
-        systemRecorder = this.systemAudioRecorder;
+        candidate.on("failed", (message) => {
+          this.warn(`System audio stopped during ${chunkName}: ${message}`);
+        });
+        await candidate.start(systemPath);
+        systemRecorder = candidate;
         activeSystemPath = systemPath;
         console.log(`[meeting] ${chunkName}: system audio started`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[meeting] ${chunkName}: system audio unavailable: ${message}`);
-        this.manifest.warnings ??= [];
-        this.manifest.warnings.push(`System audio unavailable for ${chunkName}: ${message}`);
+        this.warn(`System audio unavailable for ${chunkName}: ${message}`);
       }
     } else {
       this.manifest.warnings ??= [];
@@ -349,11 +363,34 @@ export class MeetingRecorder extends EventEmitter {
     await this.writeManifest();
     if (!this.stopping) {
       this.chunkTimer = setTimeout(() => {
-        this.rotationPromise = this.rotateChunk().finally(() => {
-          this.rotationPromise = null;
-        });
+        this.rotationPromise = this.rotateChunk()
+          .catch((err: unknown) => this.handleRotationFailure(err))
+          .finally(() => {
+            this.rotationPromise = null;
+          });
       }, this.chunkMs);
     }
+  }
+
+  // Runs off a timer, so nothing upstream would ever see this rejection: the
+  // recording used to lose a chunk without a word (#251).
+  private handleRotationFailure(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[meeting] chunk rotation failed:", message);
+    this.warn(`Chunk rotation failed: ${message}`);
+    // No live recorder left means the call is no longer being captured;
+    // saving what exists beats a pill that claims otherwise.
+    if (!this.currentChunk && this.manifest && !this.stopping) void this.stop();
+  }
+
+  // Persisted with the next manifest write: writing here would race the
+  // writes stop() makes and could leave a stale state on disk.
+  private warn(message: string): void {
+    if (this.manifest) {
+      this.manifest.warnings ??= [];
+      this.manifest.warnings.push(message);
+    }
+    this.emit("warning", message);
   }
 
   private async rotateChunk(): Promise<void> {
@@ -393,11 +430,21 @@ export class MeetingRecorder extends EventEmitter {
 
   private async finalizeChunk(chunk: ActiveChunk): Promise<void> {
     if (!this.manifest) return;
-    await MeetingAudioMixer.mix({
-      micPath: chunk.micPath,
-      systemPath: chunk.systemPath ?? undefined,
-      outputPath: chunk.path
-    });
+    try {
+      await MeetingAudioMixer.mix({
+        micPath: chunk.micPath,
+        systemPath: chunk.systemPath ?? undefined,
+        outputPath: chunk.path
+      });
+    } catch (err) {
+      if (!chunk.systemPath) throw err;
+      // The microphone file is intact even when the system track is not
+      // (helper crashed, file never finalized): keep the user's side of the
+      // call instead of failing the whole chunk (#251).
+      const message = err instanceof Error ? err.message : String(err);
+      this.warn(`System audio for chunk ${chunk.index + 1} is unreadable; kept microphone only. ${message}`);
+      await MeetingAudioMixer.mix({ micPath: chunk.micPath, outputPath: chunk.path });
+    }
     const stat = await fs.stat(chunk.path).catch(() => null);
     const entry = this.manifest.chunks.find((item) => item.index === chunk.index);
     if (entry) {

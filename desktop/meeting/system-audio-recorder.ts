@@ -17,10 +17,16 @@ const DEFAULT_BINARY_PATH = path.join(
 // that never answers must not hold the whole recording hostage.
 const START_TIMEOUT_MS = 45_000;
 
-export class SystemAudioRecorder extends EventEmitter {
+export type SystemAudioRecorderEvents = {
+  /** The helper lost its stream or died while recording; its file is suspect. */
+  failed: [string];
+};
+
+export class SystemAudioRecorder extends EventEmitter<SystemAudioRecorderEvents> {
   private readonly binPath: string;
   private child: ChildProcess | null = null;
   private outputPath: string | null = null;
+  private stopRequested = false;
 
   constructor(binPath = process.env.MARSHAL_SYSTEM_AUDIO_RECORDER_BIN ?? DEFAULT_BINARY_PATH) {
     super();
@@ -42,9 +48,11 @@ export class SystemAudioRecorder extends EventEmitter {
     const child = spawn(this.binPath, [], { stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
     this.outputPath = outputPath;
+    this.stopRequested = false;
 
     let stdout = "";
     let stderrTail = "";
+    let started = false;
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
@@ -85,9 +93,15 @@ export class SystemAudioRecorder extends EventEmitter {
       child.once("exit", onExit);
     });
 
-    child.on("exit", () => {
+    // A helper that was told to quit exits after the next one has already
+    // been spawned; clearing unconditionally would orphan the new helper and
+    // its file would never be finalized (#250).
+    child.on("exit", (code) => {
+      if (this.child !== child) return;
+      const unexpected = started && !this.stopRequested;
       this.child = null;
       this.outputPath = null;
+      if (unexpected) this.emit("failed", `system audio helper exited while recording (${code ?? "signal"}): ${stderrTail}`.trim());
     });
     child.stdin?.write(`start ${outputPath}\n`);
     let timer: NodeJS.Timeout | undefined;
@@ -100,6 +114,20 @@ export class SystemAudioRecorder extends EventEmitter {
     try {
       await Promise.race([ready, timeout]);
       clearTimeout(timer);
+      started = true;
+      // ScreenCaptureKit reports a stream that died mid-recording as an
+      // `error` line; without this the call kept "recording" silence.
+      let tail = "";
+      child.stdout?.on("data", (chunk: string) => {
+        tail += chunk;
+        const lines = tail.split("\n");
+        tail = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("error ") && this.child === child && !this.stopRequested) {
+            this.emit("failed", line.slice("error ".length));
+          }
+        }
+      });
     } catch (err) {
       clearTimeout(timer);
       child.stdin?.write("quit\n");
@@ -115,29 +143,36 @@ export class SystemAudioRecorder extends EventEmitter {
     const outputPath = this.outputPath;
     if (!child || !outputPath) return null;
 
+    this.stopRequested = true;
     let stdout = "";
-    const stopped = new Promise<string>((resolve) => {
+    const stopped = new Promise<string>((resolve, reject) => {
       const onStdout = (chunk: Buffer | string): void => {
         stdout += chunk.toString();
-        const line = stdout.split("\n").find((item) => item.startsWith("stopped "));
-        if (line) {
-          child.stdout?.removeListener("data", onStdout);
-          resolve(line.slice("stopped ".length));
-        }
+        const lines = stdout.split("\n");
+        const done = lines.find((item) => item.startsWith("stopped "));
+        // A failed stop answers `error …` and never `stopped …`; waiting only
+        // for the latter would hang the whole meeting stop.
+        const failed = lines.find((item) => item.startsWith("error "));
+        if (done || failed) child.stdout?.removeListener("data", onStdout);
+        if (done) resolve(done.slice("stopped ".length));
+        else if (failed) reject(new Error(failed.slice("error ".length)));
       };
       child.stdout?.on("data", onStdout);
       child.once("exit", () => resolve(outputPath));
     });
 
     child.stdin?.write("stop\n");
-    const result = await stopped;
-    child.stdin?.write("quit\n");
-    this.child = null;
-    this.outputPath = null;
-    return result;
+    try {
+      return await stopped;
+    } finally {
+      child.stdin?.write("quit\n");
+      this.child = null;
+      this.outputPath = null;
+    }
   }
 
   kill(): void {
+    this.stopRequested = true;
     if (this.child) {
       this.child.kill("SIGTERM");
       this.child = null;
