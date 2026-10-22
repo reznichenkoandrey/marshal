@@ -3,6 +3,12 @@
 // ScreenCaptureKit audio-only recorder for meeting capture. It records the
 // system/app audio stream to an M4A file; Node mixes it with the microphone
 // WAV and normalizes the result for Whisper.
+//
+// The file is written fragmented (#252): a plain M4A has no index until
+// finishWriting, so a helper that died any other way — crash, SIGKILL, the
+// app quitting — left the remote side of the call unreadable. Fragments keep
+// it readable up to the last second; finishWriting still produces a normal
+// file. EOF on stdin, SIGTERM and SIGINT finalize before exiting.
 
 import Foundation
 import ScreenCaptureKit
@@ -17,6 +23,8 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var firstPts: CMTime?
     private var outputURL: URL?
     private let streamQueue = DispatchQueue(label: "com.marshal.system-audio-recorder.stream")
+
+    var isRecording: Bool { stream != nil }
 
     func start(outPath: String) async throws {
         let content = try await SCShareableContent.current
@@ -40,6 +48,9 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         try? FileManager.default.removeItem(at: url)
 
         let assetWriter = try AVAssetWriter(url: url, fileType: .m4a)
+        // Must be set before startWriting. One second bounds what a hard kill
+        // can lose; the fragment headers cost a few bytes per second.
+        assetWriter.movieFragmentInterval = CMTime(value: 1, timescale: 1)
         let audioSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 48_000,
@@ -71,17 +82,36 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             )
         }
 
-        try await stream.stopCapture()
+        // A stream that already died (didStopWithError) refuses to stop;
+        // the samples written so far must still be finalized.
+        var stopError: Error?
+        do {
+            try await stream.stopCapture()
+        } catch {
+            stopError = error
+        }
         self.stream = nil
 
-        audioInput?.markAsFinished()
-        await writer?.finishWriting()
+        let finishedWriter = writer
+        if finishedWriter?.status == .writing {
+            audioInput?.markAsFinished()
+            await finishedWriter?.finishWriting()
+        }
 
         let path = outputURL?.path ?? ""
         writer = nil
         audioInput = nil
         outputURL = nil
         firstPts = nil
+        if finishedWriter?.status == .failed {
+            throw finishedWriter?.error ?? stopError ?? NSError(
+                domain: "SystemAudioRecorder", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Writer failed"]
+            )
+        }
+        if let stopError {
+            FileHandle.standardError.write(Data("stopCapture failed: \(stopError.localizedDescription)\n".utf8))
+        }
         return path
     }
 
@@ -134,6 +164,27 @@ guard #available(macOS 13.0, *) else {
 
 let recorder = SystemAudioRecorder()
 
+// Finalizes an in-progress file, then exits. Bounded: a stop that never
+// returns must not keep an orphaned helper capturing audio forever.
+func finalizeAndExit(_ code: Int32) {
+    DispatchQueue.global().asyncAfter(deadline: .now() + 5) { exit(code) }
+    Task {
+        if recorder.isRecording {
+            _ = try? await recorder.stop()
+        }
+        exit(code)
+    }
+}
+
+signal(SIGTERM, SIG_IGN)
+let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+termSource.setEventHandler { finalizeAndExit(0) }
+termSource.resume()
+signal(SIGINT, SIG_IGN)
+let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+intSource.setEventHandler { finalizeAndExit(0) }
+intSource.resume()
+
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -167,12 +218,15 @@ DispatchQueue.global(qos: .userInitiated).async {
                 }
             }
         case "quit":
-            exit(0)
+            finalizeAndExit(0)
+            return
         default:
             emitLine("error unknown command: \(cmd)")
         }
     }
-    exit(0)
+    // stdin closed: Marshal is gone (crash, force quit). Nobody will send
+    // `stop`, so finalize the file ourselves.
+    finalizeAndExit(0)
 }
 
 RunLoop.main.run()

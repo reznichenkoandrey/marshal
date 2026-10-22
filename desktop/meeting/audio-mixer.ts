@@ -146,7 +146,9 @@ export class MeetingAudioMixer {
     const bin = this.getBinaryPath();
     if (!bin) return Promise.reject(new Error("ffmpeg binary not found. Install dependencies with `npm install`."));
     return new Promise<void>((resolve, reject) => {
-      const child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
+      // Without these, stderr opens with the version and build configuration
+      // and the actual cause is buried at the end of a notification (#251).
+      const child = spawn(bin, ["-hide_banner", "-loglevel", "error", ...args], { stdio: ["ignore", "ignore", "pipe"] });
       let stderrTail = "";
       child.stderr?.setEncoding("utf8");
       child.stderr?.on("data", (chunk: string) => {
@@ -155,7 +157,7 @@ export class MeetingAudioMixer {
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`ffmpeg ${label} exited with code ${code}: ${stderrTail}`));
+        else reject(new Error(`ffmpeg ${label} exited with code ${code}: ${stderrTail.trim()}`));
       });
     });
   }

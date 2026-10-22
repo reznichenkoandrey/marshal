@@ -60,6 +60,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // 2.5 Mbps keeps slides and faces readable at roughly 1.1 GB per hour.
     private static let meetingFps: Int32 = 15
     private static let meetingBitRate = 2_500_000
+    // An hour of call must not hinge on finishWriting: a fragmented movie
+    // stays readable up to the last fragment if the helper dies (#252).
+    private static let meetingFragmentInterval = CMTime(value: 2, timescale: 1)
 
     func startMeeting(outPath: String) async throws {
         let (display, _) = try await pickPrimaryDisplay()
@@ -74,7 +77,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             filter: SCContentFilter(display: display, excludingWindows: []),
             config: config,
             outPath: outPath,
-            bitRate: Recorder.meetingBitRate
+            bitRate: Recorder.meetingBitRate,
+            fragmentInterval: Recorder.meetingFragmentInterval
         )
     }
 
@@ -114,12 +118,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         filter: SCContentFilter,
         config: SCStreamConfiguration,
         outPath: String,
-        bitRate: Int? = nil
+        bitRate: Int? = nil,
+        fragmentInterval: CMTime? = nil
     ) async throws {
         let url = URL(fileURLWithPath: outPath)
         try? FileManager.default.removeItem(at: url)
 
         let assetWriter = try AVAssetWriter(url: url, fileType: .mov)
+        if let fragmentInterval {
+            assetWriter.movieFragmentInterval = fragmentInterval
+        }
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: config.width,
