@@ -339,6 +339,7 @@ const meetingHistoryApi = {
   refresh: () => ipcRenderer.invoke("marshal:meeting-history:refresh"),
   reveal: (filePath: string) => ipcRenderer.invoke("marshal:meeting-history:reveal", { path: filePath }),
   revealFolder: () => ipcRenderer.invoke("marshal:meeting-history:reveal-folder"),
+  finish: (id: string) => ipcRenderer.invoke("marshal:meeting-history:finish", { id }),
   trash: (id: string) => ipcRenderer.invoke("marshal:meeting-history:trash", { id }),
   close: () => ipcRenderer.invoke("marshal:meeting-history:close")
 };

@@ -105,3 +105,10 @@ jobs:
         # they need Screen Recording, which a runner cannot grant.
         run: npx electron tests/e2e/capture-history.mjs
         timeout-minutes: 5
+
+      - name: meeting recordings
+        # Stub `window.marshalMeetingHistory`: which rows offer Finish, the
+        # busy state while main assembles, and a long error not crushing the
+        # row (#254). The assembly itself runs with real ffmpeg in vitest.
+        run: npx electron tests/e2e/meeting-history.mjs
+        timeout-minutes: 5

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { VideoRecorder } from "../capture/video-recorder.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
-import { buildMeetingMuxArgs, buildTimelineToAacArgs, MeetingAudioMixer } from "./audio-mixer.ts";
+import { assembleMeeting, mixChunk, RAW_SCREEN_FILE } from "./meeting-assembly.ts";
 import { SystemAudioRecorder } from "./system-audio-recorder.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -20,10 +20,6 @@ const DEFAULT_CHUNK_MS = 5 * 60 * 1000;
 // Covers the first exec of a freshly signed helper, which Gatekeeper holds
 // for up to ~35 s after an install (#181).
 const HELPER_READY_TIMEOUT_MS = 45_000;
-
-export const MEETING_AUDIO_FILE = "meeting.m4a";
-export const MEETING_VIDEO_FILE = "meeting.mp4";
-const RAW_SCREEN_FILE = "screen.mov";
 
 export type MeetingMode = "audio" | "screen";
 
@@ -186,46 +182,15 @@ export class MeetingRecorder extends EventEmitter<MeetingRecordingEvents> {
       manifest.stoppedAt = new Date().toISOString();
       await this.writeManifest();
 
-      const recorded = manifest.chunks.filter((chunk) => (chunk.bytes ?? 0) > 0);
-      const timelineStart = Date.parse(recorded[0]?.startedAt ?? manifest.startedAt);
-      const audioPath = path.join(manifest.folder, MEETING_AUDIO_FILE);
-      await MeetingAudioMixer.run(
-        buildTimelineToAacArgs(
-          recorded.map((chunk) => ({ path: chunk.path, offsetMs: Date.parse(chunk.startedAt) - timelineStart })),
-          audioPath
-        ),
-        "meeting audio assembly"
-      );
+      const { audioPath, videoPath, left } = await assembleMeeting({
+        folder: manifest.folder,
+        chunks: manifest.chunks,
+        rawVideoPath,
+        videoStartedAt: manifest.videoStartedAt,
+        warn: (message) => this.warn(message)
+      });
       manifest.audioPath = audioPath;
-
-      let videoPath: string | undefined;
-      if (rawVideoPath && manifest.videoStartedAt) {
-        videoPath = path.join(manifest.folder, MEETING_VIDEO_FILE);
-        await MeetingAudioMixer.run(
-          buildMeetingMuxArgs({
-            videoPath: rawVideoPath,
-            audioPath,
-            audioOffsetSec: (timelineStart - Date.parse(manifest.videoStartedAt)) / 1000,
-            outputPath: videoPath
-          }),
-          "meeting video mux"
-        );
-        manifest.videoPath = videoPath;
-        await fs.rm(rawVideoPath, { force: true });
-      }
-
-      // Raw chunks go only after the final files exist: until then they are
-      // the only copy of the call. A chunk that never made it into the final
-      // file keeps its raw files — they are the only copy of that stretch.
-      const left = manifest.chunks.filter((chunk) => !recorded.includes(chunk));
-      await Promise.all(
-        recorded.flatMap((chunk) =>
-          [chunk.path, chunk.micPath, chunk.systemPath].filter((p): p is string => Boolean(p)).map((p) => fs.rm(p, { force: true }))
-        )
-      );
-      if (left.length > 0) {
-        this.warn(`Chunks ${left.map((chunk) => chunk.index + 1).join(", ")} are missing from the final audio; raw files kept in the folder.`);
-      }
+      manifest.videoPath = videoPath;
       manifest.chunks = left;
       manifest.state = "done";
       await this.writeManifest();
@@ -430,26 +395,14 @@ export class MeetingRecorder extends EventEmitter<MeetingRecordingEvents> {
 
   private async finalizeChunk(chunk: ActiveChunk): Promise<void> {
     if (!this.manifest) return;
-    try {
-      await MeetingAudioMixer.mix({
-        micPath: chunk.micPath,
-        systemPath: chunk.systemPath ?? undefined,
-        outputPath: chunk.path
-      });
-    } catch (err) {
-      if (!chunk.systemPath) throw err;
-      // The microphone file is intact even when the system track is not
-      // (helper crashed, file never finalized): keep the user's side of the
-      // call instead of failing the whole chunk (#251).
-      const message = err instanceof Error ? err.message : String(err);
-      this.warn(`System audio for chunk ${chunk.index + 1} is unreadable; kept microphone only. ${message}`);
-      await MeetingAudioMixer.mix({ micPath: chunk.micPath, outputPath: chunk.path });
-    }
-    const stat = await fs.stat(chunk.path).catch(() => null);
+    const bytes = await mixChunk(
+      { index: chunk.index, path: chunk.path, micPath: chunk.micPath, systemPath: chunk.systemPath ?? undefined },
+      (message) => this.warn(message)
+    );
     const entry = this.manifest.chunks.find((item) => item.index === chunk.index);
     if (entry) {
       entry.stoppedAt = new Date().toISOString();
-      entry.bytes = stat?.size ?? 0;
+      entry.bytes = bytes;
     }
     await this.writeManifest();
   }

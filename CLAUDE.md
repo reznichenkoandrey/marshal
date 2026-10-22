@@ -25,10 +25,11 @@
 - E2E у реальному Electron — окремо від vitest: `npm run test:e2e` (smoke),
   `npm run test:e2e:capture` (редактор захоплення), `npm run test:e2e:region`
   (геометрія виділення області), `npm run test:e2e:history` (вікно історії знімків),
+  `npm run test:e2e:meetings` (вікно записів дзвінків: «Finish» для перерваних),
   `npm run test:e2e:alternatives`
   (перекладач: клік по слову → альтернативи), `npm run test:e2e:captions` (живий рядок
   субтитрів)
-  У CI (macOS) крутяться smoke, alternatives, captions і history: вони працюють через
+  У CI (macOS) крутяться smoke, alternatives, captions, history і meetings: вони працюють через
   stub-preload і не потребують TCC. `capture` і `region` — лише локально, бо їм потрібен
   Screen Recording, якого GitHub runner дати не може. Чіпаєш захоплення — запусти їх руками.
 - Тести живуть у `tests/` на рівні проєкту
@@ -261,6 +262,15 @@
   зустрічі 2 с, #252): звичайний M4A/MOV без `finishWriting` нечитабельний, тож краш,
   `kill -9` чи вихід Marshal губили весь чанк. Тепер файл читається до останнього фрагмента,
   а `system-audio-recorder` на EOF stdin, SIGTERM і SIGINT сам дописує файл перед виходом.
+  `audio-recorder` (мікрофон; stdin у нього немає) стежить за батьківським процесом і
+  зупиняється разом із ним (#255): раніше після краху Marshal він писав мікрофон безстроково.
+  **«Finish» у Meeting Recordings** (#254) збирає `meeting.m4a` для «Interrupted» і «Failed»
+  із сирих чанків, що лишились у теці. Збирання одне на двох — `meeting-assembly.ts`
+  (`mixChunk`, `assembleMeeting`), його ж викликає `MeetingRecorder.stop()`, тож дописаний
+  після краху запис нічим не відрізняється від зупиненого. WAV з недописаним заголовком
+  ffmpeg читає до кінця файлу, а тривалість для `stoppedAt` рахується з розміру файлу
+  (`wavDurationMs`), не з полів заголовка. Відео, що не змукселось, — попередження, а не
+  провал: `screen.mov` лишається в теці, аудіо зберігається.
 - **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
   руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
   блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,
