@@ -36,7 +36,10 @@ jobs:
 
       - name: coverage (macOS only)
         if: matrix.os == 'macos-latest'
-        run: npm run test:coverage -- --reporter=default --reporter=json-summary
+        # json-summary is a coverage reporter, set in vitest.config.ts. Passed
+        # here as --reporter it named a test reporter that does not exist, and
+        # the step died at startup on every run (#257).
+        run: npm run test:coverage
         continue-on-error: true
 
       - name: coverage summary

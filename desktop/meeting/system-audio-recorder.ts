@@ -55,6 +55,13 @@ export class SystemAudioRecorder extends EventEmitter<SystemAudioRecorderEvents>
     let started = false;
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
+    // A helper that died closes its end of the pipe before Node sees its exit;
+    // a command written in between fails with EPIPE, and without a listener
+    // that is an uncaught exception in Electron's main process (#260). The
+    // exit itself is what reports the dead helper.
+    child.stdin?.on("error", (err: Error) => {
+      stderrTail = (stderrTail + ` stdin: ${err.message}`).slice(-2000);
+    });
     child.stderr?.on("data", (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-2000);
     });
@@ -130,7 +137,7 @@ export class SystemAudioRecorder extends EventEmitter<SystemAudioRecorderEvents>
       });
     } catch (err) {
       clearTimeout(timer);
-      child.stdin?.write("quit\n");
+      send(child, "quit");
       child.kill("SIGTERM");
       this.child = null;
       this.outputPath = null;
@@ -161,11 +168,13 @@ export class SystemAudioRecorder extends EventEmitter<SystemAudioRecorderEvents>
       child.once("exit", () => resolve(outputPath));
     });
 
-    child.stdin?.write("stop\n");
+    // A helper that can no longer read commands still finalizes its file on
+    // SIGTERM; without one, nothing would ever end this wait.
+    if (!send(child, "stop")) child.kill("SIGTERM");
     try {
       return await stopped;
     } finally {
-      child.stdin?.write("quit\n");
+      send(child, "quit");
       this.child = null;
       this.outputPath = null;
     }
@@ -179,4 +188,11 @@ export class SystemAudioRecorder extends EventEmitter<SystemAudioRecorderEvents>
     }
     this.outputPath = null;
   }
+}
+
+/** Writes one command line; false when the helper can no longer receive it. */
+function send(child: ChildProcess, command: string): boolean {
+  if (child.exitCode !== null || child.signalCode !== null || !child.stdin?.writable) return false;
+  child.stdin.write(`${command}\n`);
+  return true;
 }
