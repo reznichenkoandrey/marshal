@@ -22,7 +22,8 @@
 //   - start recording immediately
 //   - prints "ready" to stdout when armed (Node uses this as a signal that
 //     it's safe to treat the process as recording)
-//   - on SIGTERM / SIGINT: stop, flush WAV, restore previous default, exit 0
+//   - on SIGTERM / SIGINT, or when the parent process exits: stop, flush WAV,
+//     restore previous default, exit 0
 //
 // Usage:
 //   audio-recorder <out.wav>
@@ -243,6 +244,15 @@ signal(SIGINT, SIG_IGN)
 let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 intSource.setEventHandler { shutdown() }
 intSource.resume()
+
+// The helper has no stdin and writes to stdout once, so nothing tells it
+// that Marshal died. Without this, a crash left it recording the microphone
+// indefinitely with a WAV header never written (#255).
+let parentPid = getppid()
+if parentPid == 1 { shutdown() }
+let parentSource = DispatchSource.makeProcessSource(identifier: parentPid, eventMask: .exit, queue: .main)
+parentSource.setEventHandler { shutdown() }
+parentSource.resume()
 
 print("ready")
 fflush(stdout)

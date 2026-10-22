@@ -388,6 +388,9 @@ function registerIpcHandlers(): void {
     const failure = await shell.openPath(folder);
     return failure ? { ok: false, error: failure } : { ok: true };
   });
+  handleIpc("marshal:meeting-history:finish", async (_event, input: { id: string }) => {
+    return (await meetingHistoryWindow?.finish(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
   handleIpc("marshal:meeting-history:trash", async (_event, input: { id: string }) => {
     return (await meetingHistoryWindow?.trash(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
   });

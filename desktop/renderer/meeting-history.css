@@ -57,11 +57,25 @@
 }
 .meeting-sub.problem {
   color: var(--danger-text);
+  /* A failed save can carry a long ffmpeg message; the full text is in the tooltip. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .meeting-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: var(--space-2);
+}
+.meeting-actions .ghost-btn {
+  white-space: nowrap;
+}
+.meeting-actions .ghost-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .meeting-player {

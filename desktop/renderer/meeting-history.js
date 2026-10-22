@@ -9,6 +9,9 @@ const api = window.marshalMeetingHistory;
 
 let entries = [];
 let openId = null;
+// Ids being finished: the row keeps a disabled "Finishing…" until main's
+// refresh replaces it with the finished recording.
+const finishing = new Set();
 
 if (!api) {
   empty.classList.remove("hidden");
@@ -40,13 +43,30 @@ function renderEntry(entry) {
   row.append(el("span", "meeting-kind", entry.mode === "screen" ? "Screen" : "Audio"));
   const title = el("div", "meeting-title");
   title.append(el("span", "meeting-date", formatDate(entry.startedAt)));
-  const problem = entry.state === "error" || entry.state === "interrupted";
-  title.append(el("span", problem ? "meeting-sub problem" : "meeting-sub", describe(entry)));
+  const unfinished = entry.state === "error" || entry.state === "interrupted";
+  const busy = finishing.has(entry.id);
+  const problem = unfinished && !busy;
+  const sub = el("span", problem ? "meeting-sub problem" : "meeting-sub", describe(entry));
+  if (problem) sub.title = describe(entry);
+  title.append(sub);
   row.append(title);
 
   const actions = el("div", "meeting-actions");
+  if (unfinished) {
+    const finish = button(busy ? "Finishing…" : "Finish", async () => {
+      finishing.add(entry.id);
+      render();
+      const result = await api.finish(entry.id);
+      finishing.delete(entry.id);
+      render();
+      if (!result?.ok) alert(result?.error ?? "Could not finish the recording.");
+    });
+    finish.disabled = busy;
+    finish.title = "Build the audio file from the raw chunks left in the folder";
+    actions.append(finish);
+  }
   actions.append(button("Show in Finder", () => void api.reveal(media ?? `${entry.folder}/manifest.json`)));
-  if (entry.state !== "recording" && entry.state !== "finalizing") {
+  if (entry.state !== "recording" && entry.state !== "finalizing" && !busy) {
     actions.append(button("Delete", async () => {
       if (!confirm(`Move the recording from ${formatDate(entry.startedAt)} to the Trash?`)) return;
       const result = await api.trash(entry.id);
@@ -79,6 +99,7 @@ function renderEntry(entry) {
 function describe(entry) {
   if (entry.state === "recording") return "Recording…";
   if (entry.state === "finalizing") return "Saving…";
+  if (finishing.has(entry.id)) return "Building the audio file…";
   if (entry.state === "interrupted") return "Interrupted — raw chunks are in the folder";
   if (entry.state === "error") return `Failed: ${entry.error ?? "unknown error"}`;
   const parts = [];

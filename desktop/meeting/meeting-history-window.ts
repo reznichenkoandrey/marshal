@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, shell } from "electron";
 
+import { finishMeeting } from "./meeting-assembly.ts";
 import type { MeetingLibrary } from "./meeting-library.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -15,6 +16,7 @@ const rendererDir = path.join(desktopDistDir, "..", "renderer");
 
 export class MeetingHistoryWindow {
   private window: BrowserWindow | null = null;
+  private readonly finishing = new Set<string>();
 
   constructor(
     private readonly preloadPath: string,
@@ -80,8 +82,27 @@ export class MeetingHistoryWindow {
     return { ok: true };
   }
 
+  /** Builds the final files of an interrupted or failed recording from its raw chunks (#254). */
+  async finish(id: string): Promise<{ ok: boolean; error?: string }> {
+    if (id === this.activeId()) return { ok: false, error: "This recording is still in progress." };
+    if (this.finishing.has(id)) return { ok: false, error: "This recording is already being finished." };
+    const folder = this.library.folderFor(id);
+    if (!folder) return { ok: false, error: "Recording not found." };
+    this.finishing.add(id);
+    try {
+      await finishMeeting(folder);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    } finally {
+      this.finishing.delete(id);
+      this.refresh();
+    }
+  }
+
   async trash(id: string): Promise<{ ok: boolean; error?: string }> {
     if (id === this.activeId()) return { ok: false, error: "This recording is still in progress." };
+    if (this.finishing.has(id)) return { ok: false, error: "This recording is being finished." };
     const folder = this.library.folderFor(id);
     if (!folder) return { ok: false, error: "Recording not found." };
     try {
