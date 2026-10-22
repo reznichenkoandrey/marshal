@@ -57,6 +57,7 @@ rl.on("line", (line) => {
     process.stdout.write("started\\n");
     const crashAfter = Number(process.env.FAKE_SYSTEM_EXIT_AFTER_MS || 0);
     if (crashAfter > 0) setTimeout(() => process.exit(3), crashAfter);
+
   } else if (cmd === "stop") {
     if (process.env.FAKE_SYSTEM_STOP_ERROR) { process.stdout.write("error stop refused\\n"); return; }
     writeWav(out, (Date.now() - started) / 1000);
@@ -66,6 +67,18 @@ rl.on("line", (line) => {
   }
 });
 rl.on("close", () => process.exit(0));
+`;
+
+// A helper that is already dying: its end of the pipe is closed, its exit is
+// still on the way. Shell, because Node cannot close its own fd 0.
+const DYING_SYSTEM = `#!/bin/sh
+read line
+out=\${line#start }
+printf 'not finalized' > "$out"
+echo started
+exec 0<&-
+sleep 0.5
+exit 3
 `;
 
 class TestSystemAudioRecorder extends SystemAudioRecorder {
@@ -79,6 +92,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 let workDir: string;
 let micBin: string;
 let systemBin: string;
+let dyingSystemBin: string;
 const savedEnv = { ...process.env };
 
 beforeAll(async () => {
@@ -87,6 +101,8 @@ beforeAll(async () => {
   systemBin = path.join(workDir, "fake-system-audio-recorder");
   await fs.writeFile(micBin, FAKE_MIC, { mode: 0o755 });
   await fs.writeFile(systemBin, FAKE_SYSTEM, { mode: 0o755 });
+  dyingSystemBin = path.join(workDir, "fake-dying-system-audio-recorder");
+  await fs.writeFile(dyingSystemBin, DYING_SYSTEM, { mode: 0o755 });
 });
 
 afterAll(async () => {
@@ -138,6 +154,20 @@ describe("SystemAudioRecorder", () => {
     await sleep(200);
 
     expect(failures).toBe(0);
+  });
+
+  it("survives a stop sent to a helper that is already dying (#260)", async () => {
+    const recorder = new TestSystemAudioRecorder(dyingSystemBin);
+    const out = path.join(workDir, "dying.m4a");
+
+    await recorder.start(out);
+    // The helper has closed its end of the pipe; its exit is still 400 ms away.
+    await sleep(100);
+
+    // A write to the closed pipe raised EPIPE with no listener: an uncaught
+    // exception, i.e. a crash of Electron's main process mid-call.
+    await expect(recorder.stop()).resolves.toBe(out);
+    expect(recorder.isRecording()).toBe(false);
   });
 
   it("rejects a stop the helper refuses instead of waiting forever", async () => {
