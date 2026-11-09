@@ -91,3 +91,90 @@
 .meeting-player audio {
   background: transparent;
 }
+
+.notes-language {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-default);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+}
+
+.meeting-notes {
+  padding: 0 var(--space-4) var(--space-4);
+  font-size: var(--fs-base);
+  color: var(--text-default);
+}
+.notes-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+.notes-heading {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-wider);
+  color: var(--text-muted);
+}
+.notes-list,
+.notes-tasks {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+.notes-list li {
+  margin: 2px 0;
+}
+.notes-tasks {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.notes-task {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.notes-task-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.notes-task-owner {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.notes-task-mine {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-2);
+}
+.notes-task .ghost-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.notes-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.notes-actions .ghost-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.notes-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+.history-actions .ghost-btn {
+  white-space: nowrap;
+}

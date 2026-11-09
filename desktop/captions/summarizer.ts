@@ -21,6 +21,17 @@ export interface SummaryStreamer {
   readonly id: SummaryProviderId;
   /** Streams deltas to `onDelta`; resolves with the full text. Aborts via `signal`. */
   stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string>;
+  /**
+   * Same transport with a caller-built prompt, for a summary that is not the
+   * captions one — meeting notes (#271) need their own prompt and a larger
+   * answer, not a second provider stack.
+   */
+  streamMessages(
+    messages: SummaryMessages,
+    maxTokens: number,
+    onDelta: (delta: string) => void,
+    signal: AbortSignal
+  ): Promise<string>;
 }
 
 export interface SummarizerEnv {
@@ -175,25 +186,42 @@ export class FallbackSummaryStreamer implements SummaryStreamer {
     return this.active.id;
   }
 
-  async stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
-    if (this.active === this.fallback) return this.fallback.stream(input, onDelta, signal);
+  stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
+    return this.withFallback((streamer, emit) => streamer.stream(input, emit, signal), onDelta, signal);
+  }
+
+  streamMessages(
+    messages: SummaryMessages,
+    maxTokens: number,
+    onDelta: (delta: string) => void,
+    signal: AbortSignal
+  ): Promise<string> {
+    return this.withFallback(
+      (streamer, emit) => streamer.streamMessages(messages, maxTokens, emit, signal),
+      onDelta,
+      signal
+    );
+  }
+
+  private async withFallback(
+    run: (streamer: SummaryStreamer, onDelta: (delta: string) => void) => Promise<string>,
+    onDelta: (delta: string) => void,
+    signal: AbortSignal
+  ): Promise<string> {
+    if (this.active === this.fallback) return run(this.fallback, onDelta);
 
     let streamedAnything = false;
     try {
-      return await this.primary.stream(
-        input,
-        (delta) => {
-          streamedAnything = true;
-          onDelta(delta);
-        },
-        signal
-      );
+      return await run(this.primary, (delta) => {
+        streamedAnything = true;
+        onDelta(delta);
+      });
     } catch (err) {
       const reason = classifySummaryError(err);
       if (reason === null || streamedAnything || signal.aborted) throw err;
       this.active = this.fallback;
       this.onFallback?.({ from: this.primary.id, to: this.fallback.id, reason });
-      return this.fallback.stream(input, onDelta, signal);
+      return run(this.fallback, onDelta);
     }
   }
 }
@@ -210,8 +238,16 @@ export class OpenAiCompatibleSummaryStreamer implements SummaryStreamer {
     this.model = env.MARSHAL_CAPTIONS_MODEL ?? env.MARSHAL_TRANSLATOR_MODEL ?? DEFAULT_OPENAI_MODEL;
   }
 
-  async stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
-    const messages = buildSummaryMessages(input);
+  stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
+    return this.streamMessages(buildSummaryMessages(input), MAX_TOKENS, onDelta, signal);
+  }
+
+  async streamMessages(
+    messages: SummaryMessages,
+    maxTokens: number,
+    onDelta: (delta: string) => void,
+    signal: AbortSignal
+  ): Promise<string> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey.length > 0) headers.Authorization = `Bearer ${this.apiKey}`;
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -222,7 +258,7 @@ export class OpenAiCompatibleSummaryStreamer implements SummaryStreamer {
         model: this.model,
         stream: true,
         temperature: TEMPERATURE,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         messages: [
           { role: "system", content: messages.system },
           { role: "user", content: messages.user }
@@ -279,12 +315,20 @@ export class AnthropicSummaryStreamer implements SummaryStreamer {
     this.model = env.MARSHAL_CAPTIONS_CLAUDE_MODEL ?? DEFAULT_CLAUDE_MODEL;
   }
 
-  async stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
-    const messages = buildSummaryMessages(input);
+  stream(input: SummaryInput, onDelta: (delta: string) => void, signal: AbortSignal): Promise<string> {
+    return this.streamMessages(buildSummaryMessages(input), MAX_TOKENS, onDelta, signal);
+  }
+
+  async streamMessages(
+    messages: SummaryMessages,
+    maxTokens: number,
+    onDelta: (delta: string) => void,
+    signal: AbortSignal
+  ): Promise<string> {
     const stream = this.client.messages.stream(
       {
         model: this.model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         system: buildAnthropicSystem(messages),
         messages: [{ role: "user", content: messages.user }]
       },

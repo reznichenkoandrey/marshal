@@ -1,6 +1,7 @@
 // Meeting recordings renderer. Main pushes the list; a click on a row opens
 // its player inline. Only one player exists at a time so two recordings never
-// play over each other.
+// play over each other. "Transcribe & summarize" (#271) runs in main; this
+// window only shows its progress and the notes it left next to the recording.
 
 const list = document.getElementById("list");
 const empty = document.getElementById("empty");
@@ -12,6 +13,15 @@ let openId = null;
 // Ids being finished: the row keeps a disabled "Finishing…" until main's
 // refresh replaces it with the finished recording.
 const finishing = new Set();
+// The running notes job, as main reports it ({ id, phase, done, total }) or null.
+let notesJob = null;
+// notes.json by recording id, fetched when its row is first opened.
+const notesCache = new Map();
+// The open player survives re-renders: progress re-renders the list every
+// chunk, and a fresh <audio> each time would restart playback.
+let player = null;
+const languageSelect = document.getElementById("notes-language");
+const LANGUAGE_KEY = "marshal.meetingNotesLanguage";
 
 if (!api) {
   empty.classList.remove("hidden");
@@ -26,12 +36,35 @@ if (!api) {
   document.getElementById("refresh-btn").addEventListener("click", () => void api.refresh());
   document.getElementById("reveal-folder-btn").addEventListener("click", () => void api.revealFolder());
   document.getElementById("close-btn").addEventListener("click", () => void api.close());
+  api.onNotesProgress((_event, progress) => {
+    if (notesJob && !progress) notesCache.delete(notesJob.id);
+    notesJob = progress ?? null;
+    render();
+  });
+  try {
+    languageSelect.value = localStorage.getItem(LANGUAGE_KEY) ?? "auto";
+  } catch {
+    // Storage unavailable: the select keeps its default.
+  }
+  languageSelect.addEventListener("change", () => {
+    try {
+      localStorage.setItem(LANGUAGE_KEY, languageSelect.value);
+    } catch {
+      // Not remembered across sessions; the current choice still applies.
+    }
+  });
+}
+
+async function summarize(entry) {
+  const result = await api.summarize(entry.id, languageSelect.value);
+  if (!result?.ok && result?.error !== "Cancelled.") alert(result?.error ?? "Could not make notes for the recording.");
 }
 
 function render() {
   list.replaceChildren();
   empty.classList.toggle("hidden", entries.length > 0);
   if (!entries.some((entry) => entry.id === openId)) openId = null;
+  if (player && player.id !== openId) player = null;
   for (const entry of entries) list.append(renderEntry(entry));
 }
 
@@ -45,6 +78,7 @@ function renderEntry(entry) {
   title.append(el("span", "meeting-date", formatDate(entry.startedAt)));
   const unfinished = entry.state === "error" || entry.state === "interrupted";
   const busy = finishing.has(entry.id);
+  const transcribing = notesJob?.id === entry.id;
   const problem = unfinished && !busy;
   const sub = el("span", problem ? "meeting-sub problem" : "meeting-sub", describe(entry));
   if (problem) sub.title = describe(entry);
@@ -65,8 +99,18 @@ function renderEntry(entry) {
     finish.title = "Build the audio file from the raw chunks left in the folder";
     actions.append(finish);
   }
+  if (entry.state === "done" && entry.audioPath) {
+    if (transcribing) {
+      actions.append(button("Cancel", () => void api.cancelNotes(entry.id)));
+    } else if (!entry.notesPath) {
+      const make = button("Transcribe & summarize", () => void summarize(entry));
+      make.disabled = notesJob !== null;
+      make.title = notesJob ? "Another recording is being transcribed" : "Transcribe this call locally and write notes with action items";
+      actions.append(make);
+    }
+  }
   actions.append(button("Show in Finder", () => void api.reveal(media ?? `${entry.folder}/manifest.json`)));
-  if (entry.state !== "recording" && entry.state !== "finalizing" && !busy) {
+  if (entry.state !== "recording" && entry.state !== "finalizing" && !busy && !transcribing) {
     actions.append(button("Delete", async () => {
       if (!confirm(`Move the recording from ${formatDate(entry.startedAt)} to the Trash?`)) return;
       const result = await api.trash(entry.id);
@@ -85,28 +129,101 @@ function renderEntry(entry) {
   }
   if (media && openId === entry.id) {
     item.classList.add("open");
-    const player = el("div", "meeting-player");
-    const tag = document.createElement(entry.videoPath ? "video" : "audio");
-    tag.controls = true;
-    tag.autoplay = true;
-    tag.src = `file://${encodeURI(media)}`;
-    player.append(tag);
-    item.append(player);
+    if (player?.id !== entry.id) {
+      const node = el("div", "meeting-player");
+      const tag = document.createElement(entry.videoPath ? "video" : "audio");
+      tag.controls = true;
+      tag.autoplay = true;
+      tag.src = `file://${encodeURI(media)}`;
+      node.append(tag);
+      player = { id: entry.id, node };
+    }
+    item.append(player.node);
+    if (entry.notesPath) item.append(renderNotes(entry));
   }
   return item;
+}
+
+function renderNotes(entry) {
+  const box = el("div", "meeting-notes");
+  if (!notesCache.has(entry.id)) {
+    box.append(el("p", "notes-empty", "Loading notes…"));
+    notesCache.set(entry.id, null);
+    void api.readNotes(entry.id).then((notes) => {
+      notesCache.set(entry.id, notes ?? { error: true });
+      render();
+    });
+    return box;
+  }
+  const notes = notesCache.get(entry.id);
+  if (!notes) {
+    box.append(el("p", "notes-empty", "Loading notes…"));
+    return box;
+  }
+  if (notes.error) {
+    box.append(el("p", "notes-empty", "notes.json could not be read."));
+  } else {
+    box.append(el("h3", "notes-title", notes.title || "Call"));
+    appendList(box, "Summary", notes.summary);
+    appendList(box, "Decisions", notes.decisions);
+    const tasks = Array.isArray(notes.tasks) ? notes.tasks : [];
+    if (tasks.length > 0) {
+      box.append(el("h4", "notes-heading", "Action items"));
+      const list = el("ul", "notes-tasks");
+      for (const task of tasks) {
+        const row = el("li", "notes-task");
+        row.append(el("span", "notes-task-text", task.task));
+        if (task.owner) row.append(el("span", "notes-task-owner", task.owner));
+        if (task.mine) row.append(el("span", "notes-task-mine", "me"));
+        const copy = button("Copy", async () => {
+          await navigator.clipboard.writeText(task.task);
+          copy.textContent = "Copied";
+          setTimeout(() => (copy.textContent = "Copy"), 1200);
+        });
+        row.append(copy);
+        list.append(row);
+      }
+      box.append(list);
+    }
+  }
+  const actions = el("div", "notes-actions");
+  actions.append(button("Open notes.md", () => void api.openNotesFile(entry.id, "notes")));
+  actions.append(button("Open transcript", () => void api.openNotesFile(entry.id, "transcript")));
+  const again = button(notesJob?.id === entry.id ? "Regenerating…" : "Regenerate", () => void summarize(entry));
+  again.disabled = notesJob !== null;
+  again.title = "Write the notes again from the saved transcript";
+  actions.append(again);
+  box.append(actions);
+  return box;
+}
+
+function appendList(box, heading, items) {
+  if (!Array.isArray(items) || items.length === 0) return;
+  box.append(el("h4", "notes-heading", heading));
+  const list = el("ul", "notes-list");
+  for (const item of items) list.append(el("li", "", item));
+  box.append(list);
 }
 
 function describe(entry) {
   if (entry.state === "recording") return "Recording…";
   if (entry.state === "finalizing") return "Saving…";
   if (finishing.has(entry.id)) return "Building the audio file…";
+  if (notesJob?.id === entry.id) return describeNotesJob(notesJob);
   if (entry.state === "interrupted") return "Interrupted — raw chunks are in the folder";
   if (entry.state === "error") return `Failed: ${entry.error ?? "unknown error"}`;
   const parts = [];
   if (entry.durationMs !== null) parts.push(formatDuration(entry.durationMs));
   parts.push(formatBytes(entry.bytes));
   if (entry.warnings.length > 0) parts.push(`${entry.warnings.length} warning(s)`);
+  if (entry.notesPath) parts.push("notes");
   return parts.join(" · ");
+}
+
+function describeNotesJob(job) {
+  if (job.phase === "transcribing") return `Transcribing… ${job.done}/${job.total}`;
+  if (job.phase === "summarizing") return "Writing notes…";
+  return "Preparing the transcription…";
 }
 
 function formatDate(iso) {
