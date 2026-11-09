@@ -25,6 +25,7 @@ import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
+import { SpeechService } from "./speech/speech-service.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -130,6 +131,7 @@ let meetingHistoryWindow: MeetingHistoryWindow | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
+let speechService: SpeechService | null = null;
 // Accelerators come from Settings (applied to the env on save) and are
 // re-registered on every save, so the tray labels read them live.
 let captionsAccelerators: { toggle: string; ocr: string } = {
@@ -249,6 +251,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
+      initSpeech();
       void initExtensionBridge();
       initUpdater();
     }
@@ -1123,6 +1126,7 @@ async function performTeardown(): Promise<void> {
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
   captionsService?.stop();
+  speechService?.stop();
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
@@ -1398,6 +1402,7 @@ function initDictation(): void {
 
   dictationService.on("recording-start", () => {
     isDictating = true;
+    speechService?.interrupt();
     dictationIndicator?.show();
     void refreshTrayState();
   });
@@ -1606,6 +1611,27 @@ function initLiveCaptions(): void {
   });
 
   registerCaptionsShortcuts();
+}
+
+function initSpeech(): void {
+  speechService = new SpeechService(
+    () => {
+      const settings = loadSettings();
+      return {
+        enabled: settings.speechEnabled,
+        rate: settings.speechRate,
+        voiceUk: settings.speechVoiceUk,
+        voiceEn: settings.speechVoiceEn
+      };
+    },
+    // No call-presence signal exists yet; a running recording or captions session is the proxy.
+    () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null)
+  );
+  handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
+  handleIpc("marshal:speech-test", async () => [
+    await speechService!.speak("Маршал на зв'язку. Сесія завершила задачу.", { lang: "uk", force: true }),
+    await speechService!.speak("Marshal is ready. The session finished its task.", { lang: "en", force: true })
+  ]);
 }
 
 /**
