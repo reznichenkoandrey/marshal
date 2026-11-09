@@ -32,6 +32,9 @@ import {
 } from "./whisper-backend.ts";
 
 const DEFAULT_HOTKEY = "RightCmd";
+// Hold to dictate into a Claude Code session instead of the frontmost app
+// (#264). A key of its own, so the right-⌘ gestures (#239, #242) stay as is.
+const DEFAULT_SESSION_HOTKEY = "RightOption";
 // Hard safety-net: if the keyup event never arrives (known uiohook quirks on
 // macOS for modifier-only keys, #49) we auto-stop after this many ms.
 const MAX_RECORDING_MS = 60_000;
@@ -56,6 +59,8 @@ export type DictationEvents = {
   "recording-start": [];
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
+  // Transcript recorded with the session hotkey: routed by main, never pasted.
+  "session-command": [string];
   error: [Error];
   // Forwarded from PushToTalkHotkey when uiohook attaches but no keydown
   // events arrive within its silence probe window. Main process turns this
@@ -114,6 +119,9 @@ export function transcriptToDeliver(raw: string): string {
 
 export class DictationService extends EventEmitter {
   private readonly hotkey: PushToTalkBackend;
+  private readonly sessionHotkey: PushToTalkBackend | null;
+  // Which hotkey started the current recording; the other one's events are ignored.
+  private mode: "paste" | "session" = "paste";
   private readonly backend: WhisperBackend;
   private readonly recorderBin: string;
   // language / prompt deliberately NOT cached — they're re-read from
@@ -144,11 +152,21 @@ export class DictationService extends EventEmitter {
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
 
-    this.hotkey.on("hold-start", () => this.handleHoldStart());
-    this.hotkey.on("hold-end", () => this.handleHoldEnd());
-    this.hotkey.on("hold-cancel", () => this.handleHoldCancel());
+    this.hotkey.on("hold-start", () => this.handleHoldStart("paste"));
+    this.hotkey.on("hold-end", () => this.handleHoldEnd("paste"));
+    this.hotkey.on("hold-cancel", () => this.handleHoldCancel("paste"));
     this.hotkey.on("double-tap", () => this.emit("double-tap"));
     this.hotkey.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
+
+    const sessionHotkey = (process.env.MARSHAL_CC_DICTATION_HOTKEY ?? DEFAULT_SESSION_HOTKEY).trim();
+    // Taps on this key mean nothing: no hands-free toggle, no meeting double-tap.
+    this.sessionHotkey =
+      sessionHotkey === "" || sessionHotkey.toLowerCase() === "off"
+        ? null
+        : createPushToTalkHotkey(sessionHotkey, { toggleTapCount: 0 });
+    this.sessionHotkey?.on("hold-start", () => this.handleHoldStart("session"));
+    this.sessionHotkey?.on("hold-end", () => this.handleHoldEnd("session"));
+    this.sessionHotkey?.on("hold-cancel", () => this.handleHoldCancel("session"));
   }
 
   async start(): Promise<void> {
@@ -164,10 +182,12 @@ export class DictationService extends EventEmitter {
       return;
     }
     this.hotkey.start();
+    this.sessionHotkey?.start();
   }
 
   stop(): void {
     this.hotkey.stop();
+    this.sessionHotkey?.stop();
     if (this.recorderProcess) {
       this.recorderProcess.kill("SIGTERM");
       this.recorderProcess = null;
@@ -193,7 +213,7 @@ export class DictationService extends EventEmitter {
    * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
    */
   startRecording(): void {
-    this.handleHoldStart();
+    this.handleHoldStart("paste");
   }
 
   /**
@@ -201,7 +221,7 @@ export class DictationService extends EventEmitter {
    * startRecording().
    */
   stopRecording(): void {
-    this.handleHoldEnd();
+    this.handleHoldEnd(this.mode);
   }
 
   /**
@@ -232,12 +252,13 @@ export class DictationService extends EventEmitter {
     }
   }
 
-  private handleHoldStart(): void {
-    debug("hold-start");
+  private handleHoldStart(mode: "paste" | "session"): void {
+    debug("hold-start", mode);
     if (this.recorderProcess || this.isTranscribing) {
       debug("  skip — already recording or transcribing");
       return;
     }
+    this.mode = mode;
 
     const wavPath = path.join(os.tmpdir(), `marshal-dict-${randomUUID()}.wav`);
     this.currentWavPath = wavPath;
@@ -257,7 +278,7 @@ export class DictationService extends EventEmitter {
     // event is ever lost by the OS (#49).
     this.safetyTimer = setTimeout(() => {
       debug("safety timeout — forcing hold-end after", MAX_RECORDING_MS, "ms");
-      this.hotkey.forceEnd();
+      (mode === "session" ? this.sessionHotkey : this.hotkey)?.forceEnd();
     }, MAX_RECORDING_MS);
 
     child.stdout?.once("data", () => {
@@ -302,8 +323,9 @@ export class DictationService extends EventEmitter {
     });
   }
 
-  private handleHoldEnd(): void {
-    debug("hold-end");
+  private handleHoldEnd(mode: "paste" | "session"): void {
+    debug("hold-end", mode);
+    if (mode !== this.mode) return;
     this.clearSafetyTimer();
     const child = this.recorderProcess;
     const wavPath = this.currentWavPath;
@@ -321,11 +343,11 @@ export class DictationService extends EventEmitter {
 
   // Push-to-talk key was part of a shortcut (#239): discard the audio
   // instead of transcribing, copying or pasting it.
-  private handleHoldCancel(): void {
-    debug("hold-cancel");
+  private handleHoldCancel(mode: "paste" | "session"): void {
+    debug("hold-cancel", mode);
     const child = this.recorderProcess;
     const wavPath = this.currentWavPath;
-    if (!child || this.isStopping) return;
+    if (!child || this.isStopping || mode !== this.mode) return;
     this.isStopping = true;
     this.clearSafetyTimer();
     this.currentWavPath = null;
@@ -442,7 +464,9 @@ export class DictationService extends EventEmitter {
       // not the post-processed version — listeners that telemeter accuracy
       // need the raw output.
       const cleanText = transcriptToDeliver(result.text);
-      if (cleanText.length > 0) {
+      if (cleanText.length > 0 && this.mode === "session") {
+        this.emit("session-command", cleanText.trim());
+      } else if (cleanText.length > 0) {
         // The clipboard is both what deliverText() pastes and the manual
         // fallback when delivery fails (#102, #244).
         clipboard.writeText(cleanText);
