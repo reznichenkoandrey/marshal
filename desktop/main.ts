@@ -48,6 +48,7 @@ import { runPostInstallPermissionCheck } from "./permissions/post-install-check.
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
 import { buildSetupHealth, type BuildInfo, type SetupHealthSummary } from "./setup-health.ts";
+import { measureFootprint } from "./perf/footprint.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import {
@@ -2268,7 +2269,8 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
     launchAtLoginOpenAtLogin: process.platform === "darwin" || process.platform === "win32"
       ? app.getLoginItemSettings().openAtLogin
       : undefined,
-    launchAtLoginLastError: settings.launchAtLoginLastError
+    launchAtLoginLastError: settings.launchAtLoginLastError,
+    memory: isDarwin ? await measureFootprint(process.pid).catch(() => null) : undefined
   });
 }
 

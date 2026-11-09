@@ -27,6 +27,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build && node tests/e2e/smoke.mjs",
     "check": "npm run typecheck && npm run test",
+    "perf:footprint": "node --experimental-strip-types --no-warnings scripts/perf-footprint.ts",
     "setup:dictation": "bash scripts/install-whisper-cpp.sh",
     "setup:codesign-cert": "bash scripts/setup-codesign-cert.sh",
     "install:local": "bash scripts/install-local.sh",
