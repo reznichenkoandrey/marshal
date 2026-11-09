@@ -434,6 +434,32 @@
   Return (`send-keystroke return`). Сесії в Claude desktop / IDE (`"app"`) отримують команду
   лише в буфер з нотифікацією: застосунок показує ту сесію, яку відкривали останньою, і текст
   пішов би не туди (messaging socket — #300).
+  **Маршрутизація за контекстом (#286)** — половина #264 для команди, яка не назвала сесію.
+  Контракт (`context-router.ts`): `ContextRouter.route(command, sessions)` →
+  `{ kind: "session", sessionId }` | `{ kind: "unsure", candidates }` (sessionIds → picker #264) |
+  `{ kind: "off" }` (setting `claudeCodeContextRouting` вимкнено). Інстанс —
+  `ClaudeHooksController.contextRouter`; після відправки за контекстом #264 кличе
+  `notifyRoutedByContext(session, command, onResend)` → «Sent to <session> by context», клік або
+  кнопка «Send elsewhere» викликає `onResend` (picker). Один запит до моделі: команда + **dossier**
+  кожної сесії → рівно одна мітка `S<n>` або `UNSURE S1 S3`; усе інше (дві мітки, проза, збій,
+  немає провайдера) — `unsure`, **ніколи не вгадує**. Одна жива сесія — без запиту, вона ж
+  єдина. Dossier (`dossier.ts`) — 3 рядки англійською (Project / Feature / Now), будує мала
+  модель з хвоста transcript-а; перебудова лише коли transcript змінився **і** минуло ≥ 10 хв,
+  тригери — Stop hook і сам route, таймера немає (#281). Зберігаються в
+  `<userData>/claude-code/dossiers.json`, старші доби викидаються. Transcript —
+  `~/.claude/projects/<encoded cwd>/<sessionId>.jsonl` (формат недокументований, знятий з
+  2.1.317): кодування теки між версіями різне (`_` то лишається, то ні), тому спершу здогад, потім
+  скан за `<sessionId>.jsonl`. Читається останній 1 МБ: `user`/`assistant` без `isSidechain` і
+  `isMeta`, лише `text`-блоки, `<system-reminder>` вирізається. Провайдер — той самий, що в summary
+  «finished» (`completeOnce` в `answer-summary.ts` поверх `resolveSummaryProvider`), окремого SDK
+  немає. Міжмовність (команда українською, dossier англійською) тримає промпт роутера.
+  **Читаються лише сесії з дозволених тек** (#303): Settings → «Folders whose sessions may be
+  read» (`claudeCodeRoutingRoots`, тека на рядок, `~/` = home). Один Claude Code на машині тримає
+  сесії різних роботодавців, і transcript робочої сесії не має йти через особистий ключ.
+  **Порожньо = не читається жодна** (роутер повертає `off`, далі — остання сесія або picker).
+  Сесія поза теками не отримує dossier (ні з route, ні зі Stop hook) і не потрапляє в промпт, але
+  доступна за іменем і в picker-і, а на `unsure` додається до кандидатів, бо модель її не бачила.
+  Скільки живих сесій читається зараз — рядок під полем.
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)
