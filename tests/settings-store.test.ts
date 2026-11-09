@@ -135,6 +135,7 @@ describe("saveSettings", () => {
       launchAtLogin: false,
       launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
+      calendarEnabled: false,
       lastDismissedVersion: "",
       lastSeenVersion: ""
     });
