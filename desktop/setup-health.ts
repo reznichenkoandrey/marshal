@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+import { formatMegabytes, IDLE_BUDGET_BYTES, type FootprintSummary } from "./perf/footprint.ts";
 import type { DictationBackend } from "./settings-store.ts";
 
 export type SetupHealthStatus = "ok" | "warn" | "error" | "unknown";
@@ -43,6 +44,8 @@ export type SetupHealthInput = {
   launchAtLogin: boolean;
   launchAtLoginOpenAtLogin?: boolean;
   launchAtLoginLastError?: string;
+  /** Measured footprint of Marshal's process tree; null when measuring failed (#281). */
+  memory?: FootprintSummary | null;
   exists?: (path: string) => boolean;
 };
 
@@ -141,6 +144,7 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
   });
 
   items.push(launchAtLoginItem(input));
+  if (input.memory !== undefined) items.push(memoryItem(input.memory));
 
   return {
     items,
@@ -160,6 +164,25 @@ function buildItem(version: string, info: BuildInfo | null | undefined): SetupHe
     ? info.builtAt
     : builtAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
   return { id: "build", label: "Build", status: "ok", detail: `${version} · ${revision} · built ${when}` };
+}
+
+function memoryItem(memory: FootprintSummary | null): SetupHealthItem {
+  if (!memory) {
+    return { id: "memory", label: "Memory", status: "unknown", detail: "Could not measure (macOS `footprint` failed)." };
+  }
+  const perProcess = memory.processes
+    .filter((entry) => entry.bytes >= 1024 ** 2)
+    .map((entry) => `${entry.name} ${formatMegabytes(entry.bytes)}`)
+    .join(", ");
+  const model = memory.modelBytes === null
+    ? "Speech model not loaded."
+    : `Speech model loaded: ${formatMegabytes(memory.modelBytes)}, unloads after 10 min idle.`;
+  return {
+    id: "memory",
+    label: "Memory",
+    status: memory.overBudget ? "warn" : "ok",
+    detail: `Marshal ${formatMegabytes(memory.appBytes)} of ${formatMegabytes(IDLE_BUDGET_BYTES)} budget (${perProcess}). ${model}`
+  };
 }
 
 function launchAtLoginItem(input: SetupHealthInput): SetupHealthItem {

@@ -2,6 +2,7 @@
 // first, with an inline player. Deleting moves the recording's folder to the
 // Trash rather than unlinking it — a call is not something to lose to a misclick.
 
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +10,8 @@ import { BrowserWindow, shell } from "electron";
 
 import { finishMeeting } from "./meeting-assembly.ts";
 import type { MeetingLibrary } from "./meeting-library.ts";
+import { meetingNotesFiles, parseNotesLanguage } from "./meeting-notes.ts";
+import { MeetingNotesService } from "./meeting-notes-service.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -17,6 +20,8 @@ const rendererDir = path.join(desktopDistDir, "..", "renderer");
 export class MeetingHistoryWindow {
   private window: BrowserWindow | null = null;
   private readonly finishing = new Set<string>();
+  // Owned here, not by the BrowserWindow: closing the window keeps the job running.
+  private readonly notes = new MeetingNotesService((progress) => this.sendNotesProgress(progress));
 
   constructor(
     private readonly preloadPath: string,
@@ -74,6 +79,51 @@ export class MeetingHistoryWindow {
       folder: this.libraryRoot,
       entries: this.library.list(this.activeId())
     });
+    this.sendNotesProgress(this.notes.current());
+  }
+
+  private sendNotesProgress(progress: ReturnType<MeetingNotesService["current"]>): void {
+    if (!this.window || this.window.isDestroyed()) return;
+    this.window.webContents.send("marshal:meeting-history-notes-progress", progress);
+  }
+
+  /** "Transcribe & summarize" (#271). Only ever started by this click — never automatically (#229). */
+  async summarize(id: string, language: string): Promise<{ ok: boolean; error?: string }> {
+    const entry = this.library.list(this.activeId()).find((candidate) => candidate.id === id);
+    if (!entry) return { ok: false, error: "Recording not found." };
+    if (entry.state !== "done" || !entry.audioPath) return { ok: false, error: "This recording has no finished audio." };
+    if (this.finishing.has(id)) return { ok: false, error: "This recording is being finished." };
+    const result = await this.notes.run({
+      id,
+      folder: entry.folder,
+      audioPath: entry.audioPath,
+      startedAt: entry.startedAt,
+      language: parseNotesLanguage(language)
+    });
+    this.refresh();
+    return result;
+  }
+
+  cancelNotes(id: string): boolean {
+    return this.notes.cancel(id);
+  }
+
+  async readNotes(id: string): Promise<unknown> {
+    const folder = this.library.folderFor(id);
+    if (!folder) return null;
+    try {
+      return JSON.parse(await fs.readFile(meetingNotesFiles(folder).notesJson, "utf8")) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  async openNotesFile(id: string, file: "notes" | "transcript"): Promise<{ ok: boolean; error?: string }> {
+    const folder = this.library.folderFor(id);
+    if (!folder) return { ok: false, error: "Recording not found." };
+    const files = meetingNotesFiles(folder);
+    const failure = await shell.openPath(file === "transcript" ? files.transcript : files.notesMd);
+    return failure ? { ok: false, error: failure } : { ok: true };
   }
 
   reveal(filePath: string): { ok: boolean; error?: string } {
@@ -103,6 +153,7 @@ export class MeetingHistoryWindow {
   async trash(id: string): Promise<{ ok: boolean; error?: string }> {
     if (id === this.activeId()) return { ok: false, error: "This recording is still in progress." };
     if (this.finishing.has(id)) return { ok: false, error: "This recording is being finished." };
+    if (this.notes.current()?.id === id) return { ok: false, error: "This recording is being transcribed." };
     const folder = this.library.folderFor(id);
     if (!folder) return { ok: false, error: "Recording not found." };
     try {

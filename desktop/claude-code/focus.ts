@@ -99,16 +99,18 @@ export function terminalTabScript(appPath: string, tty: string): string | null {
   return null;
 }
 
-export async function focusSession(pid: number): Promise<boolean> {
+// "tab" = the session's own terminal tab is in front; "app" = only its host
+// app is, showing whatever it had open — not safe to type into.
+export async function focusSession(pid: number): Promise<"tab" | "app" | null> {
   const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid=,tty=,comm="]);
   const target = findFocusTarget(parseProcessTable(stdout), pid);
-  if (!target.appPath) return false;
+  if (!target.appPath) return null;
 
   const script = target.tty ? terminalTabScript(target.appPath, target.tty) : null;
   if (script) {
     try {
       const { stdout: found } = await execFileAsync("osascript", ["-e", script]);
-      if (found.trim() === "true") return true;
+      if (found.trim() === "true") return "tab";
     } catch (err) {
       // Automation permission denied or the app's dictionary changed: the
       // app itself is still worth bringing forward.
@@ -116,5 +118,5 @@ export async function focusSession(pid: number): Promise<boolean> {
     }
   }
   await execFileAsync("open", ["-a", target.appPath]);
-  return true;
+  return "app";
 }

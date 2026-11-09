@@ -25,6 +25,7 @@ import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
+import { SpeechService } from "./speech/speech-service.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -34,6 +35,7 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
+import { SessionDictation } from "./claude-code/session-dictation.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import {
   DEFAULT_MODEL_NAME,
@@ -47,10 +49,13 @@ import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
+import type { CalendarService } from "./calendar/calendar-service.ts";
+import { calendarTrayItem, createCalendarService } from "./calendar/calendar-ui.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
 import { buildSetupHealth, type BuildInfo, type SetupHealthSummary } from "./setup-health.ts";
+import { measureFootprint } from "./perf/footprint.ts";
 import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import {
@@ -125,13 +130,16 @@ let translatorGlossary: TranslatorGlossaryStore | null = null;
 let modelDownload: { name: string; percent: number; abort: AbortController } | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
+let sessionDictation: SessionDictation | null = null;
 let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
+let speechService: SpeechService | null = null;
 // Accelerators come from Settings (applied to the env on save) and are
 // re-registered on every save, so the tray labels read them live.
 let captionsAccelerators: { toggle: string; ocr: string } = {
@@ -254,6 +262,8 @@ async function bootstrap(): Promise<void> {
       initLiveCaptions();
       claudeHooks = new ClaudeHooksController(app.getPath("userData"));
       void claudeHooks.startIfInstalled();
+      initCalendar();
+      initSpeech();
       void initExtensionBridge();
       initUpdater();
     }
@@ -346,6 +356,12 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:calendar:status", () => calendarStatus());
+  handleIpc("marshal:calendar:set-url", (_event, url: unknown) => {
+    if (!calendarService) throw new Error("Calendar is not available in this mode");
+    calendarService.setUrl(typeof url === "string" ? url : "");
+    return calendarStatus();
+  });
   handleIpc("marshal:get-setup-health", () => getSetupHealth());
   handleIpc("marshal:claude-code-hooks-get", () => claudeHooks?.state());
   handleIpc("marshal:claude-code-hooks-set", (_event, installed: unknown) =>
@@ -400,6 +416,18 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:meeting-history:finish", async (_event, input: { id: string }) => {
     return (await meetingHistoryWindow?.finish(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
   });
+  handleIpc("marshal:meeting-history:summarize", async (_event, input: { id: string; language: string }) => {
+    return (await meetingHistoryWindow?.summarize(input.id, input.language)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
+  handleIpc("marshal:meeting-history:cancel-notes", (_event, input: { id: string }) => {
+    return meetingHistoryWindow?.cancelNotes(input.id) ?? false;
+  });
+  handleIpc("marshal:meeting-history:read-notes", async (_event, input: { id: string }) => {
+    return (await meetingHistoryWindow?.readNotes(input.id)) ?? null;
+  });
+  handleIpc("marshal:meeting-history:open-notes-file", async (_event, input: { id: string; file: "notes" | "transcript" }) => {
+    return (await meetingHistoryWindow?.openNotesFile(input.id, input.file)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
   handleIpc("marshal:meeting-history:trash", async (_event, input: { id: string }) => {
     return (await meetingHistoryWindow?.trash(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
   });
@@ -412,6 +440,7 @@ function registerIpcHandlers(): void {
     applySettingsToEnv(saved);
     saved = applyLaunchAtLogin(saved);
     restartDictation();
+    syncCalendar();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1132,6 +1161,7 @@ async function performTeardown(): Promise<void> {
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
   captionsService?.stop();
+  speechService?.stop();
   captureWindow?.close();
   recordingIndicator?.hide();
   videoRecorder?.kill();
@@ -1393,7 +1423,7 @@ function initDictation(): void {
   }
 
   try {
-    dictationService = new DictationService();
+    dictationService = new DictationService(() => translatorGlossary?.list().map((entry) => entry.term) ?? []);
     console.log("[marshal] dictation: service constructed");
   } catch (err) {
     console.warn("[marshal] dictation disabled:", err instanceof Error ? err.message : err);
@@ -1407,6 +1437,7 @@ function initDictation(): void {
 
   dictationService.on("recording-start", () => {
     isDictating = true;
+    speechService?.interrupt();
     dictationIndicator?.show();
     void refreshTrayState();
   });
@@ -1417,6 +1448,12 @@ function initDictation(): void {
   });
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
+  });
+  dictationService.on("session-command", (text: string) => {
+    sessionDictation ??= new SessionDictation(() => tray);
+    void sessionDictation.handle(text).catch((err: unknown) => {
+      console.error("[claude-dictation] delivery failed:", err);
+    });
   });
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
@@ -1617,6 +1654,27 @@ function initLiveCaptions(): void {
   registerCaptionsShortcuts();
 }
 
+function initSpeech(): void {
+  speechService = new SpeechService(
+    () => {
+      const settings = loadSettings();
+      return {
+        enabled: settings.speechEnabled,
+        rate: settings.speechRate,
+        voiceUk: settings.speechVoiceUk,
+        voiceEn: settings.speechVoiceEn
+      };
+    },
+    // No call-presence signal exists yet; a running recording or captions session is the proxy.
+    () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null)
+  );
+  handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
+  handleIpc("marshal:speech-test", async () => [
+    await speechService!.speak("Маршал на зв'язку. Сесія завершила задачу.", { lang: "uk", force: true }),
+    await speechService!.speak("Marshal is ready. The session finished its task.", { lang: "en", force: true })
+  ]);
+}
+
 /**
  * (Re)binds the captions accelerators from the current settings. Called at
  * init and after every Settings save, so a hotkey change applies at once.
@@ -1659,6 +1717,28 @@ async function toggleLiveCaptions(): Promise<void> {
   } catch {
     // Reported through the service's "error" event as a notification.
   }
+}
+
+function initCalendar(): void {
+  calendarService = createCalendarService({
+    dataDir: app.getPath("userData"),
+    joinAndRecord: () => void startMeetingRecording("audio")
+  });
+  syncCalendar();
+}
+
+// Off = no fetch and no timer at all (#281).
+function syncCalendar(): void {
+  if (loadSettings().calendarEnabled) calendarService?.start();
+  else calendarService?.stop();
+}
+
+function calendarStatus() {
+  const next = calendarService?.nextMeeting() ?? null;
+  return {
+    ...(calendarService?.status() ?? { configured: false, running: false, lastSyncAt: null, lastError: null }),
+    next: next ? { title: next.title, start: next.start.toISOString() } : null
+  };
 }
 
 async function toggleMeetingRecording(mode: MeetingMode): Promise<void> {
@@ -2123,8 +2203,10 @@ function buildTrayMenu(): Electron.Menu {
   const recording = dictationService?.isCurrentlyRecording() ?? false;
   const meetingAvailable = meetingRecorder !== null;
   const captionsRunning = captionsService?.isRunning() ?? false;
+  const nextMeetingItem = calendarTrayItem(calendarService?.nextMeeting() ?? null);
 
   return Menu.buildFromTemplate([
+    ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
     { label: "Open Marshal", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
@@ -2293,7 +2375,8 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
     launchAtLoginOpenAtLogin: process.platform === "darwin" || process.platform === "win32"
       ? app.getLoginItemSettings().openAtLogin
       : undefined,
-    launchAtLoginLastError: settings.launchAtLoginLastError
+    launchAtLoginLastError: settings.launchAtLoginLastError,
+    memory: isDarwin ? await measureFootprint(process.pid).catch(() => null) : undefined
   });
 }
 

@@ -358,15 +358,16 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
  * Override via MARSHAL_DICTATION_FORCE_UIOHOOK=1 if you need to compare
  * paths or the Swift helper is unavailable.
  */
-export function createPushToTalkHotkey(hotkey: string): PushToTalkBackend {
+export function createPushToTalkHotkey(
+  hotkey: string,
+  overrides: Partial<DictationGestureOptions> = {}
+): PushToTalkBackend {
   const force = process.env.MARSHAL_DICTATION_FORCE_UIOHOOK === "1";
+  const options = { ...resolveDictationGestureOptionsFromEnv(), ...overrides };
   if (!force && isSwiftPttCandidate(hotkey)) {
-    return new GesturePushToTalkHotkey(
-      new SwiftPushToTalkHotkey(hotkey),
-      resolveDictationGestureOptionsFromEnv()
-    );
+    return new GesturePushToTalkHotkey(new SwiftPushToTalkHotkey(hotkey), options);
   }
-  return new GesturePushToTalkHotkey(new PushToTalkHotkey(hotkey), resolveDictationGestureOptionsFromEnv());
+  return new GesturePushToTalkHotkey(new PushToTalkHotkey(hotkey), options);
 }
 
 export class PushToTalkHotkey extends EventEmitter implements PushToTalkBackend {

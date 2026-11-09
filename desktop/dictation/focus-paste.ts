@@ -213,13 +213,18 @@ export interface PasteOptions {
  * remains usable).
  */
 export function sendPasteKeystroke(options: PasteOptions = {}): Promise<void> {
+  return sendKeystroke("v", options);
+}
+
+/** ⌘C / ⌘V, or a bare Return / Escape (dictating into a Claude Code session, #264). */
+export function sendKeystroke(key: "c" | "v" | "return" | "escape", options: PasteOptions = {}): Promise<void> {
   const binPath = options.binPath ?? DEFAULT_SEND_KEY_BIN;
   const timeoutMs = options.timeoutMs ?? PASTE_TIMEOUT_MS;
 
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(binPath, ["v"], { stdio: ["ignore", "ignore", "pipe"] });
+      child = spawn(binPath, [key], { stdio: ["ignore", "ignore", "pipe"] });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
