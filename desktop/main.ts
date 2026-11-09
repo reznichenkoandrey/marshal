@@ -1383,7 +1383,7 @@ function initDictation(): void {
   }
 
   try {
-    dictationService = new DictationService();
+    dictationService = new DictationService(() => translatorGlossary?.list().map((entry) => entry.term) ?? []);
     console.log("[marshal] dictation: service constructed");
   } catch (err) {
     console.warn("[marshal] dictation disabled:", err instanceof Error ? err.message : err);
