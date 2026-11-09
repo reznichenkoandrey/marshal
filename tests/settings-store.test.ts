@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { DEFAULT_DICTATION_PROMPT } from "../desktop/dictation/whisper-backend.ts";
+import { DEFAULT_DICTATION_PROMPT, PREVIOUS_DEFAULT_DICTATION_PROMPTS } from "../desktop/dictation/whisper-backend.ts";
 import { DEFAULT_CAPTIONS_PROMPT, DEFAULT_CAPTIONS_SILENCE_MS } from "../desktop/captions/captions-defaults.ts";
 
 // Electron's real `app.getPath("userData")` needs a running app instance.
@@ -139,8 +139,13 @@ describe("saveSettings", () => {
       launchAtLogin: false,
       launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
+      calendarEnabled: false,
       lastDismissedVersion: "",
-      lastSeenVersion: ""
+      lastSeenVersion: "",
+      speechEnabled: false,
+      speechRate: 190,
+      speechVoiceUk: "",
+      speechVoiceEn: ""
     });
   });
 
@@ -197,6 +202,14 @@ describe("saveSettings", () => {
   it("defaults dictationPrompt to the bundled dev-glossary", () => {
     const s = saveSettings({});
     expect(s.dictationPrompt).toBe(DEFAULT_DICTATION_PROMPT);
+  });
+
+  it("upgrades a saved prompt that is still an old default, keeps a custom one (#289)", () => {
+    for (const previous of PREVIOUS_DEFAULT_DICTATION_PROMPTS) {
+      expect(saveSettings({ dictationPrompt: previous }).dictationPrompt).toBe(DEFAULT_DICTATION_PROMPT);
+    }
+    const custom = `${PREVIOUS_DEFAULT_DICTATION_PROMPTS[0]} Kubernetes.`;
+    expect(saveSettings({ dictationPrompt: custom }).dictationPrompt).toBe(custom);
   });
 
   it("preserves empty dictationPrompt (explicit disable)", () => {

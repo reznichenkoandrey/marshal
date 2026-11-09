@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { meetingNotesFiles } from "./meeting-notes.ts";
 import type { MeetingManifest, MeetingMode } from "./meeting-recorder.ts";
 
 export type MeetingEntry = {
@@ -19,6 +20,8 @@ export type MeetingEntry = {
   bytes: number;
   error: string | null;
   warnings: string[];
+  /** notes.json from "Transcribe & summarize" (#271), when it exists. */
+  notesPath: string | null;
 };
 
 // Loose on purpose: recordings from before #229 carry `stitching` /
@@ -34,6 +37,7 @@ export function toMeetingEntry(
   if (!manifest.id || !manifest.startedAt) return null;
   const audioSize = manifest.audioPath ? fileSize(manifest.audioPath) : null;
   const videoSize = manifest.videoPath ? fileSize(manifest.videoPath) : null;
+  const notesPath = meetingNotesFiles(folder).notesJson;
   const started = Date.parse(manifest.startedAt);
   const stopped = manifest.stoppedAt ? Date.parse(manifest.stoppedAt) : Number.NaN;
 
@@ -56,7 +60,8 @@ export function toMeetingEntry(
     videoPath: videoSize !== null ? manifest.videoPath ?? null : null,
     bytes: (audioSize ?? 0) + (videoSize ?? 0),
     error: manifest.error ?? null,
-    warnings: manifest.warnings ?? []
+    warnings: manifest.warnings ?? [],
+    notesPath: fileSize(notesPath) !== null ? notesPath : null
   };
 }
 

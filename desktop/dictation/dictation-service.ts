@@ -21,12 +21,13 @@ import { BrowserWindow, clipboard } from "electron";
 
 import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
+import { isLikelyHallucination } from "../captions/transcript-buffer.ts";
 import { deliverTranscript, probeFocusedElement } from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
   resolveDictationLanguage,
-  resolveDictationPrompt,
+  buildDictationPrompt,
   type WhisperBackend
 } from "./whisper-backend.ts";
 
@@ -106,6 +107,16 @@ export function collapseRepeats(text: string): string {
   return collapsed;
 }
 
+/**
+ * What dictation pastes for a transcript: repeat loops collapsed (#99), and
+ * nothing at all for whisper's silence filler — a near-silent press makes it
+ * invent "Дякую за перегляд.", and pasting that is worse than pasting nothing.
+ */
+export function transcriptToDeliver(raw: string): string {
+  const text = collapseRepeats(raw);
+  return isLikelyHallucination(text) ? "" : text;
+}
+
 export class DictationService extends EventEmitter {
   private readonly hotkey: PushToTalkBackend;
   private readonly sessionHotkey: PushToTalkBackend | null;
@@ -129,7 +140,7 @@ export class DictationService extends EventEmitter {
   // 44-byte header-only WAV and the user sees "Audio file is empty". #82.
   private recorderReady = false;
 
-  constructor() {
+  constructor(private readonly glossaryTerms: () => readonly string[] = () => []) {
     super();
     const hotkeyString = process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_HOTKEY;
     // Backend selection happens inside createPushToTalkHotkey: modifier-only
@@ -221,9 +232,12 @@ export class DictationService extends EventEmitter {
     return resolveDictationLanguage(process.env.MARSHAL_DICTATION_LANGUAGE);
   }
 
-  /** Current dictation prompt. Same hot-read contract as `language`. */
+  /**
+   * Current dictation prompt plus glossary terms. Same hot-read contract as
+   * `language`: a term added in the translator applies to the next hold.
+   */
   private get prompt(): string {
-    return resolveDictationPrompt(process.env.MARSHAL_DICTATION_PROMPT);
+    return buildDictationPrompt(process.env.MARSHAL_DICTATION_PROMPT, this.glossaryTerms());
   }
 
   /**
@@ -449,7 +463,7 @@ export class DictationService extends EventEmitter {
       // so the `transcribed` event reflects what the model actually emitted,
       // not the post-processed version — listeners that telemeter accuracy
       // need the raw output.
-      const cleanText = collapseRepeats(result.text);
+      const cleanText = transcriptToDeliver(result.text);
       if (cleanText.length > 0 && this.mode === "session") {
         this.emit("session-command", cleanText.trim());
       } else if (cleanText.length > 0) {
