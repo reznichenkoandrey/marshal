@@ -166,6 +166,8 @@ const dom = {
   settingsClaudeHooksToggle: document.getElementById("settings-claude-hooks-toggle"),
   settingsClaudeSummaryLanguage: document.getElementById("settings-claude-summary-language"),
   settingsClaudeContextRouting: document.getElementById("settings-claude-context-routing"),
+  settingsClaudeRoutingRoots: document.getElementById("settings-claude-routing-roots"),
+  settingsClaudeRoutingCount: document.getElementById("settings-claude-routing-count"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
@@ -1092,6 +1094,9 @@ async function openSettings() {
     if (dom.settingsClaudeContextRouting) {
       dom.settingsClaudeContextRouting.checked = current.claudeCodeContextRouting ?? true;
     }
+    if (dom.settingsClaudeRoutingRoots) {
+      dom.settingsClaudeRoutingRoots.value = current.claudeCodeRoutingRoots ?? "";
+    }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
@@ -1167,6 +1172,12 @@ function renderClaudeHooks(state) {
     : claudeHooksInstalled ? "Hooks installed" : "Hooks not installed";
   dom.settingsClaudeHooksToggle.textContent = claudeHooksInstalled ? "Remove hooks" : "Install hooks";
   dom.settingsClaudeHooksToggle.disabled = false;
+  if (dom.settingsClaudeRoutingCount) {
+    const sessions = state?.sessions;
+    dom.settingsClaudeRoutingCount.textContent = sessions
+      ? `Read now: ${sessions.routable} of ${sessions.live} live sessions.`
+      : "";
+  }
 }
 
 async function refreshClaudeHooks() {
@@ -1306,6 +1317,7 @@ async function saveSettingsFromForm() {
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     claudeCodeSummaryLanguage: dom.settingsClaudeSummaryLanguage?.value ?? "auto",
     claudeCodeContextRouting: dom.settingsClaudeContextRouting?.checked ?? true,
+    claudeCodeRoutingRoots: dom.settingsClaudeRoutingRoots?.value ?? "",
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",

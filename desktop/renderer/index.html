@@ -188,6 +188,16 @@
               Keeps a 3-line summary of each live session (built from its recent turns, at most every 10 minutes) and
               asks a small model which one a command is about. When it is not sure, you pick.
             </p>
+            <div class="field">
+              <label for="settings-claude-routing-roots">Folders whose sessions may be read</label>
+              <textarea id="settings-claude-routing-roots" name="claudeCodeRoutingRoots" rows="3" spellcheck="false"
+                placeholder="~/htdocs"></textarea>
+              <p class="field-hint">
+                One folder per line. Only sessions under these folders have their recent turns sent to the summary
+                provider; other sessions are still reachable by name and in the picker. Empty — no session is read.
+                <span id="settings-claude-routing-count"></span>
+              </p>
+            </div>
           </fieldset>
 
           <fieldset class="field-group">

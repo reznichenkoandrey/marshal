@@ -9,7 +9,7 @@ import { Notification } from "electron";
 
 import { loadSettings } from "../settings-store.ts";
 import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
-import { createContextRouter, routedNotice, type ContextRouter } from "./context-router.ts";
+import { createContextRouter, isUnderRoots, parseRoutingRoots, routedNotice, type ContextRouter } from "./context-router.ts";
 import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
 import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, uninstallHooks } from "./hook-installer.ts";
@@ -19,7 +19,17 @@ import { SessionNotifier } from "./session-notifier.ts";
 
 const MAX_HELD_NOTIFICATIONS = 20;
 
-export type ClaudeHooksState = { installed: boolean; settingsPath: string; error?: string };
+export type ClaudeHooksState = {
+  installed: boolean;
+  settingsPath: string;
+  /** Live sessions, and how many of them context routing may read (#303). */
+  sessions: { live: number; routable: number };
+  error?: string;
+};
+
+function inRoutingRoots(session: Pick<ClaudeSession, "cwd">): boolean {
+  return isUnderRoots(session.cwd, parseRoutingRoots(loadSettings().claudeCodeRoutingRoots));
+}
 
 export class ClaudeHooksController {
   private readonly service: ClaudeHookService;
@@ -38,6 +48,7 @@ export class ClaudeHooksController {
     });
     this.contextRouter = createContextRouter({
       enabled: () => loadSettings().claudeCodeContextRouting,
+      inScope: (session) => inRoutingRoots(session),
       dossiers: (sessions) => this.dossiers.dossiersFor(sessions),
       complete: (request) => completeOnce(request)
     });
@@ -56,7 +67,7 @@ export class ClaudeHooksController {
       // A finished turn is when "what it is doing now" changes.
       if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
-        if (session) void this.dossiers.refresh(session);
+        if (session && inRoutingRoots(session)) void this.dossiers.refresh(session);
       }
     });
   }
@@ -70,7 +81,13 @@ export class ClaudeHooksController {
   }
 
   state(error?: string): ClaudeHooksState {
-    return { installed: readHooksInstalled(), settingsPath: defaultClaudeSettingsPath(), ...(error ? { error } : {}) };
+    const live = listLiveSessions();
+    return {
+      installed: readHooksInstalled(),
+      settingsPath: defaultClaudeSettingsPath(),
+      sessions: { live: live.length, routable: live.filter(inRoutingRoots).length },
+      ...(error ? { error } : {})
+    };
   }
 
   async setInstalled(installed: boolean): Promise<ClaudeHooksState> {
