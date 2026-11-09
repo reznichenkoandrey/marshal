@@ -456,6 +456,33 @@
           </fieldset>
 
           <fieldset class="field-group">
+            <legend>Calendar</legend>
+
+            <div class="field">
+              <input id="settings-calendar-enabled" name="calendarEnabled" type="checkbox" />
+              <label for="settings-calendar-enabled">Meeting reminders</label>
+              <p class="field-hint">
+                Reminders 15 and 5 minutes before a meeting, and at the start with Join and Join + Record.
+                The next meeting is shown at the top of the tray menu. Checks the calendar every 5 minutes, only while on.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-calendar-url">Secret address in iCal format</label>
+              <div class="folder-picker">
+                <input id="settings-calendar-url" type="password" autocomplete="off" spellcheck="false"
+                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
+                <button type="button" id="settings-calendar-forget" class="btn btn-ghost">Forget</button>
+              </div>
+              <p class="field-hint" id="settings-calendar-status"></p>
+              <p class="field-hint">
+                Google Calendar → Settings → your calendar → Integrate calendar. Anyone with this address reads
+                the whole calendar: Marshal keeps it in a private file and never shows it again.
+              </p>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Spoken updates</legend>
 
             <label class="checkbox-row">

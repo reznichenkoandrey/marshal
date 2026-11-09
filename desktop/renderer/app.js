@@ -195,6 +195,10 @@ const dom = {
   settingsSpeechTest: document.getElementById("settings-speech-test"),
   settingsSpeechStatus: document.getElementById("settings-speech-status"),
   settingsCheckUpdates: document.getElementById("settings-check-updates"),
+  settingsCalendarEnabled: document.getElementById("settings-calendar-enabled"),
+  settingsCalendarUrl: document.getElementById("settings-calendar-url"),
+  settingsCalendarForget: document.getElementById("settings-calendar-forget"),
+  settingsCalendarStatus: document.getElementById("settings-calendar-status"),
   settingsCheckUpdatesNow: document.getElementById("settings-check-updates-now"),
   settingsUpdateResult: document.getElementById("settings-update-result"),
   settingsSave: document.getElementById("settings-save"),
@@ -924,6 +928,11 @@ function bindEvents() {
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
   dom.settingsHealthRefresh?.addEventListener("click", () => refreshSetupHealth());
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
+  dom.settingsCalendarForget?.addEventListener("click", async () => {
+    if (!api?.calendarSetUrl) return;
+    if (dom.settingsCalendarUrl) dom.settingsCalendarUrl.value = "";
+    renderCalendarStatus(await api.calendarSetUrl(""));
+  });
   dom.settingsCaptureFolderPick?.addEventListener("click", async () => {
     if (!api?.selectDirectory || !dom.settingsCaptureFolder) return;
     try {
@@ -1118,6 +1127,11 @@ async function openSettings() {
     if (dom.settingsCheckUpdates) {
       dom.settingsCheckUpdates.checked = current.checkForUpdatesAutomatic ?? true;
     }
+    if (dom.settingsCalendarEnabled) {
+      dom.settingsCalendarEnabled.checked = current.calendarEnabled ?? false;
+    }
+    if (dom.settingsCalendarUrl) dom.settingsCalendarUrl.value = "";
+    void api?.calendarStatus?.().then(renderCalendarStatus).catch(() => renderCalendarStatus(null));
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
@@ -1128,6 +1142,24 @@ async function openSettings() {
     dom.settingsModal.classList.remove("hidden");
   } catch (err) {
     console.error("openSettings failed", err);
+  }
+}
+
+// The saved address never comes back from main; only whether one exists.
+function renderCalendarStatus(status) {
+  if (!dom.settingsCalendarStatus) return;
+  let text = "No address saved.";
+  if (status?.configured) {
+    text = "Address saved.";
+    if (status.lastError) text += ` Last check failed: ${status.lastError}.`;
+    else if (status.next) text += ` Next: ${new Date(status.next.start).toLocaleString()} — ${status.next.title}.`;
+    else if (status.lastSyncAt) text += " No upcoming meetings in the next day.";
+  }
+  dom.settingsCalendarStatus.textContent = text;
+  if (dom.settingsCalendarUrl) {
+    dom.settingsCalendarUrl.placeholder = status?.configured
+      ? "Saved — paste a new address to replace it"
+      : "https://calendar.google.com/calendar/ical/…/basic.ics";
   }
 }
 
@@ -1253,6 +1285,7 @@ async function saveSettingsFromForm() {
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true,
+    calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false,
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
@@ -1261,6 +1294,12 @@ async function saveSettingsFromForm() {
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);
   try {
+    // Saved before the settings so turning reminders on starts with the new address.
+    const calendarUrl = dom.settingsCalendarUrl?.value.trim() ?? "";
+    if (calendarUrl && api.calendarSetUrl) {
+      renderCalendarStatus(await api.calendarSetUrl(calendarUrl));
+      dom.settingsCalendarUrl.value = "";
+    }
     const saved = await api.updateSettings(payload);
     if (dom.settingsLaunchAtLogin) {
       dom.settingsLaunchAtLogin.checked = saved?.launchAtLogin ?? false;

@@ -167,6 +167,11 @@ export type MarshalSettings = {
    */
   checkForUpdatesAutomatic: boolean;
   /**
+   * Meeting reminders from the private iCal address (#269). The address itself
+   * is a secret and lives in its own 0600 file, not in settings.json.
+   */
+  calendarEnabled: boolean;
+  /**
    * Tag of the most recent release the user dismissed ("Skip this version").
    * Suppresses repeat notifications for that one version. Cleared on every
    * subsequent newer release so the user sees the next one.
@@ -230,6 +235,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   launchAtLogin: false,
   launchAtLoginLastError: "",
   checkForUpdatesAutomatic: true,
+  calendarEnabled: false,
   lastDismissedVersion: "",
   lastSeenVersion: "",
   speechEnabled: false,
@@ -529,6 +535,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     checkForUpdatesAutomatic: typeof input.checkForUpdatesAutomatic === "boolean"
       ? input.checkForUpdatesAutomatic
       : DEFAULT_SETTINGS.checkForUpdatesAutomatic,
+    calendarEnabled: typeof input.calendarEnabled === "boolean"
+      ? input.calendarEnabled
+      : DEFAULT_SETTINGS.calendarEnabled,
     lastDismissedVersion: typeof input.lastDismissedVersion === "string"
       ? input.lastDismissedVersion
       : DEFAULT_SETTINGS.lastDismissedVersion,

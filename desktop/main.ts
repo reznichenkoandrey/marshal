@@ -45,6 +45,8 @@ import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
+import type { CalendarService } from "./calendar/calendar-service.ts";
+import { calendarTrayItem, createCalendarService } from "./calendar/calendar-ui.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
@@ -128,6 +130,7 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
@@ -251,6 +254,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
+      initCalendar();
       initSpeech();
       void initExtensionBridge();
       initUpdater();
@@ -344,6 +348,12 @@ function registerIpcHandlers(): void {
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
+  handleIpc("marshal:calendar:status", () => calendarStatus());
+  handleIpc("marshal:calendar:set-url", (_event, url: unknown) => {
+    if (!calendarService) throw new Error("Calendar is not available in this mode");
+    calendarService.setUrl(typeof url === "string" ? url : "");
+    return calendarStatus();
+  });
   handleIpc("marshal:get-setup-health", () => getSetupHealth());
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
@@ -407,6 +417,7 @@ function registerIpcHandlers(): void {
     applySettingsToEnv(saved);
     saved = applyLaunchAtLogin(saved);
     restartDictation();
+    syncCalendar();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1678,6 +1689,28 @@ async function toggleLiveCaptions(): Promise<void> {
   }
 }
 
+function initCalendar(): void {
+  calendarService = createCalendarService({
+    dataDir: app.getPath("userData"),
+    joinAndRecord: () => void startMeetingRecording("audio")
+  });
+  syncCalendar();
+}
+
+// Off = no fetch and no timer at all (#281).
+function syncCalendar(): void {
+  if (loadSettings().calendarEnabled) calendarService?.start();
+  else calendarService?.stop();
+}
+
+function calendarStatus() {
+  const next = calendarService?.nextMeeting() ?? null;
+  return {
+    ...(calendarService?.status() ?? { configured: false, running: false, lastSyncAt: null, lastError: null }),
+    next: next ? { title: next.title, start: next.start.toISOString() } : null
+  };
+}
+
 async function toggleMeetingRecording(mode: MeetingMode): Promise<void> {
   if (!meetingRecorder) return;
   if (isMeetingRecording) {
@@ -2126,8 +2159,10 @@ function buildTrayMenu(): Electron.Menu {
   const recording = dictationService?.isCurrentlyRecording() ?? false;
   const meetingAvailable = meetingRecorder !== null;
   const captionsRunning = captionsService?.isRunning() ?? false;
+  const nextMeetingItem = calendarTrayItem(calendarService?.nextMeeting() ?? null);
 
   return Menu.buildFromTemplate([
+    ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
     { label: "Open Marshal", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
