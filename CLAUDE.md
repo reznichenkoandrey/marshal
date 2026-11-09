@@ -78,7 +78,21 @@
      буфері, а одна подія вставки не може дійти наполовину. Друкування шматками (`insert-text`)
      rich-редактори (Claude, Slack) частково губили. Друкування лишається для застосунків без
      текстового поля (`NON_TEXT_FRONTMOST_APPS`) і як запасний шлях, коли `⌘V` не спрацював.
-  4. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
+  4. **Промпт диктовки — бюджет у токенах, не в символах** (#289, #261). Whisper (і whisper.cpp,
+     і Groq) бере лише **останні 223 токени** промпту й мовчки відрізає **початок**. Кирилиця
+     коштує ~2 символи на токен, тож старий дефолт на 841 символ (288 токенів) щоразу губив
+     директиву «дослівно, із суржиком», що стояла першою. Тепер порядок — від менш важливого до
+     більш важливого: словник → директива → терміни з glossary перекладача (новіші — останні).
+     `buildDictationPrompt` (`desktop/dictation/whisper-backend.ts`) обрізає зібраний промпт **з
+     початку** до 210 токенів за консервативною оцінкою (`estimateWhisperTokens`, звірена з
+     реальним токенізатором у `tests/dictation-prompt.test.ts`); glossary бере не більше 90.
+     Порожній промпт у Settings = жодного промпту, і glossary теж. `settings.json` зберігає
+     **текст** дефолту, тож старі дефолти (`PREVIOUS_DEFAULT_DICTATION_PROMPTS`) при завантаженні
+     замінюються новим — міняєш дефолт, додай попередній у цей список.
+     **Галюцинації не вставляються:** «Дякую за перегляд.», «Субтитри зроблені…», «Thank you.» на
+     майже тихому натисканні відкидаються (`transcriptToDeliver` → `isLikelyHallucination`, спільний
+     із субтитрами) — краще не вставити нічого.
+  5. Debug: `MARSHAL_DICTATION_DEBUG=1 npm run desktop` — поаналізувати keydown/keyup/recorder state (див. #49, #50)
 - Translator: налаштувати `MARSHAL_API_KEY` у `.env` (див. `.env.example`).
   **Для встановленого застосунку — `npm run setup:env`**: packaged білд шукає `.env` у своїй
   userData-теці, бо той, що в репо, лежить усередині `.app`. Тека зветься за top-level
@@ -293,6 +307,62 @@
   `transcript.txt` вважається повним (пишеться в кінці), тож «Regenerate» після невдалого
   summary — один запит до моделі без STT. Мовців не розділено (v1 транскрибує змішаний
   трек, `mine` — здогад моделі з формулювань) — #295; відправка задачі в сесію Claude Code — #294.
+- **Календар: нагадування і Join в один клік — `desktop/calendar/`** (#269). Без OAuth:
+  Settings → Calendar бере **секретну iCal-адресу** Google Calendar (Settings → календар →
+  Integrate calendar) і галочку `calendarEnabled`. Адреса — bearer-секрет: лежить окремим
+  файлом `<userData>/calendar-ical-url` з режимом **0600**, не в `settings.json`; renderer
+  отримує лише `configured: true/false`, у лог і в текст помилки вона не потрапляє ніколи
+  (помилки fetch — лише тип: `HTTP 404`, `ENOTFOUND`, `timeout`). Вимкнено = **жодного fetch
+  і жодного таймера** (#281); увімкнено = fetch раз на 5 хв плюс один таймер до найближчого
+  нагадування, після сну — повторна синхронізація (`powerMonitor` `resume`).
+  Розбір iCal — **`ical.js`** (Mozilla, нуль залежностей): RRULE/EXDATE, перенесені й
+  скасовані екземпляри (`RECURRENCE-ID`), VTIMEZONE — це те, що руками легко зробити
+  тонко неправильно. Наш код лише вирішує, що таке зустріч: `ical-events.ts`. TZID без
+  VTIMEZONE у фіді ical.js читає як локальний час Mac — для IANA-назв там fallback через
+  `Intl`. Чий це календар, береться з `X-WR-CALNAME` (Google ставить туди email власника):
+  без нього статус відповіді невідомий і нагадування йдуть на все.
+  Правила (`reminders.ts`): за 15 і 5 хв і на старті; all-day, відхилені та запрошення без
+  відповіді 14+ днів (від `CREATED`) — пропускаються; запізніле нагадування (старт Marshal,
+  пробудження) ще показується до 5 хв, і лише одне на зустріч — найсвіжіше. Нотифікація на
+  старті має **Join** і **Join + Record** (відкриває посилання і вмикає запис аудіо), раніші —
+  лише Join; клік по нотифікації = Join. Тексти нотифікацій і рядка в tray — українською або
+  англійською за `app.getPreferredSystemLanguages()`. Посилання (`meeting-links.ts`): Meet,
+  Zoom, Teams, Slack huddle — лише https і лише відомі хости/шляхи (з розгортанням
+  `google.com/url?q=` і Outlook safelinks), бо `shell.openExternal` отримує дані з чужого
+  календаря. Верхній рядок tray-меню — поточна або наступна зустріч, клік = Join. Тести —
+  на fixture-файлах `tests/fixtures/calendar/*.ics`, ніколи на живому календарі.
+- **Озвучення (spoken updates) — `desktop/speech/`** (#266). Лише нативні голоси macOS через
+  `/usr/bin/say`: 0 МБ, жодної моделі в пам'яті (бюджет #281). API для джерел подій —
+  `speechService.speak(text, { lang?, key? })`; підключення до подій сесій (#262) — окремо.
+  **Голос за мовою тексту, не за мовою UI:** `detectSpeechLang` рахує слова кирилицею проти
+  латиниці, викинувши code spans, URL і все схоже на шлях чи ідентифікатор, і українська
+  виграє, щойно кириличних слів хоча б третина — тож «rate limit більше не б'є по API»
+  читає українська Леся, а терміни лишаються як є. **Імена голосів не хардкодити:**
+  `say -v '?'` друкує їх локалізованими («Lesya (Українська (Україна))»), і `say -v` приймає
+  саме таке ім'я; список читається з системи (`parseSayVoices`), голос вибирається за
+  локаллю. Немає українського голосу → `speak` повертає помилку з шляхом у System Settings,
+  а Settings показує те саме; англійським голосом українську не читаємо (виходить нісенітниця).
+  Черга (`SpeechQueue`, чиста й тестована): новіша фраза з тим самим `key` замінює
+  невимовлену; перервана фраза повертається на початок черги і звучить спочатку. **Мовчить,
+  поки йде диктовка, запис дзвінка або субтитри:** `recording-start` диктовки перериває
+  одразу, решту ловить опитування кожні 250 мс, яке живе лише поки є що казати.
+  Окремого сигналу «йде дзвінок» ще немає — запис зустрічі й субтитри його заміняють.
+  Текст іде в `say` через stdin, не argv: фраза, що починається з `-`, інакше стає прапорцем.
+  Settings → Spoken updates: вмикач (за замовчуванням вимкнено), голос на мову, темп
+  (`say -r`, 90–360 слів/хв) і «Speak test phrase» (говорить і при вимкненому вмикачі).
+
+- **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
+  18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
+  моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1.6 ГБ, вантажиться на
+  вимогу й гаситься після 10 хв простою, #218) і в бюджет idle не входить. Ніякого Python-рантайму;
+  TTS — системні голоси macOS. Жодних поллерів у простої: hooks штовхають події, а не таймер читає
+  файли. Вікна створюються при відкритті й знищуються при закритті. Wake phrase (#274) — лише opt-in
+  і < 3% CPU на батареї. **Заміряти — `npm run perf:footprint`** (installed `Marshal.app`, або
+  `-- --pid <pid>` для dev Electron): `footprint` кожного процесу в дереві Marshal, сума проти
+  бюджету окремо від моделі, exit 1 понад бюджет. Знімок idle і одразу після диктовки — у кожен PR
+  фічі. Те саме число бачить Settings → Setup health → Memory (`desktop/perf/footprint.ts`).
+  Заміряно 2026-11-09 на 0.4.x idle: 262 МБ (main 88, GPU 52, node service 47, два renderer 29+26,
+  `ptt-monitor` 13, network 7).
 - **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
   руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
   блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,
@@ -318,6 +388,15 @@
 - `desktop/translator/` — floating translator: two-pane window, 42-language registry
   (`languages.ts` — single source of truth, renderer gets it over IPC), translate-as-you-type,
   insert-into-app (`insert-service.ts`), 5 backends under `backends/`, Swift pasteboard watcher
+- `desktop/claude-code/` — інтеграція з Claude Code. `registry.ts` читає
+  `~/.claude/sessions/<pid>.json`, які пише сам Claude Code (формат **недокументований**,
+  знятий з реальних файлів 2.1.317): `kind` (`interactive` / `bg` / `daemon` / `daemon-worker`),
+  `status` (`busy` / `shell` / `idle` / `waiting`) і `waitingFor` («permission prompt», «input
+  needed»…) уже лежать у файлі. Live = `kind: "interactive"` + pid живий + сокет існує; файл,
+  що не збігся з форматом, пропускається з одним рядком у лог. Читається **лише на вимогу**
+  (tray → «Claude Sessions» будує список у момент відкриття меню), без watcher-а (#281).
+  `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, інакше
+  `open -a` застосунку-хоста з дерева процесів (desktop-сесії tty не мають → Claude.app).
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)
