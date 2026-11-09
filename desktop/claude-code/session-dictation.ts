@@ -7,7 +7,14 @@ import { app, clipboard, Menu, Notification, type Tray } from "electron";
 import { deliverTranscript, insertTextIntoFocused, probeFocusedElement, sendKeystroke } from "../dictation/focus-paste.ts";
 import { focusSession } from "./focus.ts";
 import { describeStatus, listLiveSessions, type ClaudeSession } from "./registry.ts";
-import { planDelivery, SessionCommandRouter, type ContextRouter, type Delivery } from "./session-router.ts";
+import type { ContextRouter } from "./context-router.ts";
+import { planDelivery, SessionCommandRouter, type Delivery } from "./session-router.ts";
+
+/** What #286 adds: the router and the "Sent to <session> by context" notice. */
+export interface ContextRouting {
+  readonly contextRouter: ContextRouter;
+  notifyRoutedByContext(session: Pick<ClaudeSession, "name">, command: string, onResend: () => void): void;
+}
 
 // Terminal/iTerm need a moment after `activate` before keystrokes land in the
 // newly selected tab rather than the previous one.
@@ -20,9 +27,9 @@ export class SessionDictation {
 
   constructor(
     private readonly getTray: () => Tray | null,
-    contextRouter?: ContextRouter
+    private readonly contextRouting?: ContextRouting
   ) {
-    this.router = new SessionCommandRouter(contextRouter);
+    this.router = new SessionCommandRouter(contextRouting?.contextRouter);
   }
 
   async handle(transcript: string): Promise<void> {
@@ -37,7 +44,11 @@ export class SessionDictation {
         this.notify(`Nothing to send to ${decision.session.name}`, "Say the command right after the session name.");
         return;
       case "send":
-        await this.send(decision.session, decision.command);
+        if ((await this.send(decision.session, decision.command)) && decision.byContext) {
+          this.contextRouting?.notifyRoutedByContext(decision.session, decision.command, () => {
+            void this.resend(decision.session, decision.command);
+          });
+        }
         return;
       case "pick": {
         const session = await this.pick(decision.candidates, decision.command);
@@ -46,11 +57,22 @@ export class SessionDictation {
     }
   }
 
-  private async send(session: ClaudeSession, command: string): Promise<void> {
+  private async resend(wrong: ClaudeSession, command: string): Promise<void> {
+    const others = listLiveSessions().filter((session) => session.sessionId !== wrong.sessionId);
+    if (others.length === 0) {
+      this.notify("No other Claude Code session is running", command);
+      return;
+    }
+    const session = await this.pick(others, command);
+    if (session) await this.send(session, command);
+  }
+
+  /** True only when the command was typed into the session. */
+  private async send(session: ClaudeSession, command: string): Promise<boolean> {
     const delivery = planDelivery(command, session);
     if (delivery.kind === "blocked") {
       this.notify(`${session.name} ${delivery.reason}`, command);
-      return;
+      return false;
     }
     // Paste or typing only reaches the right session when its own tab is in
     // front; an app-level focus (Claude desktop, VS Code) shows whichever
@@ -62,14 +84,15 @@ export class SessionDictation {
         `Open ${session.name} to send this`,
         `Marshal can type only into Terminal and iTerm sessions. ${delivery.kind === "text" ? "The command is on the clipboard." : ""}`.trim()
       );
-      return;
+      return false;
     }
     await new Promise((resolve) => setTimeout(resolve, FOCUS_SETTLE_MS));
     if (await this.type(delivery)) {
       this.router.remember(session.sessionId);
-    } else {
-      this.notify(`Could not type into ${session.name}`, "The command is on the clipboard.");
+      return true;
     }
+    this.notify(`Could not type into ${session.name}`, "The command is on the clipboard.");
+    return false;
   }
 
   private async type(delivery: Exclude<Delivery, { kind: "blocked" }>): Promise<boolean> {

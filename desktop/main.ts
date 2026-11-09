@@ -1450,7 +1450,7 @@ function initDictation(): void {
     void toggleMeetingRecording("audio");
   });
   dictationService.on("session-command", (text: string) => {
-    sessionDictation ??= new SessionDictation(() => tray);
+    sessionDictation ??= new SessionDictation(() => tray, claudeHooks ?? undefined);
     void sessionDictation.handle(text).catch((err: unknown) => {
       console.error("[claude-dictation] delivery failed:", err);
     });

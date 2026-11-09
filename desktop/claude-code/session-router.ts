@@ -6,17 +6,8 @@
 
 import path from "node:path";
 
+import type { ContextRoute, ContextRouter } from "./context-router.ts";
 import type { ClaudeSession } from "./registry.ts";
-
-// Contract with #286 (context routing). Defined here verbatim so both
-// branches merge without a shared file.
-export type ContextRoute =
-  | { kind: "session"; sessionId: string }
-  | { kind: "unsure"; candidates: string[] }
-  | { kind: "off" };
-export interface ContextRouter {
-  route(command: string, sessions: readonly ClaudeSession[]): Promise<ContextRoute>;
-}
 
 const TRANSLIT: Record<string, string> = {
   а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ie", ж: "zh", з: "z", и: "y",
@@ -212,7 +203,9 @@ export type RouteDecision =
   | { kind: "cancelled" }
   | { kind: "no-sessions" }
   | { kind: "empty"; session: ClaudeSession }
-  | { kind: "send"; session: ClaudeSession; command: string }
+  // byContext: the context router chose among several sessions, so the
+  // person is told where it went and can resend it (#286).
+  | { kind: "send"; session: ClaudeSession; command: string; byContext?: true }
   | { kind: "pick"; candidates: ClaudeSession[]; command: string };
 
 function toDecision(candidates: ClaudeSession[], command: string): RouteDecision {
@@ -263,7 +256,8 @@ export class SessionCommandRouter {
     }
     if (route.kind === "session") {
       const session = sessions.find((candidate) => candidate.sessionId === route.sessionId);
-      return session ? { kind: "send", session, command } : null;
+      if (!session) return null;
+      return sessions.length > 1 ? { kind: "send", session, command, byContext: true } : { kind: "send", session, command };
     }
     if (route.kind === "unsure") {
       const candidates = sessions.filter((session) => route.candidates.includes(session.sessionId));

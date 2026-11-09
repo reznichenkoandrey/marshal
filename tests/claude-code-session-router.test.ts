@@ -9,9 +9,9 @@ import {
   SessionCommandRouter,
   sessionAliases,
   tokensMatch,
-  transliterate,
-  type ContextRouter
+  transliterate
 } from "../desktop/claude-code/session-router.ts";
+import type { ContextRouter } from "../desktop/claude-code/context-router.ts";
 
 function session(over: Partial<ClaudeSession> & { sessionId: string }): ClaudeSession {
   return {
@@ -181,8 +181,18 @@ describe("SessionCommandRouter", () => {
     const router = new SessionCommandRouter(contextRouter);
     expect(await router.route("feature 1494 go", sessions)).toMatchObject({ session: feature });
     expect(contextRouter.route).not.toHaveBeenCalled();
-    expect(await router.route("check the build", sessions)).toEqual({ kind: "send", session: vasia, command: "check the build" });
+    expect(await router.route("check the build", sessions)).toEqual({
+      kind: "send",
+      session: vasia,
+      command: "check the build",
+      byContext: true
+    });
     expect(contextRouter.route).toHaveBeenCalledWith("check the build", sessions);
+  });
+
+  it("does not flag the only live session as routed by context", async () => {
+    const router = new SessionCommandRouter({ route: async () => ({ kind: "session", sessionId: "b" }) });
+    expect(await router.route("check the build", [vasia])).toEqual({ kind: "send", session: vasia, command: "check the build" });
   });
 
   it("opens the picker with the context router's candidates when it is unsure", async () => {
