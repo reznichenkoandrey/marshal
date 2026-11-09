@@ -34,6 +34,7 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
+import { SessionDictation } from "./claude-code/session-dictation.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import {
   DEFAULT_MODEL_NAME,
@@ -125,6 +126,7 @@ let translatorGlossary: TranslatorGlossaryStore | null = null;
 let modelDownload: { name: string; percent: number; abort: AbortController } | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
+let sessionDictation: SessionDictation | null = null;
 let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
@@ -1417,6 +1419,12 @@ function initDictation(): void {
   });
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
+  });
+  dictationService.on("session-command", (text: string) => {
+    sessionDictation ??= new SessionDictation(() => tray);
+    void sessionDictation.handle(text).catch((err: unknown) => {
+      console.error("[claude-dictation] delivery failed:", err);
+    });
   });
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;

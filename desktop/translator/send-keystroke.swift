@@ -13,20 +13,24 @@
 // Usage:
 //   send-keystroke c   — sends ⌘C
 //   send-keystroke v   — sends ⌘V
+//   send-keystroke return | escape — the bare key, no modifiers
 
 import Cocoa
 import Carbon.HIToolbox
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: send-keystroke c|v\n".utf8))
+    FileHandle.standardError.write(Data("usage: send-keystroke c|v|return|escape\n".utf8))
     exit(1)
 }
 
 let keyCode: CGKeyCode
+var flags: CGEventFlags = .maskCommand
 switch args[1] {
 case "c": keyCode = CGKeyCode(kVK_ANSI_C)
 case "v": keyCode = CGKeyCode(kVK_ANSI_V)
+case "return": keyCode = CGKeyCode(kVK_Return); flags = []
+case "escape": keyCode = CGKeyCode(kVK_Escape); flags = []
 default:
     FileHandle.standardError.write(Data("unsupported key: \(args[1])\n".utf8))
     exit(1)
@@ -45,8 +49,8 @@ else {
     exit(2)
 }
 
-down.flags = .maskCommand
-up.flags = .maskCommand
+down.flags = flags
+up.flags = flags
 
 down.post(tap: .cghidEventTap)
 // Small gap so the receiving app registers down+up as a complete keystroke.
