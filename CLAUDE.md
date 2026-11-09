@@ -366,6 +366,15 @@
 - `desktop/translator/` — floating translator: two-pane window, 42-language registry
   (`languages.ts` — single source of truth, renderer gets it over IPC), translate-as-you-type,
   insert-into-app (`insert-service.ts`), 5 backends under `backends/`, Swift pasteboard watcher
+- `desktop/claude-code/` — інтеграція з Claude Code. `registry.ts` читає
+  `~/.claude/sessions/<pid>.json`, які пише сам Claude Code (формат **недокументований**,
+  знятий з реальних файлів 2.1.317): `kind` (`interactive` / `bg` / `daemon` / `daemon-worker`),
+  `status` (`busy` / `shell` / `idle` / `waiting`) і `waitingFor` («permission prompt», «input
+  needed»…) уже лежать у файлі. Live = `kind: "interactive"` + pid живий + сокет існує; файл,
+  що не збігся з форматом, пропускається з одним рядком у лог. Читається **лише на вимогу**
+  (tray → «Claude Sessions» будує список у момент відкриття меню), без watcher-а (#281).
+  `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, інакше
+  `open -a` застосунку-хоста з дерева процесів (desktop-сесії tty не мають → Claude.app).
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)

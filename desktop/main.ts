@@ -33,6 +33,8 @@ import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
+import { describeStatus, listLiveSessions } from "./claude-code/registry.ts";
+import { focusSession } from "./claude-code/focus.ts";
 import {
   DEFAULT_MODEL_NAME,
   findInstalledModel,
@@ -2153,6 +2155,20 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
   }
 }
 
+// Read when the menu opens, never in the background (#281).
+function buildClaudeSessionsSubmenu(): Electron.MenuItemConstructorOptions[] {
+  const sessions = listLiveSessions();
+  if (sessions.length === 0) return [{ label: "No live sessions", enabled: false }];
+  return sessions.map((session) => ({
+    label: `${session.name} · ${path.basename(session.cwd)} · ${describeStatus(session)}`,
+    click: () => {
+      void focusSession(session.pid).catch((err: unknown) => {
+        console.warn("[claude-sessions] focus failed:", err instanceof Error ? err.message : err);
+      });
+    }
+  }));
+}
+
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
@@ -2229,6 +2245,7 @@ function buildTrayMenu(): Electron.Menu {
       ]
     },
     { label: "Capture", submenu: buildCaptureSubmenu() },
+    { label: "Claude Sessions", submenu: buildClaudeSessionsSubmenu() },
     buildModelMenuItem(),
     // Last resort when the editor is open with floating turned off: an agent
     // app has no Dock icon to click (#168).
