@@ -76,6 +76,8 @@ export type MarshalSettings = {
   dictationLanguage: DictationLanguage;
   /** Language of the Claude Code "finished" summary; auto follows the answer (#263). */
   claudeCodeSummaryLanguage: DictationLanguage;
+  /** Send a command that names no session to the one whose work matches it (#286). */
+  claudeCodeContextRouting: boolean;
   dictationAutoPaste: boolean;
   /**
    * Delay before a physical hold starts recording. Suppresses accidental taps
@@ -201,6 +203,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationBackend: "hybrid",
   dictationLanguage: "auto",
   claudeCodeSummaryLanguage: "auto",
+  claudeCodeContextRouting: true,
   dictationAutoPaste: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
   dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
@@ -469,6 +472,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     claudeCodeSummaryLanguage: (VALID_DICTATION_LANGUAGES as readonly unknown[]).includes(input.claudeCodeSummaryLanguage)
       ? (input.claudeCodeSummaryLanguage as DictationLanguage)
       : DEFAULT_SETTINGS.claudeCodeSummaryLanguage,
+    claudeCodeContextRouting: typeof input.claudeCodeContextRouting === "boolean"
+      ? input.claudeCodeContextRouting
+      : DEFAULT_SETTINGS.claudeCodeContextRouting,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,

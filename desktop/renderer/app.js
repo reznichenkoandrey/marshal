@@ -113,6 +113,7 @@ const dom = {
   settingsClaudeHooksStatus: document.getElementById("settings-claude-hooks-status"),
   settingsClaudeHooksToggle: document.getElementById("settings-claude-hooks-toggle"),
   settingsClaudeSummaryLanguage: document.getElementById("settings-claude-summary-language"),
+  settingsClaudeContextRouting: document.getElementById("settings-claude-context-routing"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
@@ -1020,6 +1021,9 @@ async function openSettings() {
     if (dom.settingsClaudeSummaryLanguage) {
       dom.settingsClaudeSummaryLanguage.value = current.claudeCodeSummaryLanguage ?? "auto";
     }
+    if (dom.settingsClaudeContextRouting) {
+      dom.settingsClaudeContextRouting.checked = current.claudeCodeContextRouting ?? true;
+    }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
@@ -1207,6 +1211,7 @@ async function saveSettingsFromForm() {
     dictationBackend: dom.settingsDictationBackend?.value ?? "hybrid",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
     claudeCodeSummaryLanguage: dom.settingsClaudeSummaryLanguage?.value ?? "auto",
+    claudeCodeContextRouting: dom.settingsClaudeContextRouting?.checked ?? true,
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",

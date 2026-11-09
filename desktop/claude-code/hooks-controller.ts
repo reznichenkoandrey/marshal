@@ -1,17 +1,20 @@
 // Main-process glue for the Claude Code hooks (#263): the Settings toggle that
 // installs/removes them, and the receiver that runs only while they are
-// installed. Kept out of main.ts so that file only calls in.
+// installed. Also owns context routing (#286): Stop events keep the session
+// dossiers fresh. Kept out of main.ts so that file only calls in.
 
 import path from "node:path";
 
 import { Notification } from "electron";
 
 import { loadSettings } from "../settings-store.ts";
-import { summarizeAnswer } from "./answer-summary.ts";
+import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
+import { createContextRouter, routedNotice, type ContextRouter } from "./context-router.ts";
+import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
 import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, uninstallHooks } from "./hook-installer.ts";
 import { ClaudeHookService } from "./hook-service.ts";
-import { listLiveSessions } from "./registry.ts";
+import { listLiveSessions, type ClaudeSession } from "./registry.ts";
 import { SessionNotifier } from "./session-notifier.ts";
 
 const MAX_HELD_NOTIFICATIONS = 20;
@@ -24,8 +27,20 @@ export class ClaudeHooksController {
   // Electron drops a Notification's click handler once the object is
   // collected; hold the shown ones until they are clicked or closed.
   private readonly shown = new Set<Notification>();
+  private readonly dossiers: DossierKeeper;
+  /** For #264: the session a command that names none is meant for. */
+  readonly contextRouter: ContextRouter;
 
   constructor(userDataDir: string) {
+    this.dossiers = new DossierKeeper({
+      storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
+      complete: (request) => completeOnce(request)
+    });
+    this.contextRouter = createContextRouter({
+      enabled: () => loadSettings().claudeCodeContextRouting,
+      dossiers: (sessions) => this.dossiers.dossiersFor(sessions),
+      complete: (request) => completeOnce(request)
+    });
     this.notifier = new SessionNotifier({
       notify: (title, body, onClick) => this.notify(title, body, onClick),
       summarize: (text) => summarizeAnswer(text, loadSettings().claudeCodeSummaryLanguage),
@@ -38,6 +53,11 @@ export class ClaudeHooksController {
     });
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
       void this.notifier.handle(event);
+      // A finished turn is when "what it is doing now" changes.
+      if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
+        const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
+        if (session) void this.dossiers.refresh(session);
+      }
     });
   }
 
@@ -74,11 +94,29 @@ export class ClaudeHooksController {
     this.service.stop();
   }
 
-  private notify(title: string, body: string, onClick: () => void): void {
+  /**
+   * For #264, after sending a command picked by context: "Sent to <session>
+   * by context". Clicking it or its button calls `onResend` (the picker), so
+   * a wrong route can be redone from the notification.
+   */
+  notifyRoutedByContext(session: Pick<ClaudeSession, "name">, command: string, onResend: () => void): void {
+    const { title, body } = routedNotice(session.name, command);
+    this.notify(title, body, onResend, "Send elsewhere");
+  }
+
+  private notify(title: string, body: string, onClick: () => void, actionText?: string): void {
     if (!Notification.isSupported()) return;
-    const notification = new Notification({ title, body });
+    const notification = new Notification({
+      title,
+      body,
+      ...(actionText ? { actions: [{ type: "button" as const, text: actionText }] } : {})
+    });
     const release = () => this.shown.delete(notification);
     notification.on("click", () => {
+      release();
+      onClick();
+    });
+    notification.on("action", () => {
       release();
       onClick();
     });
