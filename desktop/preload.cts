@@ -332,10 +332,19 @@ type MeetingHistoryEntry = {
   bytes: number;
   error: string | null;
   warnings: string[];
+  notesPath: string | null;
 };
+type MeetingNotesProgress = { id: string; phase: "preparing" | "transcribing" | "summarizing"; done: number; total: number };
 const meetingHistoryApi = {
   onLoaded: (cb: (event: IpcRendererEvent, payload: { folder: string; entries: MeetingHistoryEntry[] }) => void) =>
     registerListener<[{ folder: string; entries: MeetingHistoryEntry[] }]>("marshal:meeting-history-loaded", cb),
+  onNotesProgress: (cb: (event: IpcRendererEvent, progress: MeetingNotesProgress | null) => void) =>
+    registerListener<[MeetingNotesProgress | null]>("marshal:meeting-history-notes-progress", cb),
+  summarize: (id: string, language: string) => ipcRenderer.invoke("marshal:meeting-history:summarize", { id, language }),
+  cancelNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:cancel-notes", { id }),
+  readNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:read-notes", { id }),
+  openNotesFile: (id: string, file: "notes" | "transcript") =>
+    ipcRenderer.invoke("marshal:meeting-history:open-notes-file", { id, file }),
   refresh: () => ipcRenderer.invoke("marshal:meeting-history:refresh"),
   reveal: (filePath: string) => ipcRenderer.invoke("marshal:meeting-history:reveal", { path: filePath }),
   revealFolder: () => ipcRenderer.invoke("marshal:meeting-history:reveal-folder"),

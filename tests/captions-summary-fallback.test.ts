@@ -43,6 +43,15 @@ class FakeStreamer implements SummaryStreamer {
     this.calls += 1;
     return this.behaviour(onDelta);
   }
+
+  async streamMessages(
+    _messages: unknown,
+    _maxTokens: number,
+    onDelta: (delta: string) => void
+  ): Promise<string> {
+    this.calls += 1;
+    return this.behaviour(onDelta);
+  }
 }
 
 const answers = (text: string) => async (onDelta: (delta: string) => void): Promise<string> => {
@@ -87,6 +96,18 @@ describe("FallbackSummaryStreamer", () => {
     );
     expect(shown).toEqual(["- **Kafka** for billing"]);
     expect(notices).toEqual([{ from: "claude-api", to: "openai-api", reason: "credit" }]);
+    expect(streamer.id).toBe("openai-api");
+  });
+
+  it("falls back the same way for a caller-built prompt (meeting notes, #271)", async () => {
+    const claude = new FakeStreamer("claude-api", fails(NO_CREDITS));
+    const groq = new FakeStreamer("openai-api", answers('{"title":"x"}'));
+    const streamer = new FallbackSummaryStreamer(claude, groq);
+    const messages = { system: "s", systemInstructions: "s", referenceContext: "", user: "u" };
+
+    await expect(
+      streamer.streamMessages(messages, 4096, () => undefined, new AbortController().signal)
+    ).resolves.toBe('{"title":"x"}');
     expect(streamer.id).toBe("openai-api");
   });
 

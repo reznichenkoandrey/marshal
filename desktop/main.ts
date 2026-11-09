@@ -391,6 +391,18 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:meeting-history:finish", async (_event, input: { id: string }) => {
     return (await meetingHistoryWindow?.finish(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
   });
+  handleIpc("marshal:meeting-history:summarize", async (_event, input: { id: string; language: string }) => {
+    return (await meetingHistoryWindow?.summarize(input.id, input.language)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
+  handleIpc("marshal:meeting-history:cancel-notes", (_event, input: { id: string }) => {
+    return meetingHistoryWindow?.cancelNotes(input.id) ?? false;
+  });
+  handleIpc("marshal:meeting-history:read-notes", async (_event, input: { id: string }) => {
+    return (await meetingHistoryWindow?.readNotes(input.id)) ?? null;
+  });
+  handleIpc("marshal:meeting-history:open-notes-file", async (_event, input: { id: string; file: "notes" | "transcript" }) => {
+    return (await meetingHistoryWindow?.openNotesFile(input.id, input.file)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
   handleIpc("marshal:meeting-history:trash", async (_event, input: { id: string }) => {
     return (await meetingHistoryWindow?.trash(input.id)) ?? { ok: false, error: "Meeting recorder not initialized" };
   });
