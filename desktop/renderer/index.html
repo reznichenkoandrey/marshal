@@ -456,6 +456,43 @@
           </fieldset>
 
           <fieldset class="field-group">
+            <legend>Spoken updates</legend>
+
+            <label class="checkbox-row">
+              <input id="settings-speech-enabled" name="speechEnabled" type="checkbox" />
+              <span>Read short session updates aloud</span>
+            </label>
+            <p class="field-hint">
+              Native macOS voices, nothing to download. Ukrainian text gets the Ukrainian voice, English the
+              English one. Silent while dictating, recording a meeting or running live captions.
+            </p>
+
+            <div class="field">
+              <label for="settings-speech-voice-uk">Ukrainian voice</label>
+              <select id="settings-speech-voice-uk" name="speechVoiceUk">
+                <option value="">Automatic</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-voice-en">English voice</label>
+              <select id="settings-speech-voice-en" name="speechVoiceEn">
+                <option value="">Automatic</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-rate">Rate (words per minute)</label>
+              <input id="settings-speech-rate" name="speechRate" type="number" min="90" max="360" step="10" />
+            </div>
+
+            <div class="field">
+              <button type="button" id="settings-speech-test" class="btn btn-secondary">Speak test phrase</button>
+              <p id="settings-speech-status" class="field-hint">Uses the saved settings — save first after a change.</p>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Updates</legend>
 
             <div class="field">

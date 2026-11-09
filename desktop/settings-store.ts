@@ -32,6 +32,7 @@ import {
 } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
 import type { Formality, TranslatorBackendChoice } from "./translator/translator-service.ts";
+import { DEFAULT_SPEECH_RATE, normalizeSpeechRate } from "./speech/speech-policy.ts";
 
 export type BridgeMode =
   | "claude-cli"
@@ -177,6 +178,13 @@ export type MarshalSettings = {
    * keeps the warning one-shot per app version instead of nagging forever.
    */
   lastSeenVersion: string;
+  /** Spoken updates (#266): read short summaries aloud with the native macOS voices. */
+  speechEnabled: boolean;
+  /** `say -r` words per minute. */
+  speechRate: number;
+  /** Voice names as `say -v '?'` prints them; empty = pick automatically. */
+  speechVoiceUk: string;
+  speechVoiceEn: string;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -223,7 +231,11 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   launchAtLoginLastError: "",
   checkForUpdatesAutomatic: true,
   lastDismissedVersion: "",
-  lastSeenVersion: ""
+  lastSeenVersion: "",
+  speechEnabled: false,
+  speechRate: DEFAULT_SPEECH_RATE,
+  speechVoiceUk: "",
+  speechVoiceEn: ""
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -519,7 +531,11 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.lastDismissedVersion,
     lastSeenVersion: typeof input.lastSeenVersion === "string"
       ? input.lastSeenVersion
-      : DEFAULT_SETTINGS.lastSeenVersion
+      : DEFAULT_SETTINGS.lastSeenVersion,
+    speechEnabled: typeof input.speechEnabled === "boolean" ? input.speechEnabled : DEFAULT_SETTINGS.speechEnabled,
+    speechRate: normalizeSpeechRate(input.speechRate),
+    speechVoiceUk: typeof input.speechVoiceUk === "string" ? input.speechVoiceUk.trim() : DEFAULT_SETTINGS.speechVoiceUk,
+    speechVoiceEn: typeof input.speechVoiceEn === "string" ? input.speechVoiceEn.trim() : DEFAULT_SETTINGS.speechVoiceEn
   };
 }
 

@@ -136,7 +136,11 @@ describe("saveSettings", () => {
       launchAtLoginLastError: "",
       checkForUpdatesAutomatic: true,
       lastDismissedVersion: "",
-      lastSeenVersion: ""
+      lastSeenVersion: "",
+      speechEnabled: false,
+      speechRate: 190,
+      speechVoiceUk: "",
+      speechVoiceEn: ""
     });
   });
 
