@@ -162,6 +162,9 @@ const dom = {
   settingsDictationToggleTapCount: document.getElementById("settings-dictation-toggle-tap-count"),
   settingsDictationBackend: document.getElementById("settings-dictation-backend"),
   settingsDictationLanguage: document.getElementById("settings-dictation-language"),
+  settingsClaudeHooksStatus: document.getElementById("settings-claude-hooks-status"),
+  settingsClaudeHooksToggle: document.getElementById("settings-claude-hooks-toggle"),
+  settingsClaudeSummaryLanguage: document.getElementById("settings-claude-summary-language"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
@@ -928,6 +931,7 @@ function bindEvents() {
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
   dom.settingsHealthRefresh?.addEventListener("click", () => refreshSetupHealth());
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);
+  dom.settingsClaudeHooksToggle?.addEventListener("click", () => void toggleClaudeHooks());
   dom.settingsCalendarForget?.addEventListener("click", async () => {
     if (!api?.calendarSetUrl) return;
     if (dom.settingsCalendarUrl) dom.settingsCalendarUrl.value = "";
@@ -1081,6 +1085,9 @@ async function openSettings() {
     if (dom.settingsDictationLanguage) {
       dom.settingsDictationLanguage.value = current.dictationLanguage ?? "auto";
     }
+    if (dom.settingsClaudeSummaryLanguage) {
+      dom.settingsClaudeSummaryLanguage.value = current.claudeCodeSummaryLanguage ?? "auto";
+    }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
@@ -1138,11 +1145,39 @@ async function openSettings() {
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
     void refreshSetupHealth();
+    void refreshClaudeHooks();
     clearSettingsStatus();
     dom.settingsModal.classList.remove("hidden");
   } catch (err) {
     console.error("openSettings failed", err);
   }
+}
+
+let claudeHooksInstalled = false;
+
+function renderClaudeHooks(state) {
+  if (!dom.settingsClaudeHooksStatus || !dom.settingsClaudeHooksToggle) return;
+  claudeHooksInstalled = state?.installed === true;
+  dom.settingsClaudeHooksStatus.textContent = state?.error
+    ? `Failed: ${state.error}`
+    : claudeHooksInstalled ? "Hooks installed" : "Hooks not installed";
+  dom.settingsClaudeHooksToggle.textContent = claudeHooksInstalled ? "Remove hooks" : "Install hooks";
+  dom.settingsClaudeHooksToggle.disabled = false;
+}
+
+async function refreshClaudeHooks() {
+  if (!api?.getClaudeCodeHooks) return;
+  renderClaudeHooks(await api.getClaudeCodeHooks().catch((err) => ({ installed: false, error: err?.message ?? String(err) })));
+}
+
+async function toggleClaudeHooks() {
+  if (!api?.setClaudeCodeHooks || !dom.settingsClaudeHooksToggle) return;
+  dom.settingsClaudeHooksToggle.disabled = true;
+  const next = !claudeHooksInstalled;
+  renderClaudeHooks(await api.setClaudeCodeHooks(next).catch((err) => ({
+    installed: claudeHooksInstalled,
+    error: err?.message ?? String(err)
+  })));
 }
 
 // The saved address never comes back from main; only whether one exists.
@@ -1265,6 +1300,7 @@ async function saveSettingsFromForm() {
     dictationToggleTapCount: Number.parseInt(dom.settingsDictationToggleTapCount?.value ?? "0", 10),
     dictationBackend: dom.settingsDictationBackend?.value ?? "hybrid",
     dictationLanguage: dom.settingsDictationLanguage?.value ?? "auto",
+    claudeCodeSummaryLanguage: dom.settingsClaudeSummaryLanguage?.value ?? "auto",
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",

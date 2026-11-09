@@ -397,6 +397,21 @@
   (tray → «Claude Sessions» будує список у момент відкриття меню), без watcher-а (#281).
   `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, інакше
   `open -a` застосунку-хоста з дерева процесів (desktop-сесії tty не мають → Claude.app).
+  **Hooks (#263)** — Settings → «Claude Code integration» → Install/Remove: лише явна дія
+  користувача. `hook-installer.ts` **мерджить** `Stop` і `Notification` (`async: true`) у
+  `~/.claude/settings.json` поруч із чужими hooks; свої записи впізнає за `marshal-claude-hook.sh`
+  у команді, uninstall прибирає лише їх (файл, що не парситься, не чіпає; symlink і відступ
+  зберігає). Скрипт (`<userData>/claude-code/marshal-claude-hook.sh`, sh + curl, без Node) шле
+  payload на `127.0.0.1:<port>/claude-code/hook` з per-run токеном (`port` і `auth-header` у тій
+  самій теці, 0600); сервер (`hook-service.ts`) відкидає будь-який `Origin` і чужий `Host` — веб-
+  сторінка подію не підкине. Marshal не запущений → подія лягає в `spool/`, на старті
+  програється; дедуп — session id + хеш payload (не uuid транскрипту: до replay він уже інший),
+  старші 15 хв — викидаються. Сервер живе лише поки hooks встановлені, таймерів немає;
+  нагадування «still waiting» через 10 хв — один `setTimeout` на сесію, що чекає, і перевірка
+  статусу в registry (відповідь у терміналі hook-а не дає). Summary «finished» — один
+  не-стрімовий запит через провайдера captions (`resolveSummaryProvider`), мова — setting
+  `claudeCodeSummaryLanguage` (auto = мова відповіді); коротку однорядкову відповідь показує
+  як є, без запиту. `idle_prompt` ігнорується — він повторює вже показаний Stop.
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)

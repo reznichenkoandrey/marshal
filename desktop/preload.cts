@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 type IpcRendererEvent = Electron.IpcRendererEvent;
 type IpcHandler = (event: IpcRendererEvent, ...args: unknown[]) => void;
+type ClaudeCodeHooksState = { installed: boolean; settingsPath: string; error?: string };
 
 // Registry of listeners attached in this renderer so we can both:
 //   - expose a disposer to callers (preferred pattern)
@@ -135,6 +136,9 @@ const desktopApi = {
   restartApp: () => ipcRenderer.invoke("marshal:restart-app"),
   openTranslator: () => ipcRenderer.invoke("marshal:translator-open"),
   getSettings: () => ipcRenderer.invoke("marshal:get-settings"),
+  getClaudeCodeHooks: () => ipcRenderer.invoke("marshal:claude-code-hooks-get") as Promise<ClaudeCodeHooksState>,
+  setClaudeCodeHooks: (installed: boolean) =>
+    ipcRenderer.invoke("marshal:claude-code-hooks-set", installed) as Promise<ClaudeCodeHooksState>,
   getSetupHealth: () => ipcRenderer.invoke("marshal:get-setup-health") as Promise<{
     items: Array<{
       id: string;
@@ -155,6 +159,7 @@ const desktopApi = {
     dictationHotkey?: string;
     dictationBackend?: string;
     dictationLanguage?: string;
+    claudeCodeSummaryLanguage?: string;
     dictationAutoPaste?: boolean;
     dictationHoldDelayMs?: number;
     dictationToggleTapCount?: number;

@@ -46,14 +46,14 @@ export interface SummarizerEnv {
   MARSHAL_CAPTIONS_CLAUDE_MODEL?: string;
 }
 
-const DEFAULT_OPENAI_BASE = "https://api.groq.com/openai/v1";
+export const DEFAULT_OPENAI_BASE = "https://api.groq.com/openai/v1";
 // Same reasoning as the translator (#155): a summary that must land in under
 // a second wants the fastest model the account serves, not the smartest.
-const DEFAULT_OPENAI_MODEL = "qwen/qwen3.8-27b";
+export const DEFAULT_OPENAI_MODEL = "qwen/qwen3.8-27b";
 // Haiku is the latency pick on the Anthropic side for the same reason — the V3
 // spec budgets < 1 s from the end of speech to the first tokens. Override with
 // MARSHAL_CAPTIONS_CLAUDE_MODEL when quality matters more than that budget.
-const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5";
+export const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5";
 const MAX_TOKENS = 256;
 const TEMPERATURE = 0.2;
 

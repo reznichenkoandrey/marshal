@@ -75,6 +75,8 @@ export type MarshalSettings = {
   dictationHotkey: string;
   dictationBackend: DictationBackend;
   dictationLanguage: DictationLanguage;
+  /** Language of the Claude Code "finished" summary; auto follows the answer (#263). */
+  claudeCodeSummaryLanguage: DictationLanguage;
   dictationAutoPaste: boolean;
   /**
    * Delay before a physical hold starts recording. Suppresses accidental taps
@@ -211,6 +213,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   // resolveBackendName in whisper-backend.ts. See #93.
   dictationBackend: "hybrid",
   dictationLanguage: "auto",
+  claudeCodeSummaryLanguage: "auto",
   dictationAutoPaste: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
   dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
@@ -481,6 +484,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationHotkey: hotkey,
     dictationBackend,
     dictationLanguage,
+    claudeCodeSummaryLanguage: (VALID_DICTATION_LANGUAGES as readonly unknown[]).includes(input.claudeCodeSummaryLanguage)
+      ? (input.claudeCodeSummaryLanguage as DictationLanguage)
+      : DEFAULT_SETTINGS.claudeCodeSummaryLanguage,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,

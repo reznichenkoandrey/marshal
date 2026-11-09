@@ -162,6 +162,27 @@
           </fieldset>
 
           <fieldset class="field-group">
+            <legend>Claude Code integration</legend>
+            <div class="health-header">
+              <span id="settings-claude-hooks-status" class="health-summary">Checking…</span>
+              <button type="button" id="settings-claude-hooks-toggle" class="btn btn-ghost" disabled>Install hooks</button>
+            </div>
+            <p class="field-hint">
+              Adds <code>Stop</code> and <code>Notification</code> hooks to <code>~/.claude/settings.json</code>, next to
+              your own hooks, so Marshal notifies you when a session finishes or needs your confirmation. Remove takes
+              out only Marshal's entries.
+            </p>
+            <div class="field">
+              <label for="settings-claude-summary-language">Summary language</label>
+              <select id="settings-claude-summary-language" name="claudeCodeSummaryLanguage">
+                <option value="auto">Same as the answer (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Voice dictation</legend>
             <label class="checkbox-row">
               <input id="settings-dictation-enabled" name="dictationEnabled" type="checkbox" />
