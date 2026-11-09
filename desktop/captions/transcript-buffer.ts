@@ -79,7 +79,14 @@ const HALLUCINATION_PATTERNS: RegExp[] = [
   /^\(?(?:music|applause|laughter|silence|inaudible)\)?$/iu,
   /^(?:thank you|thanks|thank you\.|thanks for watching|bye|you)\.?$/iu,
   /subtitles? by/iu,
-  /^♪+$/u
+  /^♪+$/u,
+  // Ukrainian / Russian video-outro filler whisper emits for silence.
+  /^(?:дякую|спасибо) за (?:перегляд|просмотр)$/iu,
+  /^(?:субтитри|субтитры) (?:зроблен|створен|підготу|сделал|созда|подготов)/iu,
+  /^редактор субтитров/iu,
+  /amara\.org/iu,
+  /^продовження (?:в наступній серії|буде)$/iu,
+  /^підписуйтес[ья] на (?:канал|наш канал)/iu
 ];
 
 /**

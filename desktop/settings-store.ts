@@ -8,7 +8,7 @@ import {
   DEFAULT_TOGGLE_TAP_COUNT,
   normalizeToggleTapCount
 } from "./dictation/gesture-options.ts";
-import { DEFAULT_DICTATION_PROMPT } from "./dictation/whisper-backend.ts";
+import { DEFAULT_DICTATION_PROMPT, PREVIOUS_DEFAULT_DICTATION_PROMPTS } from "./dictation/whisper-backend.ts";
 import {
   DEFAULT_CAPTIONS_DRAG_MODIFIER,
   DEFAULT_CAPTIONS_HOTKEY,
@@ -468,7 +468,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.dictationAutoPaste,
     dictationHoldDelayMs,
     dictationToggleTapCount,
+    // settings.json stores the default's text, so an untouched old default is
+    // upgraded here — otherwise prompt fixes never reach existing installs (#289).
     dictationPrompt: typeof input.dictationPrompt === "string"
+      && !PREVIOUS_DEFAULT_DICTATION_PROMPTS.includes(input.dictationPrompt.trim())
       ? input.dictationPrompt
       : DEFAULT_SETTINGS.dictationPrompt,
     dictationMicrophone: typeof input.dictationMicrophone === "string"
