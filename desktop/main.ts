@@ -34,6 +34,7 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
+import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import {
   DEFAULT_MODEL_NAME,
   findInstalledModel,
@@ -143,6 +144,7 @@ let captionsAccelerators: { toggle: string; ocr: string } = {
 // these globals to coordinate the app popover and tray status.
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let claudeHooks: ClaudeHooksController | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -250,6 +252,8 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"));
+      void claudeHooks.startIfInstalled();
       void initExtensionBridge();
       initUpdater();
     }
@@ -343,6 +347,9 @@ function registerIpcHandlers(): void {
 
   handleIpc("marshal:get-settings", () => loadSettings());
   handleIpc("marshal:get-setup-health", () => getSetupHealth());
+  handleIpc("marshal:claude-code-hooks-get", () => claudeHooks?.state());
+  handleIpc("marshal:claude-code-hooks-set", (_event, installed: unknown) =>
+    claudeHooks?.setInstalled(installed === true));
   handleIpc("marshal:check-for-updates", () => runManualUpdateCheck());
   handleIpc("marshal:check-for-updates-silent", () => runSilentUpdateCheck());
   handleIpc("marshal:start-update-install", (event) => runUpdateInstall(event.sender));
@@ -1119,6 +1126,7 @@ async function performTeardown(): Promise<void> {
   dictationService?.stop();
   // The resident whisper model (#218) holds ~1.5 GB; it goes with the app.
   stopSharedWhisperServer();
+  claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
   meetingIndicator?.hide();
