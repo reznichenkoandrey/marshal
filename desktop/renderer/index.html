@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Marshal</title>
     <link rel="stylesheet" href="./styles.css" />
+    <script src="./theme.js"></script>
   </head>
   <body>
     <aside id="sidebar" class="sidebar">
@@ -96,6 +97,28 @@
               </button>
             </div>
             <p class="field-hint">System follows macOS appearance. Changes apply instantly.</p>
+          </div>
+
+          <div class="field">
+            <label for="settings-look">Theme</label>
+            <select id="settings-look">
+              <option value="hud">HUD</option>
+              <option value="classic">Classic</option>
+              <option value="liquid">Liquid</option>
+              <option value="signal">Signal</option>
+              <option value="soft">Soft 3D</option>
+            </select>
+          </div>
+
+          <div class="field" id="settings-palette-field">
+            <label for="settings-palette">HUD palette</label>
+            <select id="settings-palette">
+              <option value="blue">Blue</option>
+              <option value="teal">Teal</option>
+              <option value="green">Green</option>
+              <option value="amber">Amber</option>
+            </select>
+            <p class="field-hint">Every theme has a light and a dark variant — Appearance picks which.</p>
           </div>
 
           <fieldset class="field-group">

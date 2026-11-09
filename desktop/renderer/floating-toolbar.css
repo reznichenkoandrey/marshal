@@ -74,14 +74,14 @@ body {
 }
 
 .toolbar-btn.record {
-  color: #e0533d;
+  color: var(--danger);
 }
 .toolbar-btn.record.recording {
   color: #fff;
-  background: rgba(224, 83, 61, 0.85);
+  background: color-mix(in srgb, var(--danger) 85%, transparent);
 }
 .toolbar-btn.record.recording:hover {
-  background: rgba(224, 83, 61, 1);
+  background: var(--danger);
 }
 
 .hidden {

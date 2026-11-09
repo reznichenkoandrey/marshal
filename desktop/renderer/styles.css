@@ -821,6 +821,7 @@ a:hover {
   font-weight: var(--fw-semibold);
   color: var(--text-muted);
   text-transform: uppercase;
+  font-family: var(--font-label);
   letter-spacing: var(--letter-wider);
 }
 
@@ -900,15 +901,15 @@ a:hover {
 }
 
 .health-ok .health-dot {
-  background: #16a34a;
+  background: var(--success);
 }
 
 .health-warn .health-dot {
-  background: #d97706;
+  background: var(--warning);
 }
 
 .health-error .health-dot {
-  background: #dc2626;
+  background: var(--danger);
 }
 
 .health-copy {
@@ -948,8 +949,8 @@ a:hover {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default));
 }
 .update-result.is-error {
-  background: color-mix(in srgb, #dc2626 8%, var(--bg-muted));
-  border-color: color-mix(in srgb, #dc2626 30%, var(--border-default));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-muted));
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border-default));
 }
 .update-result-row {
   display: flex;
@@ -1025,7 +1026,7 @@ a:hover {
   color: var(--text-muted);
 }
 .update-result.is-error .update-progress-bar-fill {
-  background: #dc2626;
+  background: var(--danger);
 }
 
 .field-hint code {
@@ -1091,6 +1092,7 @@ a:hover {
   font-weight: var(--fw-semibold);
   color: var(--text-muted);
   text-transform: uppercase;
+  font-family: var(--font-label);
   letter-spacing: var(--letter-wider);
 }
 

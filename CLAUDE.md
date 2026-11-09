@@ -363,6 +363,18 @@
   фічі. Те саме число бачить Settings → Setup health → Memory (`desktop/perf/footprint.ts`).
   Заміряно 2026-11-09 на 0.4.x idle: 262 МБ (main 88, GPU 52, node service 47, два renderer 29+26,
   `ptt-monitor` 13, network 7).
+- **Теми — дві незалежні осі (#283).** Режим (`data-theme` light/dark, без атрибута — як у
+  macOS) і look (`data-look`: `hud` — дефолт, `classic`, `liquid`, `signal`, `soft`; для HUD ще
+  `data-palette`: `blue` — дефолт, `teal`, `green`, `amber`). Обирається в Settings → Theme.
+  Look задає лише `--seed-*` (кожен — `light-dark(<світлий>, <темний>)`), радіуси й
+  `--font-label`; семантичні токени (`--bg-*`, `--text-*`, `--accent*`, `--state-*`) виводяться
+  з seeds через `color-mix`, тому компоненти про теми нічого не знають. Новий колір у
+  компоненті — тільки через токен, не hex. Нова тема = один блок seeds у `design-tokens.css`
+  (дзеркало в `chrome-extension/src/sidepanel/` має збігатись байт у байт — це стереже
+  `tests/design-tokens.test.ts`) плюс значення в `theme.js`. `theme.js` підключається в `<head>`
+  кожного вікна на токенах, щоб тема стояла до першого кадру. Субтитри мають власні локальні
+  токени (завжди темні поверх чужого екрана), а полотно редактора захоплення — нейтральне.
+  Розширення Chrome показує дефолтний HUD blue: вибору теми там поки немає.
 - **Встановлення свіжого білду на свою машину — `npm run install:local`** (не тягнути DMG
   руками). Білди self-signed і не нотаризовані, тому macOS вішає `com.apple.quarantine` і
   блокує перший запуск. Скрипт гасить запущений Marshal, копіює з образу в `/Applications`,

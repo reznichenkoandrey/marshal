@@ -33,6 +33,7 @@
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   text-transform: uppercase;
+  font-family: var(--font-label);
   letter-spacing: var(--letter-wider);
   color: var(--text-muted);
   border: 1px solid var(--border-default);
@@ -118,6 +119,7 @@
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   text-transform: uppercase;
+  font-family: var(--font-label);
   letter-spacing: var(--letter-wider);
   color: var(--text-muted);
 }

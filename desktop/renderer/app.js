@@ -204,6 +204,9 @@ const dom = {
   settingsSave: document.getElementById("settings-save"),
   settingsStatus: document.getElementById("settings-status"),
   appearanceSegmented: document.getElementById("appearance-segmented"),
+  settingsLook: document.getElementById("settings-look"),
+  settingsPalette: document.getElementById("settings-palette"),
+  settingsPaletteField: document.getElementById("settings-palette-field"),
   themeToggle: document.getElementById("theme-toggle"),
   messages: document.getElementById("messages"),
   welcome: document.getElementById("welcome"),
@@ -821,6 +824,14 @@ function refreshThemeToggleIcon() {
   dom.themeToggle.title = `Appearance: ${state.appearance} (click to cycle)`;
 }
 
+function refreshLookFields() {
+  const theme = window.MarshalTheme?.current();
+  if (!theme) return;
+  if (dom.settingsLook) dom.settingsLook.value = theme.look;
+  if (dom.settingsPalette) dom.settingsPalette.value = theme.palette;
+  dom.settingsPaletteField?.classList.toggle("hidden", theme.look !== "hud");
+}
+
 function refreshAppearanceSegmented() {
   if (!dom.appearanceSegmented) return;
   dom.appearanceSegmented.querySelectorAll(".segmented-btn").forEach((btn) => {
@@ -1000,6 +1011,13 @@ function bindEvents() {
     if (!btn?.dataset.appearance) return;
     applyAppearance(btn.dataset.appearance);
   });
+  dom.settingsLook?.addEventListener("change", () => {
+    window.MarshalTheme?.set({ look: dom.settingsLook.value });
+    refreshLookFields();
+  });
+  dom.settingsPalette?.addEventListener("change", () => {
+    window.MarshalTheme?.set({ palette: dom.settingsPalette.value });
+  });
 
   // File attachments
   dom.attachBtn.addEventListener("click", () => dom.fileInput.click());
@@ -1137,6 +1155,7 @@ async function openSettings() {
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
+    refreshLookFields();
     void refreshSetupHealth();
     clearSettingsStatus();
     dom.settingsModal.classList.remove("hidden");
