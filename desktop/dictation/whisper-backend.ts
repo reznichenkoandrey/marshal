@@ -55,26 +55,69 @@ export function resolveBackendName(raw: string | undefined): BackendName {
 }
 
 /**
- * Default dictation glossary. Seeds Whisper with the vocabulary this user
+ * Default dictation prompt. Seeds Whisper with the vocabulary this user
  * actually produces — Ukrainian base with surzhyk + inline Americanisms +
- * Anthropic / Claude Code tooling — so the model preserves code-switching
- * instead of "correcting" loanwords into nonsense or dropping rare terms.
+ * Claude Code tooling — so the model preserves code-switching instead of
+ * "correcting" loanwords into nonsense or dropping rare terms.
  *
- * Whisper caps the initial prompt at the last ~224 tokens (~800 chars),
- * silently truncating from the start. Order matters: keep the verbatim
- * directive first, then the highest-payoff vocabulary.
+ * Whisper keeps only the LAST ~223 prompt tokens and drops the start (#289),
+ * so the order runs from least to most important: the verbatim directive is
+ * last, and glossary terms appended by `buildDictationPrompt` push out the
+ * leading vocabulary first.
  *
  * Override via MARSHAL_DICTATION_PROMPT or the settings textarea when a
  * user talks about domains we don't cover here (medicine, law, gaming).
  */
 export const DEFAULT_DICTATION_PROMPT =
+  "Інструменти: Claude Code, Sonnet, Opus, Cursor, GitHub, Figma, MCP, agents, skills, hooks. " +
+  "Розробник: React, Vue, TypeScript, Python, PHP, Magento, Hyva, Tailwind, Docker, Playwright. " +
+  "Англіцизми: deploy, refactor, scope, blocker, regression, mock, prod, staging, rollback, hotfix, feature flag. " +
+  "Workflow: запушити PR, смерджити branch, задеплоїти, закомітити, code review, дебажити, merge conflict. " +
+  "Дослівно, із суржиком та англіцизмами, як вимовлено.";
+
+/** Earlier defaults, replaced in saved settings that still carry them verbatim. */
+export const PREVIOUS_DEFAULT_DICTATION_PROMPTS: readonly string[] = [
+  "Я розробник, працюю над React, Vue, TypeScript, Python, PHP, Magento проєктами. " +
+    "Використовую Claude Code, Cursor, GitHub, Linear, Figma, Notion, Playwright, Vite, Tailwind, Docker. " +
+    "Говорю українською з англіцизмами: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, " +
+    "написати unit test, debug, refactor, merge conflict, pull request, commit, push, release, feature flag, hotfix, rollback. " +
+    "Також: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD, staging, production, sandbox.",
   "Записати дослівно українською, зберігаючи суржик та англіцизми як вимовлено, не виправляти. " +
-  "Розробник: React, Vue, TypeScript, Python, PHP, Magento, Hyva, Tailwind, Vite, Docker, Playwright. " +
-  "Інструменти: Claude Code, Sonnet, Opus, Haiku, Cursor, GitHub, Linear, Figma, Notion, MCP, agents, skills, hooks, plugins, slash commands. " +
-  "Marshal: dictation, focus-probe, codesign, Electron, tray, hotkey, side panel. " +
-  "Англіцизми: deploy, refactor, scope, scope creep, blocker, ETA, regression, mock, stub, e2e, prod, dev, staging, sandbox, prod-ready, rollback, hotfix, feature flag. " +
-  "Workflow: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, написати unit test, дебажити, refactor, merge conflict, pull request, commit, push, release. " +
-  "Архітектура: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD.";
+    "Розробник: React, Vue, TypeScript, Python, PHP, Magento, Hyva, Tailwind, Vite, Docker, Playwright. " +
+    "Інструменти: Claude Code, Sonnet, Opus, Haiku, Cursor, GitHub, Linear, Figma, Notion, MCP, agents, skills, hooks, plugins, slash commands. " +
+    "Marshal: dictation, focus-probe, codesign, Electron, tray, hotkey, side panel. " +
+    "Англіцизми: deploy, refactor, scope, scope creep, blocker, ETA, regression, mock, stub, e2e, prod, dev, staging, sandbox, prod-ready, rollback, hotfix, feature flag. " +
+    "Workflow: запушити PR, смерджити branch, задеплоїти, закомітити, зробити code review, написати unit test, дебажити, refactor, merge conflict, pull request, commit, push, release. " +
+    "Архітектура: API, backend, frontend, endpoint, middleware, repository, pipeline, CI/CD."
+];
+
+/**
+ * Prompt budget in estimated tokens. Whisper keeps 223 (`n_text_ctx/2 - 1`,
+ * Groq/OpenAI the same window); the margin absorbs estimate error.
+ */
+export const DICTATION_PROMPT_TOKEN_BUDGET = 210;
+/** Share of the budget glossary terms may take, so they never evict the directive. */
+const GLOSSARY_TOKEN_BUDGET = 90;
+
+/**
+ * Conservative token count for Whisper's multilingual BPE, calibrated against
+ * the real tokenizer: Cyrillic ≈ 1.8–2.6 chars/token, Latin ≈ 3–3.8, while
+ * digits and symbols in identifiers (`NSB-628`, `product_flat`) cost about a
+ * token each.
+ */
+export function estimateWhisperTokens(text: string): number {
+  const cyrillic = (text.match(/[\u0400-\u04FF]/gu) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/gu) ?? []).length;
+  const spaces = (text.match(/\s/gu) ?? []).length;
+  return Math.ceil(cyrillic / 1.7 + latin / 3 + (text.length - cyrillic - latin - spaces));
+}
+
+/** Drops whole leading words until the text fits — whisper would cut mid-word. */
+function keepTail(text: string, budget: number): string {
+  const words = text.split(/\s+/u).filter(Boolean);
+  while (words.length > 0 && estimateWhisperTokens(words.join(" ")) > budget) words.shift();
+  return words.join(" ");
+}
 
 export function resolveDictationPrompt(raw: string | undefined): string {
   if (typeof raw !== "string") return DEFAULT_DICTATION_PROMPT;
@@ -82,6 +125,22 @@ export function resolveDictationPrompt(raw: string | undefined): string {
   // Caller explicitly blanked the prompt — respect that.
   if (trimmed === "") return "";
   return trimmed;
+}
+
+/**
+ * The prompt actually sent: the resolved prompt, then glossary terms the
+ * prompt does not already name (newest last, so they are the last to go),
+ * trimmed from the start to the token budget. A blanked prompt stays blank.
+ */
+export function buildDictationPrompt(raw: string | undefined, glossaryTerms: readonly string[] = []): string {
+  const base = resolveDictationPrompt(raw);
+  if (base === "") return "";
+  const lowerBase = base.toLowerCase();
+  const terms = [...new Set(glossaryTerms.map((term) => term.trim()).filter(Boolean))].filter(
+    (term) => !lowerBase.includes(term.toLowerCase())
+  );
+  const glossary = terms.length > 0 ? keepTail(`${terms.join(", ")}.`, GLOSSARY_TOKEN_BUDGET) : "";
+  return keepTail(glossary ? `${base} ${glossary}` : base, DICTATION_PROMPT_TOKEN_BUDGET);
 }
 
 export function resolveDictationLanguage(raw: string | undefined): string | undefined {

@@ -48,6 +48,58 @@ async function populateMicrophoneDropdown(preferredValue) {
   }
 }
 
+const SPEECH_TEST_HINT = "Uses the saved settings — save first after a change.";
+const NO_UK_VOICE_HINT =
+  "No Ukrainian voice installed — add one in System Settings → Accessibility → Spoken Content → " +
+  "System Voice → Manage Voices → Ukrainian. Ukrainian updates stay silent until then.";
+
+async function populateSpeechVoices(voiceUk, voiceEn) {
+  if (!api?.getSpeechVoices) return;
+  let report;
+  try {
+    report = await api.getSpeechVoices();
+  } catch (err) {
+    console.warn("getSpeechVoices failed", err);
+    return;
+  }
+  const fill = (select, voices, preferred) => {
+    if (!select) return;
+    const automatic = select.firstElementChild;
+    select.innerHTML = "";
+    if (automatic) select.appendChild(automatic);
+    for (const voice of voices) {
+      const option = document.createElement("option");
+      option.value = voice.name;
+      option.textContent = `${voice.name} · ${voice.locale}`;
+      select.appendChild(option);
+    }
+    // A saved voice that was since removed falls back to "Automatic".
+    select.value = voices.some((voice) => voice.name === preferred) ? preferred : "";
+  };
+  fill(dom.settingsSpeechVoiceUk, report?.uk ?? [], voiceUk);
+  fill(dom.settingsSpeechVoiceEn, report?.en ?? [], voiceEn);
+  if (!dom.settingsSpeechStatus) return;
+  dom.settingsSpeechStatus.textContent = SPEECH_TEST_HINT;
+  if (!report?.available) {
+    dom.settingsSpeechStatus.textContent = "Spoken updates need macOS speech (`say` was not found).";
+  } else if ((report.uk ?? []).length === 0) {
+    dom.settingsSpeechStatus.textContent = NO_UK_VOICE_HINT;
+  }
+}
+
+async function speakTestPhrase() {
+  if (!api?.speakTestPhrase || !dom.settingsSpeechStatus) return;
+  dom.settingsSpeechStatus.textContent = "Speaking…";
+  try {
+    const results = await api.speakTestPhrase();
+    dom.settingsSpeechStatus.textContent = results
+      .map((result) => (result.ok ? `${result.lang}: ${result.voice}` : `${result.lang ?? "?"}: ${result.error}`))
+      .join(" · ");
+  } catch (err) {
+    dom.settingsSpeechStatus.textContent = `Test failed: ${err?.message ?? String(err)}`;
+  }
+}
+
 function loadAppearance() {
   const stored = localStorage.getItem(STORAGE_KEYS.appearance);
   if (APPEARANCE_VALUES.includes(stored)) return stored;
@@ -136,6 +188,12 @@ const dom = {
   settingsCaptureFolder: document.getElementById("settings-capture-folder"),
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
+  settingsSpeechEnabled: document.getElementById("settings-speech-enabled"),
+  settingsSpeechVoiceUk: document.getElementById("settings-speech-voice-uk"),
+  settingsSpeechVoiceEn: document.getElementById("settings-speech-voice-en"),
+  settingsSpeechRate: document.getElementById("settings-speech-rate"),
+  settingsSpeechTest: document.getElementById("settings-speech-test"),
+  settingsSpeechStatus: document.getElementById("settings-speech-status"),
   settingsCheckUpdates: document.getElementById("settings-check-updates"),
   settingsCalendarEnabled: document.getElementById("settings-calendar-enabled"),
   settingsCalendarUrl: document.getElementById("settings-calendar-url"),
@@ -925,6 +983,7 @@ function bindEvents() {
     await populateMicrophoneDropdown(previous);
   });
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
+  dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
   document.querySelectorAll('[data-close="settings"]').forEach((el) =>
     el.addEventListener("click", closeSettings)
   );
@@ -1073,6 +1132,9 @@ async function openSettings() {
     }
     if (dom.settingsCalendarUrl) dom.settingsCalendarUrl.value = "";
     void api?.calendarStatus?.().then(renderCalendarStatus).catch(() => renderCalendarStatus(null));
+    if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
+    if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
+    void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
     void refreshSetupHealth();
@@ -1223,7 +1285,11 @@ async function saveSettingsFromForm() {
     captureDefaultFolder: dom.settingsCaptureFolder?.value.trim() ?? "",
     launchAtLogin: dom.settingsLaunchAtLogin?.checked ?? false,
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true,
-    calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false
+    calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false,
+    speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
+    speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
+    speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
+    speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? ""
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus("Saving and restarting backend…", null);

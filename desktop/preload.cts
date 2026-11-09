@@ -175,6 +175,10 @@ const desktopApi = {
     captionsSpeculativeStt?: boolean;
     captionsMixMicrophone?: boolean;
     calendarEnabled?: boolean;
+    speechEnabled?: boolean;
+    speechRate?: number;
+    speechVoiceUk?: string;
+    speechVoiceEn?: string;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   // The iCal address goes in only; main never sends it back (#269).
@@ -187,6 +191,14 @@ const desktopApi = {
   }>,
   calendarSetUrl: (url: string) => ipcRenderer.invoke("marshal:calendar:set-url", url),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
+  getSpeechVoices: () => ipcRenderer.invoke("marshal:speech-voices") as Promise<{
+    available: boolean;
+    uk: Array<{ name: string; locale: string }>;
+    en: Array<{ name: string; locale: string }>;
+  }>,
+  speakTestPhrase: () => ipcRenderer.invoke("marshal:speech-test") as Promise<
+    Array<{ ok: true; lang: string; voice: string } | { ok: false; lang?: string; error: string }>
+  >,
   getCaptionsDefaults: () => ipcRenderer.invoke("marshal:get-captions-defaults") as Promise<{ prompt: string }>,
   getCaptionsContextInfo: () => ipcRenderer.invoke("marshal:captions-context-info") as Promise<{
     dir: string;
