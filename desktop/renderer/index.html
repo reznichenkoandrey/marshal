@@ -180,6 +180,14 @@
                 <option value="en">English</option>
               </select>
             </div>
+            <label class="checkbox-row">
+              <input id="settings-claude-context-routing" name="claudeCodeContextRouting" type="checkbox" checked />
+              <span>Route a command that names no session by what each session works on</span>
+            </label>
+            <p class="field-hint">
+              Keeps a 3-line summary of each live session (built from its recent turns, at most every 10 minutes) and
+              asks a small model which one a command is about. When it is not sure, you pick.
+            </p>
           </fieldset>
 
           <fieldset class="field-group">
