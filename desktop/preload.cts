@@ -179,9 +179,31 @@ const desktopApi = {
     captionsTurnPolicy?: string;
     captionsSpeculativeStt?: boolean;
     captionsMixMicrophone?: boolean;
+    calendarEnabled?: boolean;
+    speechEnabled?: boolean;
+    speechRate?: number;
+    speechVoiceUk?: string;
+    speechVoiceEn?: string;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
+  // The iCal address goes in only; main never sends it back (#269).
+  calendarStatus: () => ipcRenderer.invoke("marshal:calendar:status") as Promise<{
+    configured: boolean;
+    running: boolean;
+    lastSyncAt: string | null;
+    lastError: string | null;
+    next: { title: string; start: string } | null;
+  }>,
+  calendarSetUrl: (url: string) => ipcRenderer.invoke("marshal:calendar:set-url", url),
   getDictationDefaults: () => ipcRenderer.invoke("marshal:get-dictation-defaults") as Promise<{ prompt: string }>,
+  getSpeechVoices: () => ipcRenderer.invoke("marshal:speech-voices") as Promise<{
+    available: boolean;
+    uk: Array<{ name: string; locale: string }>;
+    en: Array<{ name: string; locale: string }>;
+  }>,
+  speakTestPhrase: () => ipcRenderer.invoke("marshal:speech-test") as Promise<
+    Array<{ ok: true; lang: string; voice: string } | { ok: false; lang?: string; error: string }>
+  >,
   getCaptionsDefaults: () => ipcRenderer.invoke("marshal:get-captions-defaults") as Promise<{ prompt: string }>,
   getCaptionsContextInfo: () => ipcRenderer.invoke("marshal:captions-context-info") as Promise<{
     dir: string;
@@ -337,10 +359,19 @@ type MeetingHistoryEntry = {
   bytes: number;
   error: string | null;
   warnings: string[];
+  notesPath: string | null;
 };
+type MeetingNotesProgress = { id: string; phase: "preparing" | "transcribing" | "summarizing"; done: number; total: number };
 const meetingHistoryApi = {
   onLoaded: (cb: (event: IpcRendererEvent, payload: { folder: string; entries: MeetingHistoryEntry[] }) => void) =>
     registerListener<[{ folder: string; entries: MeetingHistoryEntry[] }]>("marshal:meeting-history-loaded", cb),
+  onNotesProgress: (cb: (event: IpcRendererEvent, progress: MeetingNotesProgress | null) => void) =>
+    registerListener<[MeetingNotesProgress | null]>("marshal:meeting-history-notes-progress", cb),
+  summarize: (id: string, language: string) => ipcRenderer.invoke("marshal:meeting-history:summarize", { id, language }),
+  cancelNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:cancel-notes", { id }),
+  readNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:read-notes", { id }),
+  openNotesFile: (id: string, file: "notes" | "transcript") =>
+    ipcRenderer.invoke("marshal:meeting-history:open-notes-file", { id, file }),
   refresh: () => ipcRenderer.invoke("marshal:meeting-history:refresh"),
   reveal: (filePath: string) => ipcRenderer.invoke("marshal:meeting-history:reveal", { path: filePath }),
   revealFolder: () => ipcRenderer.invoke("marshal:meeting-history:reveal-folder"),

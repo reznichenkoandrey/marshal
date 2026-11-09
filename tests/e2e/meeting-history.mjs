@@ -1,4 +1,5 @@
-// E2E check of the meeting recordings window in a real Electron renderer (#254).
+// E2E check of the meeting recordings window in a real Electron renderer
+// (#254, #271).
 //
 // Loads the shipped window with a stub `window.marshalMeetingHistory` and a
 // fixed entry list: a finished call, an interrupted one and one whose save
@@ -9,6 +10,10 @@
 // real ffmpeg; what only a renderer can show is which rows offer the action,
 // that a second click is impossible while it runs, and that a long error no
 // longer squeezes the buttons into one word per line.
+//
+// "Transcribe & summarize" (#271): which rows offer it, the language the
+// click sends, progress and Cancel while main works, that a progress tick does
+// not restart the open player, and the notes panel once notes.json exists.
 //
 // Run: `npm run test:e2e:meetings`
 //
@@ -83,6 +88,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const finished = [];
 let release = null;
+const summarized = [];
+const cancelled = [];
+let releaseNotes = null;
 
 contextBridge.exposeInMainWorld("marshalMeetingHistory", {
   onLoaded: (cb) => ipcRenderer.on("marshal:meeting-history-loaded", cb),
@@ -94,12 +102,31 @@ contextBridge.exposeInMainWorld("marshalMeetingHistory", {
   finish: (id) => {
     finished.push(id);
     return new Promise((resolve) => { release = () => resolve({ ok: true }); });
-  }
+  },
+  onNotesProgress: (cb) => ipcRenderer.on("marshal:meeting-history-notes-progress", cb),
+  summarize: (id, language) => {
+    summarized.push({ id, language });
+    return new Promise((resolve) => { releaseNotes = () => resolve({ ok: true }); });
+  },
+  cancelNotes: async (id) => { cancelled.push(id); return true; },
+  readNotes: async () => ({
+    title: "Реліз 0.5",
+    summary: ["Обговорили реліз"],
+    decisions: ["Реліз у п'ятницю"],
+    tasks: [
+      { task: "Зібрати DMG", owner: "Андрій", mine: true },
+      { task: "Review PR", owner: null, mine: false }
+    ]
+  }),
+  openNotesFile: async () => ({ ok: true })
 });
 
 contextBridge.exposeInMainWorld("__meetingProbe", {
   finished: () => finished,
-  release: () => { if (release) release(); }
+  release: () => { if (release) release(); },
+  summarized: () => summarized,
+  cancelled: () => cancelled,
+  releaseNotes: () => { if (releaseNotes) releaseNotes(); }
 });
 `;
 }
@@ -221,6 +248,101 @@ async function main() {
   const finished = rows[2];
   record("the finished row offers no Finish", !finished.buttons.some((b) => b.label === "Finish"), labels(finished));
   record("the finished row shows its length", finished.sub.startsWith("09:55"), finished.sub);
+
+  // ── Transcribe & summarize (#271) ───────────────────────────────────────
+  rows = await win.webContents.executeJavaScript(ROWS);
+  record(
+    "a finished recording offers Transcribe & summarize",
+    rows[0].buttons.some((b) => b.label === "Transcribe & summarize" && !b.disabled),
+    labels(rows[0])
+  );
+  record(
+    "an interrupted recording does not",
+    !rows[1].buttons.some((b) => b.label === "Transcribe & summarize"),
+    labels(rows[1])
+  );
+
+  // Open the player first: progress must not restart it.
+  await win.webContents.executeJavaScript(`document.querySelectorAll(".meeting-row")[0].click()`);
+  await sleep(150);
+  await win.webContents.executeJavaScript(`document.querySelector(".meeting-player audio").dataset.mark = "kept"`);
+
+  await win.webContents.executeJavaScript(`(() => {
+    const select = document.getElementById("notes-language");
+    select.value = "uk";
+    select.dispatchEvent(new Event("change"));
+    [...document.querySelectorAll(".meeting")][0].querySelectorAll(".meeting-actions button")
+      .forEach((b) => { if (b.textContent === "Transcribe & summarize") b.click(); });
+  })()`);
+  await sleep(150);
+  const summarized = await win.webContents.executeJavaScript(`window.__meetingProbe.summarized()`);
+  record(
+    "the click asks main for that recording in the chosen language",
+    summarized.length === 1 && summarized[0].id === "meeting-done" && summarized[0].language === "uk",
+    JSON.stringify(summarized)
+  );
+
+  win.webContents.send("marshal:meeting-history-notes-progress", { id: "meeting-done", phase: "transcribing", done: 3, total: 10 });
+  await sleep(150);
+  rows = await win.webContents.executeJavaScript(ROWS);
+  record("the row shows transcription progress", rows[0].sub === "Transcribing… 3/10", rows[0].sub);
+  record(
+    "Cancel replaces the button and Delete is gone while it runs",
+    rows[0].buttons.some((b) => b.label === "Cancel") && !rows[0].buttons.some((b) => b.label === "Delete"),
+    labels(rows[0])
+  );
+  const kept = await win.webContents.executeJavaScript(`document.querySelector(".meeting-player audio")?.dataset.mark ?? null`);
+  record("a progress tick does not restart the open player", kept === "kept", String(kept));
+
+  await win.webContents.executeJavaScript(
+    `[...document.querySelectorAll(".meeting")][0].querySelectorAll(".meeting-actions button")
+      .forEach((b) => { if (b.textContent === "Cancel") b.click(); })`
+  );
+  await sleep(100);
+  const cancelled = await win.webContents.executeJavaScript(`window.__meetingProbe.cancelled()`);
+  record("Cancel asks main to stop that job", cancelled.length === 1 && cancelled[0] === "meeting-done", cancelled.join(", "));
+
+  // Main ends the job and refreshes with notes.json on disk.
+  win.webContents.send("marshal:meeting-history-notes-progress", null);
+  win.webContents.send("marshal:meeting-history-loaded", {
+    folder: "/fake/meetings",
+    entries: ENTRIES.map((entry) =>
+      entry.id === "meeting-done" ? { ...entry, notesPath: "/fake/meetings/meeting-done/notes.json" } : entry
+    )
+  });
+  await win.webContents.executeJavaScript(`window.__meetingProbe.releaseNotes()`);
+  await sleep(300);
+
+  const panel = await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector(".meeting-notes");
+    if (!box) return null;
+    return {
+      title: box.querySelector(".notes-title")?.textContent ?? "",
+      tasks: [...box.querySelectorAll(".notes-task")].map((t) => ({
+        text: t.querySelector(".notes-task-text")?.textContent ?? "",
+        mine: Boolean(t.querySelector(".notes-task-mine")),
+        copy: [...t.querySelectorAll("button")].some((b) => b.textContent === "Copy")
+      })),
+      actions: [...box.querySelectorAll(".notes-actions button")].map((b) => b.textContent)
+    };
+  })()`);
+  rows = await win.webContents.executeJavaScript(ROWS);
+  record(
+    "with notes the row drops the button and says so",
+    !rows[0].buttons.some((b) => b.label === "Transcribe & summarize") && rows[0].sub.endsWith("notes"),
+    `${labels(rows[0])} | ${rows[0].sub}`
+  );
+  record("the open row shows the notes", panel?.title === "Реліз 0.5", JSON.stringify(panel));
+  record(
+    "each task has Copy and only the user's carries the me mark",
+    panel?.tasks.length === 2 && panel.tasks.every((t) => t.copy) && panel.tasks[0].mine && !panel.tasks[1].mine,
+    JSON.stringify(panel?.tasks)
+  );
+  record(
+    "the notes offer the files and Regenerate",
+    ["Open notes.md", "Open transcript", "Regenerate"].every((label) => panel?.actions.includes(label)),
+    panel?.actions.join(", ")
+  );
 
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));
 
