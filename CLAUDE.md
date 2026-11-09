@@ -454,6 +454,13 @@
   `isMeta`, лише `text`-блоки, `<system-reminder>` вирізається. Провайдер — той самий, що в summary
   «finished» (`completeOnce` в `answer-summary.ts` поверх `resolveSummaryProvider`), окремого SDK
   немає. Міжмовність (команда українською, dossier англійською) тримає промпт роутера.
+  **Читаються лише сесії з дозволених тек** (#303): Settings → «Folders whose sessions may be
+  read» (`claudeCodeRoutingRoots`, тека на рядок, `~/` = home). Один Claude Code на машині тримає
+  сесії різних роботодавців, і transcript робочої сесії не має йти через особистий ключ.
+  **Порожньо = не читається жодна** (роутер повертає `off`, далі — остання сесія або picker).
+  Сесія поза теками не отримує dossier (ні з route, ні зі Stop hook) і не потрапляє в промпт, але
+  доступна за іменем і в picker-і, а на `unsure` додається до кандидатів, бо модель її не бачила.
+  Скільки живих сесій читається зараз — рядок під полем.
 - `desktop/renderer/` — UI (vanilla JS, без фреймворку)
 - `agent/bridge/` — 7 reasoning bridges (claude-cli — default, codex-cli, api, claude, claude-web, playwright, extension)
 - `agent/runtime/marshal.ts` — один-shot executor, Toolbox (shell, fs, browser)

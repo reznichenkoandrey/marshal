@@ -8,7 +8,9 @@ import type { OneShotRequest } from "../desktop/claude-code/answer-summary.ts";
 import {
   buildRouteRequest,
   createContextRouter,
+  isUnderRoots,
   parseRouteReply,
+  parseRoutingRoots,
   routedNotice
 } from "../desktop/claude-code/context-router.ts";
 import {
@@ -225,7 +227,7 @@ describe("context router", () => {
   function router(reply: string | null, enabled = true) {
     const complete = vi.fn(async (_request: OneShotRequest) => reply);
     const dossierFn = vi.fn(async () => dossiers);
-    return { complete, dossierFn, router: createContextRouter({ enabled: () => enabled, dossiers: dossierFn, complete }) };
+    return { complete, dossierFn, router: createContextRouter({ enabled: () => enabled, inScope: () => true, dossiers: dossierFn, complete }) };
   }
 
   it("returns off without touching the model when the setting is disabled", async () => {
@@ -257,7 +259,12 @@ describe("context router", () => {
 
   it("still asks the model when dossiers fail, with titles only", async () => {
     const complete = vi.fn(async (_request: OneShotRequest) => "S2");
-    const r = createContextRouter({ enabled: () => true, dossiers: async () => { throw new Error("disk"); }, complete });
+    const r = createContextRouter({
+      enabled: () => true,
+      inScope: () => true,
+      dossiers: async () => { throw new Error("disk"); },
+      complete
+    });
     expect(await r.route("субтитри", sessions)).toEqual({ kind: "session", sessionId: "id-captions" });
     expect(complete.mock.calls[0][0].user).toContain("Dossier: not available yet");
   });
@@ -283,5 +290,59 @@ describe("routed notice", () => {
   it("names the session and shows the command, trimmed", () => {
     expect(routedNotice("shop-hyva", " фікс кешу ")).toEqual({ title: "Sent to shop-hyva by context", body: "фікс кешу" });
     expect(routedNotice("x", "a".repeat(200)).body).toHaveLength(121);
+  });
+});
+
+describe("routing roots (#303)", () => {
+  it("parses one absolute folder per line and expands ~", () => {
+    expect(parseRoutingRoots("~/htdocs\n\n  /work/clients/ \nrelative/dir\n~", "/Users/me")).toEqual([
+      "/Users/me/htdocs",
+      "/work/clients",
+      "/Users/me"
+    ]);
+    expect(parseRoutingRoots("")).toEqual([]);
+  });
+
+  it("matches a folder and its subfolders, not a sibling with the same prefix", () => {
+    const roots = ["/Users/me/htdocs"];
+    expect(isUnderRoots("/Users/me/htdocs", roots)).toBe(true);
+    expect(isUnderRoots("/Users/me/htdocs/marshal/.claude/worktrees/x", roots)).toBe(true);
+    expect(isUnderRoots("/Users/me/htdocs-old/x", roots)).toBe(false);
+    expect(isUnderRoots("/Users/me/work/shop", roots)).toBe(false);
+    expect(isUnderRoots("/Users/me/htdocs/../work/shop", roots)).toBe(false);
+    expect(isUnderRoots("/anything", [])).toBe(false);
+  });
+
+  const personal = session("id-mine", "marshal", "/Users/me/htdocs/marshal");
+  const personal2 = session("id-mine2", "snoriq", "/Users/me/htdocs/snoriq");
+  const work = session("id-work", "shop", "/Users/me/work/shop");
+  const inScope = (s: ClaudeSession) => isUnderRoots(s.cwd, ["/Users/me/htdocs"]);
+
+  function scoped(reply: string) {
+    const complete = vi.fn(async (_request: OneShotRequest) => reply);
+    const dossiers = vi.fn(async (_sessions: readonly ClaudeSession[]) => new Map<string, string>());
+    return { complete, dossiers, router: createContextRouter({ enabled: () => true, inScope, dossiers, complete }) };
+  }
+
+  it("never reads or describes a session outside the folders", async () => {
+    const { router: r, complete, dossiers } = scoped("S2");
+    expect(await r.route("субтитри", [personal, work, personal2])).toEqual({ kind: "session", sessionId: "id-mine2" });
+    expect(dossiers.mock.calls[0][0]).toEqual([personal, personal2]);
+    expect(complete.mock.calls[0][0].user).not.toContain("/Users/me/work");
+  });
+
+  it("keeps excluded sessions in the picker when the model is unsure", async () => {
+    const { router: r } = scoped("UNSURE");
+    expect(await r.route("run the tests", [personal, work, personal2])).toEqual({
+      kind: "unsure",
+      candidates: ["id-mine", "id-mine2", "id-work"]
+    });
+  });
+
+  it("is off when no live session is under the folders", async () => {
+    const { router: r, complete, dossiers } = scoped("S1");
+    expect(await r.route("фікс кешу", [work, session("id-work2", "b", "/Users/me/work/b")])).toEqual({ kind: "off" });
+    expect(dossiers).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
   });
 });

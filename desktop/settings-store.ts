@@ -79,6 +79,8 @@ export type MarshalSettings = {
   claudeCodeSummaryLanguage: DictationLanguage;
   /** Send a command that names no session to the one whose work matches it (#286). */
   claudeCodeContextRouting: boolean;
+  /** Folders (one per line) whose sessions context routing may read; empty = none (#303). */
+  claudeCodeRoutingRoots: string;
   dictationAutoPaste: boolean;
   /**
    * Delay before a physical hold starts recording. Suppresses accidental taps
@@ -217,6 +219,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   dictationLanguage: "auto",
   claudeCodeSummaryLanguage: "auto",
   claudeCodeContextRouting: true,
+  claudeCodeRoutingRoots: "",
   dictationAutoPaste: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
   dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
@@ -493,6 +496,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     claudeCodeContextRouting: typeof input.claudeCodeContextRouting === "boolean"
       ? input.claudeCodeContextRouting
       : DEFAULT_SETTINGS.claudeCodeContextRouting,
+    claudeCodeRoutingRoots: typeof input.claudeCodeRoutingRoots === "string"
+      ? input.claudeCodeRoutingRoots
+      : DEFAULT_SETTINGS.claudeCodeRoutingRoots,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,

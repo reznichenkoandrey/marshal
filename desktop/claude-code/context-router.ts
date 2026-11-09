@@ -4,6 +4,9 @@
 // to the picker (#264) — this never guesses. The gesture, the name matcher and
 // the picker live in #264; this is the half it calls when no name matched.
 
+import os from "node:os";
+import path from "node:path";
+
 import type { OneShotRequest } from "./answer-summary.ts";
 import type { ClaudeSession } from "./registry.ts";
 
@@ -18,9 +21,32 @@ export interface ContextRouter {
 
 export type ContextRouterDeps = {
   enabled: () => boolean;
+  /** Whether this session's transcript may be read and sent to the provider (#303). */
+  inScope: (session: ClaudeSession) => boolean;
   dossiers: (sessions: readonly ClaudeSession[]) => Promise<Map<string, string>>;
   complete: (request: OneShotRequest) => Promise<string | null>;
 };
+
+/** One folder per line; `~/` is the home folder. Blank lines and relative paths are ignored. */
+export function parseRoutingRoots(text: string, home = os.homedir()): string[] {
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .map((line) => (line === "~" || line.startsWith("~/") ? path.join(home, line.slice(1)) : line))
+    .filter((line) => path.isAbsolute(line))
+    .map((line) => path.resolve(line));
+}
+
+/**
+ * Only sessions under an allowed folder have their transcripts read (#303):
+ * one Claude Code install can hold sessions of different employers, and a
+ * transcript must not leave through another workspace's key. No folders =
+ * no session is read.
+ */
+export function isUnderRoots(cwd: string, roots: readonly string[]): boolean {
+  const dir = path.resolve(cwd);
+  return roots.some((root) => dir === root || dir.startsWith(root.endsWith(path.sep) ? root : root + path.sep));
+}
 
 export type RouteCandidate = { label: string; name: string; cwd: string; dossier: string | null };
 
@@ -79,11 +105,18 @@ export function createContextRouter(deps: ContextRouterDeps): ContextRouter {
       if (sessions.length === 1) return { kind: "session", sessionId: ids[0] };
       if (command.trim() === "") return { kind: "unsure", candidates: ids };
 
-      const dossiers = await deps.dossiers(sessions).catch((err: unknown) => {
+      // Sessions outside the allowed folders are never described to the
+      // model; they stay reachable by name and in the picker.
+      const routable = sessions.filter((session) => deps.inScope(session));
+      if (routable.length === 0) return { kind: "off" };
+      const excluded = sessions.filter((session) => !routable.includes(session)).map((session) => session.sessionId);
+      const routableIds = routable.map((session) => session.sessionId);
+
+      const dossiers = await deps.dossiers(routable).catch((err: unknown) => {
         console.warn("[claude-code] dossiers unavailable:", err instanceof Error ? err.message : err);
         return new Map<string, string>();
       });
-      const candidates = sessions.map((session, index) => ({
+      const candidates = routable.map((session, index) => ({
         label: `S${index + 1}`,
         name: session.name,
         cwd: session.cwd,
@@ -91,10 +124,11 @@ export function createContextRouter(deps: ContextRouterDeps): ContextRouter {
       }));
       const reply = await deps.complete(buildRouteRequest(command, candidates));
       const decision = parseRouteReply(reply, candidates.map((candidate) => candidate.label));
-      const idOf = (label: string) => ids[Number(label.slice(1)) - 1];
+      const idOf = (label: string) => routableIds[Number(label.slice(1)) - 1];
+      // The model never saw the excluded sessions, so it cannot rule them out.
       return "pick" in decision
         ? { kind: "session", sessionId: idOf(decision.pick) }
-        : { kind: "unsure", candidates: decision.unsure.map(idOf) };
+        : { kind: "unsure", candidates: [...decision.unsure.map(idOf), ...excluded] };
     }
   };
 }
