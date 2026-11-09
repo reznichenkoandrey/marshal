@@ -2,7 +2,7 @@
 // transcript, ask when it is ambiguous, focus the session's terminal tab and
 // type into it. Routing rules live in session-router.ts.
 
-import { clipboard, Menu, Notification, type Tray } from "electron";
+import { app, clipboard, Menu, Notification, type Tray } from "electron";
 
 import { deliverTranscript, insertTextIntoFocused, probeFocusedElement, sendKeystroke } from "../dictation/focus-paste.ts";
 import { focusSession } from "./focus.ts";
@@ -129,6 +129,8 @@ export class SessionDictation {
         { label: "Cancel", click: () => settle(null) }
       ]);
       menu.once("menu-will-close", () => setTimeout(() => settle(null), PICKER_CLICK_GRACE_MS));
+      // A tray menu of an inactive app is closed by macOS ~0.5 s after it opens (#304).
+      app.focus({ steal: true });
       tray.popUpContextMenu(menu);
     });
   }
