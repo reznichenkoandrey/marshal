@@ -47,6 +47,8 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { deriveAssistantState, IDLE_INPUTS, type AssistantInputs } from "./assistant/assistant-state.ts";
+import { AssistantHomeWindow } from "./assistant/home-window.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -135,6 +137,8 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+let assistantHome: AssistantHomeWindow | null = null;
+let assistantInputs: AssistantInputs = { ...IDLE_INPUTS };
 let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
@@ -181,7 +185,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     app.on("second-instance", () => {
-      showMainWindow();
+      openAssistantHome();
     });
 
     await app.whenReady();
@@ -269,7 +273,7 @@ async function bootstrap(): Promise<void> {
     }
 
     app.on("activate", () => {
-      showMainWindow();
+      openAssistantHome();
     });
 
     // Mark quitting early so other listeners (e.g. blur → hide) stop firing.
@@ -433,6 +437,14 @@ function registerIpcHandlers(): void {
   });
   handleIpc("marshal:meeting-history:close", () => {
     meetingHistoryWindow?.close();
+    return { ok: true };
+  });
+  handleIpc("marshal:assistant:action", (_event, input: { name: string }) => {
+    runAssistantAction(input?.name);
+    return { ok: true };
+  });
+  handleIpc("marshal:assistant:close", () => {
+    assistantHome?.close();
     return { ok: true };
   });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
@@ -1437,15 +1449,19 @@ function initDictation(): void {
 
   dictationService.on("recording-start", () => {
     isDictating = true;
+    setAssistantInputs({ dictating: true });
     speechService?.interrupt();
     dictationIndicator?.show();
     void refreshTrayState();
   });
   dictationService.on("recording-stop", () => {
     isDictating = false;
+    setAssistantInputs({ dictating: false });
     dictationIndicator?.hide();
     void refreshTrayState();
   });
+  dictationService.on("transcribe-start", () => setAssistantInputs({ transcribing: true }));
+  dictationService.on("transcribe-end", () => setAssistantInputs({ transcribing: false }));
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
   });
@@ -2207,7 +2223,8 @@ function buildTrayMenu(): Electron.Menu {
 
   return Menu.buildFromTemplate([
     ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
-    { label: "Open Marshal", click: () => showMainWindow() },
+    { label: "Open Marshal", click: () => openAssistantHome() },
+    { label: "Open Agent Chat", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
@@ -2568,7 +2585,7 @@ function initTranslator(): void {
 function createTrayAndWindow(): void {
   tray = new Tray(createTrayIcon());
   tray.setToolTip("Marshal");
-  tray.on("click", () => toggleMainWindow());
+  tray.on("click", () => toggleAssistantHome());
   tray.on("right-click", () => {
     tray?.popUpContextMenu(buildTrayMenu());
   });
@@ -2607,12 +2624,55 @@ function createTrayAndWindow(): void {
   void refreshTrayState();
 }
 
-function toggleMainWindow(): void {
-  if (mainWindow?.isVisible()) {
-    hideMainWindow();
-    return;
+function openAssistantHome(): void {
+  assistantHome ??= new AssistantHomeWindow(preloadPath);
+  setAssistantInputs({ offline: dictationService === null });
+  assistantHome.open();
+}
+
+function toggleAssistantHome(): void {
+  if (assistantHome?.isOpen()) assistantHome.close();
+  else openAssistantHome();
+}
+
+function setAssistantInputs(next: Partial<AssistantInputs>): void {
+  assistantInputs = { ...assistantInputs, ...next };
+  assistantHome?.update({ state: deriveAssistantState(assistantInputs) });
+}
+
+// Dock of the assistant home: every button reuses what the tray already does.
+function runAssistantAction(name: string | undefined): void {
+  switch (name) {
+    case "dictate-session":
+      dictationService?.toggleRecording("session");
+      return;
+    case "translator":
+      translatorWindow?.show();
+      return;
+    case "captions":
+      void toggleLiveCaptions();
+      return;
+    case "record-call":
+      void toggleMeetingRecording("audio");
+      return;
+    case "recordings":
+      meetingHistoryWindow?.open();
+      return;
+    case "capture":
+      // The home window floats above everything and would land in the shot.
+      assistantHome?.close();
+      void runCapture("area");
+      return;
+    case "agent":
+      showMainWindow();
+      return;
+    case "settings":
+      showMainWindow();
+      mainWindow?.webContents.send("marshal:open-settings");
+      return;
+    default:
+      console.warn("[assistant] unknown action:", name);
   }
-  showMainWindow();
 }
 
 function showMainWindow(): void {

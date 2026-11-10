@@ -61,6 +61,10 @@ export type DictationEvents = {
   transcribed: [{ text: string; language?: string }];
   // Transcript recorded with the session hotkey: routed by main, never pasted.
   "session-command": [string];
+  // Bracket the whisper call so a UI can show "thinking" and always clear it,
+  // whatever the outcome (text, session command, error or nothing at all).
+  "transcribe-start": [];
+  "transcribe-end": [];
   error: [Error];
   // Forwarded from PushToTalkHotkey when uiohook attaches but no keydown
   // events arrive within its silence probe window. Main process turns this
@@ -212,8 +216,8 @@ export class DictationService extends EventEmitter {
    * tray menu's "Start Dictation" when the push-to-talk listener cannot fire
    * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
    */
-  startRecording(): void {
-    this.handleHoldStart("paste");
+  startRecording(mode: "paste" | "session" = "paste"): void {
+    this.handleHoldStart(mode);
   }
 
   /**
@@ -244,11 +248,11 @@ export class DictationService extends EventEmitter {
    * Tray menu path — start if idle, stop if already recording. A menu click
    * is a single event, so push-to-talk can't be modelled with it.
    */
-  toggleRecording(): void {
+  toggleRecording(mode: "paste" | "session" = "paste"): void {
     if (this.isCurrentlyRecording()) {
       this.stopRecording();
     } else {
-      this.startRecording();
+      this.startRecording(mode);
     }
   }
 
@@ -418,6 +422,7 @@ export class DictationService extends EventEmitter {
 
   private async finishRecording(child: ChildProcess, wavPath: string): Promise<void> {
     this.isTranscribing = true;
+    this.emit("transcribe-start");
     try {
       // Wait for the recorder to report ready before sending SIGTERM. On a
       // fast tap the user releases the key before AVCaptureSession finishes
@@ -483,6 +488,7 @@ export class DictationService extends EventEmitter {
       }
     } finally {
       this.isTranscribing = false;
+      this.emit("transcribe-end");
       await fs.unlink(wavPath).catch(() => undefined);
     }
   }

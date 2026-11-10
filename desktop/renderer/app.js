@@ -942,6 +942,7 @@ function bindEvents() {
 
   // Settings
   dom.settingsBtn?.addEventListener("click", openSettings);
+  api?.onOpenSettings?.(() => void openSettings());
   dom.settingsBridgeMode?.addEventListener("change", refreshSettingsVisibility);
   dom.settingsHealthRefresh?.addEventListener("click", () => refreshSetupHealth());
   dom.settingsSave?.addEventListener("click", saveSettingsFromForm);

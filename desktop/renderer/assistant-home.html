@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marshal</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./assistant-home.css" />
+  <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
+</head>
+<body>
+  <div class="home" id="home" data-state="idle">
+    <div class="scan" aria-hidden="true"></div>
+    <header class="bar">
+      <span class="brand">Marshal</span>
+      <span class="chip" id="state-chip" role="status" aria-live="polite"></span>
+      <span class="spacer"></span>
+      <span class="telemetry" id="telemetry"></span>
+      <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
+    </header>
+
+    <main class="stage">
+      <canvas id="visual" class="visual" aria-hidden="true"></canvas>
+    </main>
+
+    <p class="line" id="assistant-line" aria-live="polite"></p>
+
+    <nav class="dock" aria-label="Dock">
+      <button type="button" data-action="translator" data-icon="languages"></button>
+      <button type="button" data-action="captions" data-icon="captions"></button>
+      <button type="button" data-action="record-call" data-icon="circle-dot"></button>
+      <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="26"></button>
+      <button type="button" data-action="recordings" data-icon="history"></button>
+      <button type="button" data-action="capture" data-icon="crop"></button>
+      <button type="button" data-action="agent" data-icon="message-square"></button>
+      <button type="button" data-action="settings" data-icon="settings"></button>
+    </nav>
+  </div>
+
+  <script src="./assistant-home.js" type="module"></script>
+</body>
+</html>
