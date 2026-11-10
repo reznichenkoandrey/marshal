@@ -10,8 +10,8 @@ import type { ClaudeSession } from "./registry.ts";
 
 /** What the owner hears (#318): a finished turn's summary, or that a session waits. */
 export type SpokenSessionEvent =
-  | { kind: "finished"; name: string; summary: string | null }
-  | { kind: "waiting"; name: string; confirmation: boolean };
+  | { kind: "finished"; sessionId: string; name: string; summary: string | null }
+  | { kind: "waiting"; sessionId: string; name: string; confirmation: boolean };
 
 export type NotifierDeps = {
   notify: (title: string, body: string, onClick: () => void) => void;
@@ -43,13 +43,13 @@ export class SessionNotifier {
     if (event.type === "stop") {
       const summary = shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
       this.deps.notify(`${name}: finished`, summary ?? FINISHED_FALLBACK, onClick);
-      this.deps.speak?.({ kind: "finished", name, summary });
+      this.deps.speak?.({ kind: "finished", sessionId: event.sessionId, name, summary });
       return;
     }
 
     const title = event.reason === "confirmation" ? `${name} needs your confirmation` : `${name} needs your input`;
     this.deps.notify(title, event.message, onClick);
-    this.deps.speak?.({ kind: "waiting", name, confirmation: event.reason === "confirmation" });
+    this.deps.speak?.({ kind: "waiting", sessionId: event.sessionId, name, confirmation: event.reason === "confirmation" });
     this.reminders.set(event.sessionId, this.setTimer(() => {
       this.reminders.delete(event.sessionId);
       // Answered from the terminal, the session no longer waits — and only

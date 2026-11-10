@@ -75,6 +75,8 @@ function defaultRunAppleScript(script: string): Promise<void> {
 export class AssistantDispatcher implements AssistantRoutes {
   private readonly queue = new AssistantCommandQueue();
   private readonly launchedAt = new Map<string, number>();
+  /** Sessions holding an owner's voice command: only their answers are spoken. */
+  private readonly awaitingAnswer = new Set<string>();
   private readonly runAppleScript: (script: string) => Promise<void>;
   readonly dispatcherDir: string;
   private readonly assistantDir: string;
@@ -130,6 +132,13 @@ export class AssistantDispatcher implements AssistantRoutes {
         // Already gone.
       }
     }
+  }
+
+  /** Whether this session event answers a voice command; a finished turn uses the claim up. */
+  answersVoiceCommand(sessionId: string, finished: boolean): boolean {
+    if (!this.awaitingAnswer.has(sessionId)) return false;
+    if (finished) this.awaitingAnswer.delete(sessionId);
+    return true;
   }
 
   /** A voice command from the home mic. Waits in the queue while the dispatcher is not listening. */
@@ -192,6 +201,12 @@ export class AssistantDispatcher implements AssistantRoutes {
       return action ? this.deps.runAction(action) : "usage: marshal do <action>";
     }
     if (route === "spawn") return this.spawn(args);
+    if (route === "sent") {
+      const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
+      if (!target) return `No live session named "${args.join(" ")}".`;
+      this.awaitingAnswer.add(target.sessionId);
+      return "ok";
+    }
     return null;
   }
 

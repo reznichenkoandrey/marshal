@@ -61,7 +61,7 @@ import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher } from "./assistant/dispatcher.ts";
-import { briefSessions, GENERAL_NAME } from "./assistant/dispatcher-files.ts";
+import { GENERAL_NAME } from "./assistant/dispatcher-files.ts";
 import { parseRoutingRoots } from "./claude-code/context-router.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
@@ -2827,6 +2827,9 @@ function sayAsAssistant(text: string): void {
 }
 
 function speakSessionEvent(event: SpokenSessionEvent): void {
+  // Aloud only what the owner asked for by voice; every other session stays a silent notification.
+  const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
+  if (!asked && event.name !== GENERAL_NAME) return;
   const uk = assistantLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
@@ -2896,11 +2899,8 @@ async function assistantVoiceAction(action: string): Promise<string> {
       }
       break;
     }
-    case "brief":
-      reply = briefSessions(listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session)), uk ? "uk" : "en");
-      break;
     default:
-      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting, brief.`;
+      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting.`;
   }
   sayAsAssistant(reply);
   return reply;

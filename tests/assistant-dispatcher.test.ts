@@ -9,7 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssistantCommandQueue, MAX_QUEUED_COMMANDS, QUEUED_COMMAND_TTL_MS } from "../desktop/assistant/command-queue.ts";
 import { AssistantDispatcher, type DispatcherDeps } from "../desktop/assistant/dispatcher.ts";
 import {
-  briefSessions,
   buildHelperScript,
   dispatcherCommandLine,
   findProject,
@@ -146,12 +145,6 @@ describe("dispatcher files", () => {
     expect(parseHelperArgs("marshal\n feature 1 \n\n")).toEqual(["marshal", "feature 1"]);
   });
 
-  it("briefs who waits and who works in the owner's language", () => {
-    const live = [session({ name: "a", status: "waiting" }), session({ name: "b", status: "busy" }), session({ name: "c", status: "idle" })];
-    expect(briefSessions(live, "uk")).toBe("Чекають на тебе: a. Працюють: b.");
-    expect(briefSessions([session({ name: "c" })], "en")).toBe("All 1 sessions are idle.");
-    expect(briefSessions([], "uk")).toBe("Сесій Claude Code немає.");
-  });
 });
 
 describe("dispatcher over the hook receiver", () => {
@@ -193,15 +186,20 @@ describe("dispatcher over the hook receiver", () => {
 
   it("answers the real helper script: sessions, say with quotes, do", async () => {
     const live = [session({ name: "marshal", cwd: "/htdocs/marshal", socketPath: "/s/m" })];
-    const { service, said, actions, hookDir } = setup(live);
+    const { dispatcher, service, said, actions, hookDir } = setup(live);
     await service.start();
     try {
       const sessions = JSON.parse(await helper(hookDir, ["sessions"])) as { address: string }[];
       expect(sessions.map((s) => s.address)).toEqual(["uds:/s/m"]);
       expect(await helper(hookDir, ["say", "Передав \"marshal\"; $(rm -rf /)"])).toBe("ok\n");
       expect(said).toEqual(["Передав \"marshal\"; $(rm -rf /)"]);
-      expect(await helper(hookDir, ["do", "brief"])).toBe("ran brief\n");
-      expect(actions).toEqual(["brief"]);
+      expect(await helper(hookDir, ["do", "skip"])).toBe("ran skip\n");
+      expect(actions).toEqual(["skip"]);
+      expect(await helper(hookDir, ["sent", "nobody"])).toBe("No live session named \"nobody\".\n");
+      expect(await helper(hookDir, ["sent", "marshal"])).toBe("ok\n");
+      expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, false)).toBe(true);
+      expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, true)).toBe(true);
+      expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, true)).toBe(false);
     } finally {
       service.stop();
     }
@@ -259,8 +257,8 @@ describe("spoken session events", () => {
     await notifier.handle({ type: "stop", sessionId: "s1", cwd: "/p", lastMessage: "line one\nline two" });
     await notifier.handle({ type: "attention", sessionId: "s1", cwd: "/p", reason: "confirmation", message: "Allow Bash?" });
     expect(spoken).toEqual([
-      { kind: "finished", name: "marshal", summary: "Тести пройшли." },
-      { kind: "waiting", name: "marshal", confirmation: true }
+      { kind: "finished", sessionId: "s1", name: "marshal", summary: "Тести пройшли." },
+      { kind: "waiting", sessionId: "s1", name: "marshal", confirmation: true }
     ]);
   });
 });

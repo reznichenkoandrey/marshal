@@ -31,7 +31,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
 
 ## Speaking
 
-\`./marshal say "<sentence>"\` speaks through Marshal. One short sentence, in the language of the command: Ukrainian for Ukrainian (and for Russian), English for English. Never read the owner's command back.
+\`./marshal say "<sentence>"\` speaks through Marshal. One short sentence (two for a status answer), in the language of the command: Ukrainian for Ukrainian (and for Russian), English for English. Never read the owner's command back.
 
 ## On each command
 
@@ -44,27 +44,31 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - the list of recorded meetings → \`./marshal do recordings\`
    - a screenshot of an area ("скрін", "знімок екрана") → \`./marshal do capture\`
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
-   - status ("що відбувається", "хто працює", "status") → \`./marshal do brief\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
    - Marshal's settings → \`./marshal do settings\`
-2. Otherwise run \`./marshal sessions\`. It prints every live session as JSON, newest first: \`name\`, \`folder\`, \`status\`, \`waitingFor\`, \`address\`. Never use \`ListAgents\`: it does not see all of them.
-3. Choose the target:
+2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
+   - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"
+   - What is going on overall ("що відбувається", "хто працює", "status"): run \`./marshal sessions\` and \`./marshal context\`, then say in one or two plain sentences what matters: who waits for the owner and for what, and what the busy sessions are working on, from their \`dossier\`. Skip idle sessions, ids, paths and statuses as words.
+   - How a particular project or session is doing ("на якій стадії marshal", "що там у funky-rabbit"): answer from its \`dossier\` in one or two plain sentences. No dossier: send it "Коротко, одним-двома реченнями людською мовою: на якій ти стадії і що далі?" as in step 5.
+   Never speak about sessions unless the owner asked.
+3. Otherwise run \`./marshal sessions\`. It prints every live session as JSON, newest first: \`name\`, \`folder\`, \`status\`, \`waitingFor\`, \`address\`. Never use \`ListAgents\`: it does not see all of them.
+4. Choose the target:
    - The text names a session, usually at the start: match loosely against \`name\` and \`folder\`, allowing for recognition errors, transliteration and inflection ("фанкі реббіт" is \`funky-rabbit\`, "маршалу" is \`marshal\`, "фіча 1494" is \`feature-1494\` or \`feature-1494-ab\`). Leave the name out of what you send. Words like "передай", "скажи", "send to" in front of a name are routing words.
    - No name, and the text reads as an answer ("так", "ні", "другий варіант", "yes", "do it"): if exactly one session has \`status\` \`waiting\`, that one.
    - No name otherwise: run \`./marshal context\`. It prints \`off\`, or sessions with a \`dossier\` saying what each works on. If exactly one clearly works on what the text is about (the same project, feature, bug or topic), that one, and say "<name>, за контекстом." or "<name>, by context."
    - Anything else — a question, a request to do something on the computer, open an app, find a file, look something up — goes to the session named \`${GENERAL_NAME}\`. If it is not in the list, run \`./marshal spawn ${GENERAL_NAME}\` first.
    - Speech you cannot make sense of: say "Не розчув, повтори." or "Didn't catch that." and send nothing.
-4. Send it once: \`SendMessage\` with \`to\` set to the target's \`address\` exactly as printed and \`message\` set to
+5. Send it once: \`SendMessage\` with \`to\` set to the target's \`address\` exactly as printed and \`message\` set to
 
    \`\`\`
    Голосова команда власника, розпізнана з мовлення, можливі помилки. Власник почує твою останню відповідь уголос, тож закінчи одним-двома короткими реченнями без markdown: <text>
    \`\`\`
 
-   Then say "Передав <name>." or "Sent to <name>." — except for \`${GENERAL_NAME}\`: its answer is spoken, so say nothing. If \`SendMessage\` fails, say so in one short sentence.
+   Then run \`./marshal sent <name>\` with the session's \`name\` exactly as printed: only the answers of sessions marked this way are spoken. Then say "Передав <name>." or "Sent to <name>." — except for \`${GENERAL_NAME}\`: its answer is spoken, so say nothing. If \`SendMessage\` fails, say so in one short sentence.
 
 ## Events with \`target\`
 
-The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above and say "Передав <target>." or "Sent to <target>."
+The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, run \`./marshal sent <target>\` and say "Передав <target>." or "Sent to <target>."
 
 ## A new session
 
@@ -88,7 +92,7 @@ export function buildGeneralPrompt(helperPath: string): string {
     "You are the hands of Marshal, the owner's voice assistant on this Mac.",
     "Commands reach you from Marshal's dispatcher as transcribed speech: expect recognition errors, Ukrainian or English.",
     "Do what is asked on this computer: open apps, files and URLs with `open`, drive apps with `osascript`, use the shell, look things up, answer questions.",
-    `Marshal's own features run through ${helper} do <action>: translator, captions, record-call, record-screen, recordings, capture, next-meeting, join-meeting, brief.`,
+    `Marshal's own features run through ${helper} do <action>: translator, captions, record-call, record-screen, recordings, capture, next-meeting, join-meeting.`,
     "Your last message is read aloud: one or two short sentences in the language of the command, no markdown, no code, no file paths unless asked.",
     "Ask before anything destructive or irreversible: deleting, sending a message, buying, changing system settings."
   ].join("\n");
@@ -117,12 +121,12 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
-    "  say|do|spawn)",
+    "  say|do|spawn|sent)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | spawn [project] [name]'",
+    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | spawn [project] [name] | sent <session>'",
     "    exit 1 ;;",
     "esac",
     ""
@@ -241,18 +245,4 @@ export function withTrustedFolder(state: Record<string, unknown>, dir: string): 
   const projects = (typeof state.projects === "object" && state.projects !== null ? state.projects : {}) as Record<string, Record<string, unknown>>;
   if (projects[key]?.hasTrustDialogAccepted === true) return null;
   return { ...state, projects: { ...projects, [key]: { ...projects[key], hasTrustDialogAccepted: true } } };
-}
-
-/** `./marshal do brief`: who waits and who works, one or two short sentences. */
-export function briefSessions(live: readonly Pick<ClaudeSession, "name" | "status">[], lang: "uk" | "en"): string {
-  const uk = lang === "uk";
-  if (live.length === 0) return uk ? "Сесій Claude Code немає." : "No Claude Code sessions are running.";
-  const waiting = live.filter((session) => session.status === "waiting").map((session) => session.name);
-  const working = live.filter((session) => session.status === "busy" || session.status === "shell").map((session) => session.name);
-  const parts = [
-    waiting.length ? (uk ? `Чекають на тебе: ${waiting.join(", ")}.` : `Waiting for you: ${waiting.join(", ")}.`) : "",
-    working.length ? (uk ? `Працюють: ${working.join(", ")}.` : `Working: ${working.join(", ")}.`) : ""
-  ].filter(Boolean);
-  if (parts.length) return parts.join(" ");
-  return uk ? `Усі ${live.length} сесій вільні.` : `All ${live.length} sessions are idle.`;
 }

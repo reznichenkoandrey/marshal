@@ -452,7 +452,11 @@
   деструктивним — питає). Доставка — Claude Code-івський `SendMessage` на `uds:<socketPath>` із
   registry: це доходить і до сесій у Claude desktop / IDE, куди #264 міг дати лише буфер (#300).
   Результат звучить уголос через Stop hook: `SessionNotifier` віддає `speak` → `SpeechService`
-  (`general` без префікса імені). Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
+  (`general` без префікса імені). **Уголос — лише те, про що власник спитав голосом**: відповідь
+  `general` і сесій, яким диспетчер передав команду й позначив `./marshal sent <name>`
+  (`answersVoiceCommand`, позначка гаситься на її Stop). Решта сесій — тиха нотифікація. «Що
+  відбувається» / «на якій стадії X» диспетчер відповідає сам, людською мовою з dossier-ів
+  (`./marshal context`), а не списком імен; «ти тут?» — одне живе речення. Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
   Файли — `<userData>/assistant/`: `dispatcher/CLAUDE.md` (правила маршрутизації), `.claude/settings.json`
   (allow лише `./marshal`, `SendMessage`, `Monitor`; deny Edit/Write/Web/Agent), helper `marshal`
   (sh + curl, 0700) і `general-prompt.md`. Диспетчер стартує з `--setting-sources project`: hooks
