@@ -7,6 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { translate, type UiLanguage } from "../i18n/catalog.ts";
+
 export type SessionStatus = "busy" | "shell" | "idle" | "waiting";
 
 export type ClaudeSession = {
@@ -150,17 +152,17 @@ function isForeignKind(raw: string): boolean {
   }
 }
 
-export function describeStatus(session: Pick<ClaudeSession, "status" | "waitingFor">): string {
+export function describeStatus(session: Pick<ClaudeSession, "status" | "waitingFor">, lang: UiLanguage = "en"): string {
   switch (session.status) {
     case "busy":
-      return "working";
     case "shell":
-      return "shell";
     case "idle":
-      return "idle";
+      return translate(lang, `session.status.${session.status}`);
     case "waiting":
-      return session.waitingFor ? `waiting: ${session.waitingFor}` : "waiting for input";
+      return session.waitingFor
+        ? translate(lang, "session.status.waitingFor", { what: session.waitingFor })
+        : translate(lang, "session.status.waiting");
     default:
-      return "live";
+      return translate(lang, "session.status.live");
   }
 }

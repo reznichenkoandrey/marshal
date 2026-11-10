@@ -2,21 +2,16 @@
 // Join + Record, and the tray's "next meeting" row. Kept out of main.ts so the
 // service and the reminder rules stay testable without Electron.
 
-import { app, Notification, powerMonitor, shell, type MenuItemConstructorOptions } from "electron";
+import { Notification, powerMonitor, shell, type MenuItemConstructorOptions } from "electron";
 
 import { CalendarService } from "./calendar-service.ts";
 import type { CalendarEvent } from "./ical-events.ts";
 import type { MeetingLink } from "./meeting-links.ts";
-import { resolveAssistantLanguage } from "../assistant/strip.ts";
-import { loadSettings } from "../settings-store.ts";
+import { uiLanguage } from "../i18n/ui-language.ts";
 import { actionLabels, reminderText, trayLabel, type Reminder } from "./reminders.ts";
 
 // A Notification that is garbage-collected stops delivering its actions.
 const liveNotifications = new Set<Notification>();
-
-export function language() {
-  return resolveAssistantLanguage(loadSettings().assistantLanguage, app.getPreferredSystemLanguages());
-}
 
 function openMeetingLink(link: MeetingLink): void {
   // classifyMeetingUrl only lets https links to known meeting hosts through.
@@ -25,7 +20,7 @@ function openMeetingLink(link: MeetingLink): void {
 
 function showReminder(reminder: Reminder, joinAndRecord: () => void): void {
   if (!Notification.isSupported()) return;
-  const lang = language();
+  const lang = uiLanguage();
   const { title, body } = reminderText(reminder, lang, new Date());
   const link = reminder.event.link;
   const labels = actionLabels(lang);
@@ -70,7 +65,7 @@ export function calendarTrayItem(event: CalendarEvent | null): MenuItemConstruct
   if (!event) return null;
   const link = event.link;
   return {
-    label: trayLabel(event, language(), new Date()),
+    label: trayLabel(event, uiLanguage(), new Date()),
     enabled: link !== null,
     click: () => {
       if (link) openMeetingLink(link);
