@@ -19,6 +19,7 @@ import {
   type SystemVoice
 } from "./speech-policy.ts";
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
+import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
 
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
@@ -29,6 +30,7 @@ const GATE_POLL_MS = 250;
 export type SpeechSettings = {
   enabled: boolean;
   engine: SpeechEngine;
+  holosVoice: string;
   rate: number;
   voiceUk: string;
   voiceEn: string;
@@ -52,6 +54,8 @@ export type SpeechVoiceReport = {
   uk: SystemVoice[];
   en: SystemVoice[];
   piperInstalled: boolean;
+  holosInstalled: boolean;
+  holosVoices: HolosVoices;
 };
 
 /** `voice` is the `say` voice; empty when only Piper can speak the phrase (no fallback then). */
@@ -71,6 +75,7 @@ export class SpeechService {
   private wavCounter = 0;
   private voices: Promise<SystemVoice[]> | null = null;
   private gateTimer: NodeJS.Timeout | null = null;
+  private readonly holos = new HolosServer();
 
   constructor(
     private readonly settings: () => SpeechSettings,
@@ -103,7 +108,9 @@ export class SpeechService {
       available: this.isAvailable(),
       uk: voicesForLang(voices, "uk"),
       en: voicesForLang(voices, "en"),
-      piperInstalled: isPiperInstalled()
+      piperInstalled: isPiperInstalled(),
+      holosInstalled: isHolosInstalled(),
+      holosVoices: listHolosVoices()
     };
   }
 
@@ -119,11 +126,12 @@ export class SpeechService {
     let voice = pickVoice(await this.listVoices(), lang, preferred);
     // A voice installed after the first listing should work without a restart.
     voice ??= pickVoice(await this.listVoices(true), lang, preferred);
-    const engine = chooseSpeechEngine(settings.engine, lang, isPiperInstalled());
-    if (engine === "piper") {
+    const installed = settings.engine === "holos" ? isHolosInstalled() : isPiperInstalled();
+    const engine = chooseSpeechEngine(settings.engine, lang, installed);
+    if (engine !== "macos") {
       this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice?.name ?? "", engine });
       this.pump();
-      return { ok: true, lang, voice: PIPER_VOICE_LABEL };
+      return { ok: true, lang, voice: engine === "holos" ? `Holos · ${settings.holosVoice || "default"}` : PIPER_VOICE_LABEL };
     }
     if (!voice) return { ok: false, lang, error: lang === "uk" ? NO_UK_VOICE_MESSAGE : NO_EN_VOICE_MESSAGE };
 
@@ -142,6 +150,17 @@ export class SpeechService {
     this.queue.clear();
     this.cut(false);
     this.stopGate();
+    this.holos.stop();
+  }
+
+  /** A spoken answer is on its way (a voice command was sent): load Holos now, not on the answer. */
+  warmUp(): void {
+    if (this.settings().engine === "holos") this.holos.warmUp();
+  }
+
+  /** Clones a Holos voice from a recording; resolves with the new voice name. */
+  cloneHolosVoice(recording: string): Promise<string> {
+    return this.holos.cloneVoice(recording);
   }
 
   /** Silence now; the cut phrase is spoken again from the start later. */
@@ -184,22 +203,35 @@ export class SpeechService {
   private async play(entry: Playback): Promise<string | undefined> {
     const { phrase } = entry;
     const rate = normalizeSpeechRate(this.settings().rate);
-    if (phrase.engine === "piper") {
+    if (phrase.engine !== "macos") {
       const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
       try {
-        const paths = piperPaths();
-        const synthError = await this.run(entry, paths.binary, buildPiperArgs(paths, phrase.text, wav, rate));
+        const synthError = await this.synthesize(entry, phrase, wav, rate);
         if (entry.cut) return undefined;
         if (!synthError) return await this.run(entry, AFPLAY_PATH, [wav]);
-        console.warn("[speech] Piper failed, falling back to say:", synthError);
+        console.warn(`[speech] ${phrase.engine} failed, falling back to say:`, synthError);
       } finally {
         await fs.promises.rm(wav, { force: true });
       }
       if (entry.cut) return undefined;
-      if (!phrase.voice) return "Piper failed and no macOS voice is installed for this language.";
+      if (!phrase.voice) return `${phrase.engine} failed and no macOS voice is installed for this language.`;
     }
     // stdin, not argv: text that starts with "-" would otherwise parse as a flag.
     return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.text);
+  }
+
+  private async synthesize(entry: Playback, phrase: QueuedPhrase, wav: string, rate: number): Promise<string | undefined> {
+    if (phrase.engine === "piper") {
+      const paths = piperPaths();
+      return this.run(entry, paths.binary, buildPiperArgs(paths, phrase.text, wav, rate));
+    }
+    try {
+      // Not killable mid-phrase: a cut entry just drops the result.
+      await this.holos.synthesize(phrase.text, this.settings().holosVoice, rate, wav);
+      return undefined;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
   }
 
   private run(entry: Playback, command: string, args: string[], stdinText?: string): Promise<string | undefined> {

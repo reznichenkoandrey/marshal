@@ -200,6 +200,8 @@ export type MarshalSettings = {
   /** Voice names as `say -v '?'` prints them; empty = pick automatically. */
   speechVoiceUk: string;
   speechVoiceEn: string;
+  /** Holos preset name or a cloned voice from `<modelsDir>/holos/voices/` (#333); empty = the model's first preset. */
+  speechHolosVoice: string;
   /** Language of the assistant window and calendar reminders; auto = the system's (#309). */
   assistantLanguage: AssistantLanguageSetting;
   /** Tray title shows how many Claude Code sessions wait for an answer (#309). */
@@ -272,6 +274,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   speechRate: DEFAULT_SPEECH_RATE,
   speechVoiceUk: "",
   speechVoiceEn: "",
+  speechHolosVoice: "",
   assistantLanguage: "auto",
   assistantWaitingBadge: true,
   assistantGlow: true,
@@ -598,6 +601,8 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     speechRate: normalizeSpeechRate(input.speechRate),
     speechVoiceUk: typeof input.speechVoiceUk === "string" ? input.speechVoiceUk.trim() : DEFAULT_SETTINGS.speechVoiceUk,
     speechVoiceEn: typeof input.speechVoiceEn === "string" ? input.speechVoiceEn.trim() : DEFAULT_SETTINGS.speechVoiceEn,
+    speechHolosVoice:
+      typeof input.speechHolosVoice === "string" ? input.speechHolosVoice.trim() : DEFAULT_SETTINGS.speechHolosVoice,
     assistantLanguage: input.assistantLanguage === "uk" || input.assistantLanguage === "en" ? input.assistantLanguage : "auto",
     assistantWaitingBadge: typeof input.assistantWaitingBadge === "boolean"
       ? input.assistantWaitingBadge

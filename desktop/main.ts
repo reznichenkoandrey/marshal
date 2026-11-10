@@ -27,6 +27,7 @@ import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_
 import { LiveCaptionsService } from "./captions/captions-service.ts";
 import { SpeechService } from "./speech/speech-service.ts";
 import { installPiper } from "./speech/piper.ts";
+import { installHolos } from "./speech/holos.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -1510,6 +1511,7 @@ function initDictation(): void {
   });
   dictationService.on("assistant-command", (text: string) => {
     assistantDispatcher?.submit(text);
+    speechService?.warmUp();
   });
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
@@ -1713,6 +1715,7 @@ function initSpeech(): void {
       return {
         enabled: settings.speechEnabled,
         engine: settings.speechEngine,
+        holosVoice: settings.speechHolosVoice,
         rate: settings.speechRate,
         voiceUk: settings.speechVoiceUk,
         voiceEn: settings.speechVoiceEn
@@ -1732,6 +1735,31 @@ function initSpeech(): void {
         piperInstall = null;
       });
     return piperInstall;
+  });
+  let holosInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
+  handleIpc("marshal:speech-install-holos", () => {
+    holosInstall ??= installHolos()
+      .then(() => ({ ok: true as const }))
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => {
+        holosInstall = null;
+      });
+    return holosInstall;
+  });
+  handleIpc("marshal:speech-clone-holos", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: t("dialog.pickVoiceRecording"),
+      properties: ["openFile"],
+      filters: [{ name: t("dialog.audio"), extensions: ["wav", "mp3", "m4a", "flac", "ogg"] }]
+    };
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return { ok: false as const, canceled: true, error: "" };
+    try {
+      return { ok: true as const, name: await speechService!.cloneHolosVoice(result.filePaths[0]) };
+    } catch (err) {
+      return { ok: false as const, canceled: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
   handleIpc("marshal:speech-test", async () => [
     await speechService!.speak("Маршал на зв'язку. Сесія завершила задачу.", { lang: "uk", force: true }),

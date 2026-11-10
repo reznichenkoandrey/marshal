@@ -115,16 +115,16 @@ export function detectSpeechLang(text: string, fallback: SpeechLang = "uk"): Spe
   return cyrillic * 2 >= latin ? "uk" : "en";
 }
 
-/** `macos` = `say`; `piper` = the downloaded local neural Ukrainian voice (#325). */
-export type SpeechEngine = "macos" | "piper";
+/** `macos` = `say`; `piper` (#325) and `holos` (#333) = downloaded local neural Ukrainian voices. */
+export type SpeechEngine = "macos" | "piper" | "holos";
 
 export function normalizeSpeechEngine(value: unknown): SpeechEngine {
-  return value === "piper" ? "piper" : "macos";
+  return value === "piper" || value === "holos" ? value : "macos";
 }
 
-/** Piper has only a Ukrainian voice, so English and a missing download stay on `say`. */
-export function chooseSpeechEngine(engine: SpeechEngine, lang: SpeechLang, piperInstalled: boolean): SpeechEngine {
-  return engine === "piper" && lang === "uk" && piperInstalled ? "piper" : "macos";
+/** The local engines speak only Ukrainian, so English and a missing download stay on `say`. */
+export function chooseSpeechEngine(engine: SpeechEngine, lang: SpeechLang, engineInstalled: boolean): SpeechEngine {
+  return engine !== "macos" && lang === "uk" && engineInstalled ? engine : "macos";
 }
 
 export function normalizeSpeechRate(value: unknown): number {
