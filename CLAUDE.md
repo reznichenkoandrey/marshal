@@ -180,6 +180,9 @@
   `--strict-mcp-config` прибирають hooks, плагіни й MCP (~2.7 с старту). `--tools ""` і власний
   system prompt прибирають агентський промпт. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` прибирає
   post-turn summary: він затримував `result` на ~1.7 с. `--bare` не підходить, бо вимикає OAuth.
+  Застосунок, запущений з Finder, отримує PATH від launchd без `~/.local/bin` і Homebrew, і `claude`
+  не знаходився (`spawn claude ENOENT`). Тому main на старті дописує `~/.local/bin`, `/opt/homebrew/bin`
+  і `/usr/local/bin` (`desktop/user-path.ts`, #349); явний шлях — `MARSHAL_CLAUDE_BIN`.
   `ANTHROPIC_*` вирізається з env, щоб білінг лишався на підписці. Заміряно на haiku з теплим
   процесом: текст ~1 с, картинка 1.3–2.5 с. Картинка йде image-блоком у тому ж повідомленні, без
   tmp-файлу й Read tool. Модель одним запитом читає текст і перекладає його

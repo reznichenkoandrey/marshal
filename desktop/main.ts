@@ -98,6 +98,7 @@ import { decideHotkeyAction } from "./translator/window-policy.ts";
 import { ScreenshotService } from "./translator/screenshot-service.ts";
 import { shutdownUiohookForQuit } from "./uiohook-lifecycle.ts";
 import { getSharedLocalBridgeServer } from "../agent/bridge/local-bridge-server.ts";
+import { withUserBinDirs } from "./user-path.ts";
 
 // Load .env from project root before anything else. `override: false` matches
 // the previous custom parser's behaviour — existing environment variables win
@@ -109,6 +110,7 @@ const envPath = path.join(projectRootDir, ".env");
 // What Marshal was started with, before its .env: apps it launches (Terminal) inherit this, not its keys (#322).
 const launchEnv: NodeJS.ProcessEnv = { ...process.env };
 loadDotenv({ path: envPath, override: false });
+process.env.PATH = withUserBinDirs(process.env.PATH, app.getPath("home"));
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 const execFileAsync = promisify(execFile);
