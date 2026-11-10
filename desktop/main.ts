@@ -938,19 +938,38 @@ async function openGifConverter(): Promise<void> {
   gifDialog.open({ inputPath: initialPath });
 }
 
+/** Long enough for the window server to drop hidden windows from the next frame. */
+const CAPTURE_HIDE_SETTLE_MS = 150;
+
+/**
+ * Hides every visible Marshal window so none of them lands in the shot, and
+ * returns a function that brings them back without taking focus (#342).
+ * Content-protected windows (captions, glow, mini widget) are already absent
+ * from screen captures and stay put. Hiding does not activate Marshal, so a
+ * menu open in another app survives until the screen has been grabbed.
+ */
+async function hideOwnWindows(): Promise<() => void> {
+  const hidden = BrowserWindow.getAllWindows().filter(
+    (win) => !win.isDestroyed() && win.isVisible() && !win.isContentProtected()
+  );
+  for (const win of hidden) win.hide();
+  if (hidden.length > 0) await new Promise<void>((r) => setTimeout(r, CAPTURE_HIDE_SETTLE_MS));
+  return () => {
+    for (const win of hidden.splice(0)) if (!win.isDestroyed()) win.showInactive();
+  };
+}
+
 async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
   if (!captureService || !captureWindow) return;
 
-  // Hide Marshal's own windows so they don't leak into the frame.
-  translatorWindow?.hide();
-  await new Promise<void>((r) => setTimeout(r, 120));
-
+  const restoreWindows = await hideOwnWindows();
   try {
     let result: CaptureResult | null;
-    if (kind === "area") {
-      result = await captureService.captureArea();
-    } else {
-      result = await captureService.captureFullscreen();
+    try {
+      result = kind === "area" ? await captureService.captureArea() : await captureService.captureFullscreen();
+    } finally {
+      // Before the editor opens, so a restored floating window does not cover it.
+      restoreWindows();
     }
     if (!result) return;
     openEditorWithArchive(result);
@@ -990,8 +1009,7 @@ async function runScrollingCapture(): Promise<void> {
     return;
   }
 
-  translatorWindow?.hide();
-
+  const restoreWindows = await hideOwnWindows();
   try {
     const pick = await pickArea({ preloadPath });
     if (!pick) return;
@@ -1016,6 +1034,7 @@ async function runScrollingCapture(): Promise<void> {
       },
       outPath
     });
+    restoreWindows();
 
     // Open the stitched PNG in the annotation editor for cropping / markup.
     // Read the real pixel size back out of the PNG — the editor sizes its
@@ -1049,6 +1068,8 @@ async function runScrollingCapture(): Promise<void> {
       }).show();
     }
     console.error("[marshal] scrolling capture failed:", err);
+  } finally {
+    restoreWindows();
   }
 }
 
