@@ -130,6 +130,13 @@ const CANVAS_STATS = `(() => {
   return { painted, total: data.length / 4, hash, width: canvas.width };
 })()`;
 
+const RAF_TICKS = `new Promise((resolve) => {
+  let ticks = 0;
+  const tick = () => { ticks += 1; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  setTimeout(() => resolve(ticks), 1000);
+})`;
+
 function parseColor(value) {
   const text = String(value ?? "");
   const rgb = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(text);
@@ -196,13 +203,19 @@ async function main() {
   const first = await win.webContents.executeJavaScript(CANVAS_STATS);
   record("the canvas is sized and painted", first.width > 200 && first.painted > first.total * 0.02,
     `${first.width}px, ${first.painted} of ${first.total} pixels`);
-  // A slow CI runner may hand out few frames: wait for a change instead of a fixed beat.
-  let second = first;
-  for (let waited = 0; waited < 3000 && second.hash === first.hash; waited += 250) {
-    await sleep(250);
-    second = await win.webContents.executeJavaScript(CANVAS_STATS);
+  // A GitHub macOS runner has no live display: Chromium treats the window as
+  // occluded and never fires requestAnimationFrame. Nothing to measure there.
+  const rafTicks = await win.webContents.executeJavaScript(RAF_TICKS);
+  if (rafTicks === 0) {
+    console.log("[home-e2e] SKIP the visual animates while visible — no animation frames in this environment");
+  } else {
+    let second = first;
+    for (let waited = 0; waited < 3000 && second.hash === first.hash; waited += 250) {
+      await sleep(250);
+      second = await win.webContents.executeJavaScript(CANVAS_STATS);
+    }
+    record("the visual animates while visible", second.hash !== first.hash, `${rafTicks} frames in 1 s`);
   }
-  record("the visual animates while visible", second.hash !== first.hash);
 
   // ── Every state ─────────────────────────────────────────────────────────
   const borders = {};
