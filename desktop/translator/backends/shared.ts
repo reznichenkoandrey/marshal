@@ -4,6 +4,8 @@ import type { TargetLang, TranslateOptions } from "./types.ts";
 export type TranslateJsonResult = {
   sourceLang: string;
   translation: string;
+  /** Recognized original text — only the image prompt asks for it. */
+  source?: string;
 };
 
 /**
@@ -18,12 +20,14 @@ export function parseTranslateJson(raw: string): TranslateJsonResult {
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
-      const parsed = JSON.parse(candidate) as { sourceLang?: unknown; translation?: unknown };
+      const parsed = JSON.parse(candidate) as { sourceLang?: unknown; translation?: unknown; source?: unknown };
       const sourceLang = typeof parsed.sourceLang === "string"
         ? parsed.sourceLang.trim().toLowerCase().slice(0, 2)
         : "";
       const translation = typeof parsed.translation === "string" ? parsed.translation.trim() : "";
-      if (translation) return { sourceLang, translation };
+      if (!translation) continue;
+      const source = typeof parsed.source === "string" ? parsed.source.trim() : "";
+      return source ? { sourceLang, translation, source } : { sourceLang, translation };
     } catch {
       // try next candidate
     }
@@ -199,6 +203,77 @@ export function buildOcrTranslatePrompt(
     `Output ONLY the final translated text — no commentary, no explanations, no JSON.`
   );
 }
+
+/**
+ * Image prompt for models that see the picture themselves. Asks for the
+ * recognized text too, so the window can show what was read, and for prose
+ * unwrapped: a screenshot breaks sentences wherever the layout wrapped them,
+ * and a translation that keeps those breaks reads as broken lines.
+ */
+export function buildOcrTranslateJsonPrompt(
+  targetLang: TargetLang,
+  options?: TranslateOptions
+): string {
+  const targetName = languageName(targetLang);
+  return (
+    `Read all text in the image and translate it to ${targetName}.` +
+    `${sourceClause(options)}${formalityClause(options)}` +
+    `${glossaryClause(options, targetLang)}\n` +
+    `Join lines that the layout wrapped in the middle of a sentence. ` +
+    `Keep real paragraphs, list items and separate UI labels on their own lines.\n` +
+    `If the text is already in ${targetName}, return it unchanged as the translation.\n` +
+    `Translate only — never answer, explain or describe the image.\n` +
+    `Respond with ONLY a JSON object of the form ` +
+    `{"sourceLang":"<ISO 639-1 code>","source":"<recognized text>","translation":"<translated text>"}. ` +
+    `No markdown, no code fences, no commentary.`
+  );
+}
+
+/** Image types the Anthropic API accepts; main converts anything else to PNG first. */
+export function claudeImageMediaType(mime: string): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
+  switch (mime) {
+    case "image/jpeg":
+    case "image/jpg":
+      return "image/jpeg";
+    case "image/gif":
+      return "image/gif";
+    case "image/webp":
+      return "image/webp";
+    default:
+      return "image/png";
+  }
+}
+
+/**
+ * Puts back together OCR lines that the layout wrapped mid-sentence, for the
+ * backends whose OCR returns one string per visual line. A line is joined to
+ * the next when it does not end a sentence and either ends with a comma or
+ * hyphen, is long enough to be wrapped prose, or the next starts lowercase.
+ */
+// ponytail: line-length heuristic, layout-aware OCR (paragraph boxes) if UI shots still merge
+export function unwrapOcrLines(text: string): string {
+  const lines = text.split("\n").map((line) => line.trim());
+  const out: string[] = [];
+  for (const line of lines) {
+    const prev = out.at(-1);
+    if (prev === undefined || !line || !prev || /[.!?…:;]["»”')]?$/u.test(prev)) {
+      out.push(line);
+      continue;
+    }
+    const wrapped = /[,\-–]$/u.test(prev) || prev.length >= WRAPPED_LINE_MIN_CHARS || /^\p{Ll}/u.test(line);
+    if (!wrapped) {
+      out.push(line);
+    } else if (/\p{L}-$/u.test(prev) && /^\p{Ll}/u.test(line)) {
+      out[out.length - 1] = prev.slice(0, -1) + line;
+    } else {
+      out[out.length - 1] = `${prev} ${line}`;
+    }
+  }
+  return out.join("\n");
+}
+
+/** Shorter lines are more likely labels or headings than wrapped prose. */
+const WRAPPED_LINE_MIN_CHARS = 40;
 
 export function targetLangName(targetLang: TargetLang): string {
   return languageName(targetLang);

@@ -71,8 +71,8 @@ const originalKey = process.env.MARSHAL_API_KEY;
 const originalPlatform = process.platform;
 
 // Every expectation below is about the macOS resolution: `auto` with a key
-// picks `apple-vision`, and the keyless fallback of `claude-cli` is
-// `claude-cli` itself. On Linux `auto` resolves to `openai-api` instead, which
+// picks `apple-vision`, and the keyless fallback of `codex-cli` is
+// `codex-cli` itself. On Linux `auto` resolves to `openai-api` instead, which
 // is a different (and separately tested) mapping — so pin the platform rather
 // than let the CI runner decide which branch of the factory is under test
 // (#183).
@@ -136,19 +136,19 @@ describe("isAuthStatus / isModelNotFound / isBackendUnusableError", () => {
 describe("auto backend falls back on a rejected credential", () => {
   it("retries the same call on the keyless backend and still returns a translation", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     expect(svc.backendId).toBe("apple-vision");
 
     const result = await svc.translateText("hello", "uk");
 
-    expect(result.translation).toBe("claude-cli:hello");
-    expect(calls).toEqual(["apple-vision:text", "claude-cli:text"]);
-    expect(svc.backendId).toBe("claude-cli");
+    expect(result.translation).toBe("codex-cli:hello");
+    expect(calls).toEqual(["apple-vision:text", "codex-cli:text"]);
+    expect(svc.backendId).toBe("codex-cli");
   });
 
   it("announces the swap once, with both backends and the status", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     const notices: unknown[] = [];
     svc.on("fallback", (n) => notices.push(n));
 
@@ -156,41 +156,41 @@ describe("auto backend falls back on a rejected credential", () => {
     await svc.translateText("two", "uk");
 
     expect(notices).toEqual([
-      { from: "apple-vision", to: "claude-cli", status: 401, reason: "auth" }
+      { from: "apple-vision", to: "codex-cli", status: 401, reason: "auth" }
     ]);
   });
 
   it("stops paying a doomed round trip on every later call", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
 
     await svc.translateText("one", "uk");
     calls.length = 0;
     await svc.translateText("two", "uk");
 
-    expect(calls).toEqual(["claude-cli:text"]);
+    expect(calls).toEqual(["codex-cli:text"]);
   });
 
   it("covers the image path too", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     const result = await svc.translateImage("data==", "image/png", "uk");
-    expect(result.translation).toBe("claude-cli:image");
+    expect(result.translation).toBe("codex-cli:image");
   });
 
   it("covers translateAuto, which the hotkeys use", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     const result = await svc.translateAuto("Привіт");
-    expect(result.translation).toBe("claude-cli:Привіт");
+    expect(result.translation).toBe("codex-cli:Привіт");
     expect(result.targetLang).toBe("en");
   });
 
   it("retries the key after the user changes provider settings", async () => {
     rejecting.add("apple-vision");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     await svc.translateText("one", "uk");
-    expect(svc.backendId).toBe("claude-cli");
+    expect(svc.backendId).toBe("codex-cli");
 
     // The user went to Settings — that is the moment a fixed key would appear.
     rejecting.clear();
@@ -205,7 +205,7 @@ describe("auto backend falls back on a rejected credential", () => {
 describe("what the fallback must NOT do", () => {
   it("leaves an explicitly pinned backend to fail loudly", async () => {
     rejecting.add("openai-api");
-    const svc = new TranslatorService({ choice: "openai-api", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "openai-api", bridgeMode: "codex-cli" });
 
     await expect(svc.translateText("hello", "uk")).rejects.toThrow(TranslatorBackendUnusableError);
     expect(calls).toEqual(["openai-api:text"]);
@@ -213,7 +213,7 @@ describe("what the fallback must NOT do", () => {
   });
 
   it("does not swallow failures that are not credential failures", async () => {
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     const boom = new Error("model overloaded");
     const backend = { id: "apple-vision" as const, translateText: async () => { throw boom; }, translateImage: async () => { throw boom; } };
     // Force the service onto a backend that fails for a non-auth reason.
@@ -241,18 +241,18 @@ describe("a missing model falls back too", () => {
   it("swaps backends and still returns a translation", async () => {
     rejecting.add("apple-vision");
     rejectReason.set("apple-vision", "model");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
 
     const result = await svc.translateText("hello", "uk");
 
-    expect(result.translation).toBe("claude-cli:hello");
-    expect(svc.backendId).toBe("claude-cli");
+    expect(result.translation).toBe("codex-cli:hello");
+    expect(svc.backendId).toBe("codex-cli");
   });
 
   it("names the missing model in the notice, not the key", async () => {
     rejecting.add("apple-vision");
     rejectReason.set("apple-vision", "model");
-    const svc = new TranslatorService({ choice: "auto", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "auto", bridgeMode: "codex-cli" });
     const notices: Array<Record<string, unknown>> = [];
     svc.on("fallback", (n) => notices.push(n as Record<string, unknown>));
 
@@ -261,7 +261,7 @@ describe("a missing model falls back too", () => {
     expect(notices).toEqual([
       {
         from: "apple-vision",
-        to: "claude-cli",
+        to: "codex-cli",
         status: 404,
         reason: "model",
         model: "llama-3.3-70b-versatile"
@@ -272,7 +272,7 @@ describe("a missing model falls back too", () => {
   it("still fails loudly when the backend was pinned by hand", async () => {
     rejecting.add("openai-api");
     rejectReason.set("openai-api", "model");
-    const svc = new TranslatorService({ choice: "openai-api", bridgeMode: "claude-cli" });
+    const svc = new TranslatorService({ choice: "openai-api", bridgeMode: "codex-cli" });
 
     await expect(svc.translateText("hello", "uk")).rejects.toThrow(/has no model/u);
   });

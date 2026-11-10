@@ -25,6 +25,8 @@ const DEBOUNCE_MS = 650;
 // A translation is only worth remembering once the user stops changing it.
 const HISTORY_COMMIT_MS = 2500;
 const MAX_CHARS = 5000;
+// Room for the spinner or a one-line error in the compact popup.
+const COMPACT_MIN_CONTENT = 56;
 const FORMALITY_CYCLE = ["default", "formal", "informal"];
 const FORMALITY_KEYS = {
   default: "translator.formalityNeutral",
@@ -75,6 +77,7 @@ const dom = {
   btnUpload: document.getElementById("btn-upload"),
   fileInput: document.getElementById("file-input"),
   closeBtn: document.getElementById("close-btn"),
+  btnExpand: document.getElementById("btn-expand"),
   // Language bar
   srcLang: document.getElementById("src-lang"),
   srcLangLabel: document.getElementById("src-lang-label"),
@@ -90,6 +93,7 @@ const dom = {
   btnPaste: document.getElementById("btn-paste"),
   btnClear: document.getElementById("btn-clear"),
   // Target pane
+  resultBody: document.querySelector(".result-body"),
   resultText: document.getElementById("result-text"),
   altPopover: document.getElementById("alt-popover"),
   stateLoading: document.getElementById("state-loading"),
@@ -336,6 +340,40 @@ function renderPin() {
 
 // ── Close ──
 dom.closeBtn.addEventListener("click", () => api.close());
+
+// ── Compact popup (#344) ──
+// Hotkey and OCR results open as a small popup holding just the translation.
+// Main decides the view; the renderer reports how tall the content is so the
+// popup fits it, the way DeepL's does.
+dom.btnExpand.addEventListener("click", () => {
+  void api.expand();
+});
+
+api.onView?.((_, { view }) => {
+  document.body.dataset.view = view;
+  reportCompactHeight();
+});
+
+function reportCompactHeight() {
+  if (document.body.dataset.view !== "compact") return;
+  requestAnimationFrame(() => {
+    const chrome = document.body.offsetHeight - dom.resultBody.clientHeight;
+    const visible = (el) => (el.offsetParent !== null ? el.scrollHeight : 0);
+    const content = visible(dom.resultText) + visible(dom.errorMsg) + visible(dom.noticeMsg);
+    void api.fitCompact(chrome + Math.max(content, COMPACT_MIN_CONTENT));
+  });
+}
+
+/**
+ * An image result carries the text that was read off it. Put it in the source
+ * pane, so Expand shows what was recognized and editing it re-translates.
+ */
+function showRecognizedSource(result) {
+  const source = typeof result.sourceText === "string" ? result.sourceText : "";
+  dom.inputText.value = source;
+  updateCharCount();
+  lastRequest = { text: source.trim(), sourceLang, targetLang: result.targetLang || targetLang, formality };
+}
 
 // ── Input ──
 
@@ -796,8 +834,7 @@ dom.btnCapture.addEventListener("click", async () => {
     }
     const result = await api.translateImage(base64, "image/png", { sourceLang, targetLang, formality });
     requestSeq++; // an OCR result supersedes any pending text translation
-    dom.inputText.value = "";
-    updateCharCount();
+    showRecognizedSource(result);
     applyResult({ ...result, mode: "image" });
     await refreshHistory();
   } catch (err) {
@@ -823,8 +860,7 @@ dom.fileInput.addEventListener("change", () => {
     try {
       const result = await api.translateImage(base64, mimeType, { sourceLang, targetLang, formality });
       requestSeq++;
-      dom.inputText.value = "";
-      updateCharCount();
+      showRecognizedSource(result);
       applyResult({ ...result, mode: "image" });
       await refreshHistory();
     } catch (err) {
@@ -921,6 +957,8 @@ api.onResult((_, data) => {
 
   // Reflect the direction the hotkey actually used. Not persisted: the flip
   // is a property of that one piece of text, not a new preference.
+  if (data.mode === "image") showRecognizedSource(data);
+
   if (data.targetLang && data.targetLang !== targetLang) {
     targetLang = data.targetLang;
   }
@@ -1005,6 +1043,7 @@ function setState(state) {
   dom.stateEmpty.style.display = state === "empty" ? "flex" : "none";
   dom.resultText.style.display = state === "result" ? "block" : "none";
   dom.errorMsg.style.display = "none";
+  reportCompactHeight();
 }
 
 function showNotice(message) {
@@ -1021,6 +1060,7 @@ function showNotice(message) {
   dom.noticeMsg.appendChild(text);
   dom.noticeMsg.appendChild(dismiss);
   dom.noticeMsg.hidden = false;
+  reportCompactHeight();
 }
 
 function showError(msg) {
@@ -1031,6 +1071,7 @@ function showError(msg) {
   // Keep an existing translation visible — an error on a later keystroke
   // shouldn't blank out the answer the user is reading.
   dom.resultText.style.display = currentTranslation ? "block" : "none";
+  reportCompactHeight();
 }
 
 // ── History panel ──

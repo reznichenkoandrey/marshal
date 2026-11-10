@@ -151,6 +151,11 @@ export class TranslatorService extends EventEmitter {
     this.formality = formality;
   }
 
+  /** The translator is about to be used — let the backend get ready. */
+  warmUp(): void {
+    this.backend.warmUp?.();
+  }
+
   translateText(text: string, targetLang: TargetLang, options?: TranslateOptions): Promise<TranslationResult> {
     const filled = this.withDefaults(options, text);
     return this.run((backend) => backend.translateText(text, targetLang, filled));
@@ -293,7 +298,9 @@ export class TranslatorService extends EventEmitter {
     const id = this.resolveBackendId();
     if (this.backend.id === id) return;
     try {
+      const previous = this.backend;
       this.backend = this.buildBackend(id);
+      previous.dispose?.();
     } catch (err) {
       // A Settings change must not orphan the service: keep the backend that
       // was working and say why the new one is not.
