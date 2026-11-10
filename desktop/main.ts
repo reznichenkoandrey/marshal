@@ -61,7 +61,7 @@ import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher } from "./assistant/dispatcher.ts";
-import { briefSessions, GENERAL_NAME } from "./assistant/dispatcher-files.ts";
+import { GENERAL_NAME } from "./assistant/dispatcher-files.ts";
 import { parseRoutingRoots } from "./claude-code/context-router.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
@@ -103,6 +103,8 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 const projectRootDir = path.resolve(desktopDistDir, "..", "..");
 const envPath = path.join(projectRootDir, ".env");
+// What Marshal was started with, before its .env: apps it launches (Terminal) inherit this, not its keys (#322).
+const launchEnv: NodeJS.ProcessEnv = { ...process.env };
 loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
@@ -2780,6 +2782,9 @@ function initAssistantDispatcher(): void {
     announce: announceToAssistant,
     focus: (pid) => {
       void focusSession(pid).catch(() => undefined);
+    },
+    runAppleScript: async (script) => {
+      await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     }
   });
   hooks.setAssistantRoutes(assistantDispatcher);
@@ -2822,6 +2827,9 @@ function sayAsAssistant(text: string): void {
 }
 
 function speakSessionEvent(event: SpokenSessionEvent): void {
+  // Aloud only what the owner asked for by voice; every other session stays a silent notification.
+  const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
+  if (!asked && event.name !== GENERAL_NAME) return;
   const uk = assistantLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
@@ -2891,11 +2899,8 @@ async function assistantVoiceAction(action: string): Promise<string> {
       }
       break;
     }
-    case "brief":
-      reply = briefSessions(listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session)), uk ? "uk" : "en");
-      break;
     default:
-      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting, brief.`;
+      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting.`;
   }
   sayAsAssistant(reply);
   return reply;

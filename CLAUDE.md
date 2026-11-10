@@ -452,7 +452,11 @@
   деструктивним — питає). Доставка — Claude Code-івський `SendMessage` на `uds:<socketPath>` із
   registry: це доходить і до сесій у Claude desktop / IDE, куди #264 міг дати лише буфер (#300).
   Результат звучить уголос через Stop hook: `SessionNotifier` віддає `speak` → `SpeechService`
-  (`general` без префікса імені). Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
+  (`general` без префікса імені). **Уголос — лише те, про що власник спитав голосом**: відповідь
+  `general` і сесій, яким диспетчер передав команду й позначив `./marshal sent <name>`
+  (`answersVoiceCommand`, позначка гаситься на її Stop). Решта сесій — тиха нотифікація. «Що
+  відбувається» / «на якій стадії X» диспетчер відповідає сам, людською мовою з dossier-ів
+  (`./marshal context`), а не списком імен; «ти тут?» — одне живе речення. Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
   Файли — `<userData>/assistant/`: `dispatcher/CLAUDE.md` (правила маршрутизації), `.claude/settings.json`
   (allow лише `./marshal`, `SendMessage`, `Monitor`; deny Edit/Write/Web/Agent), helper `marshal`
   (sh + curl, 0700) і `general-prompt.md`. Диспетчер стартує з `--setting-sources project`: hooks
@@ -470,6 +474,12 @@
   userData), дозволи `general` (`auto` — `--permission-mode auto`, або питати щоразу у вікні), модель
   диспетчера (`haiku`). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
   Terminal без дозволу Automation → асистент каже, куди в System Settings.
+  **Terminal не отримує ключі Marshal** (#322): `osascript` запускається з env, з яким стартував
+  сам Marshal (знімок до `.env`), бо LaunchServices віддає його Terminal, а з ним і кожній вкладці.
+  Сесії асистента стартують через `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL`:
+  з ключем у середовищі Claude Code питає «use this API key?» у вікні, якого ніхто не бачить, і
+  диспетчер стоїть мовчки. З тієї ж причини кожна сесія асистента стартує з `--no-chrome`: інакше
+  перше ж питання «Claude in Chrome extension detected» зупиняє її так само.
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1.6 ГБ, вантажиться на
