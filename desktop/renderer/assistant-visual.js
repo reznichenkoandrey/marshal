@@ -172,7 +172,7 @@ function scaleSprite(ctx, w, R, edge) {
  * One frame. `colors` holds resolved rgb triples: state, edge, second (the
  * accent-2 arcs), fg, muted. `params` are the eased numbers above.
  */
-export function drawHud(ctx, size, t, level, params, colors, bars, labels) {
+export function drawHud(ctx, size, t, level, params, colors, bars, labels, mini = false) {
   const w = size;
   const cx = w / 2;
   const cy = w / 2;
@@ -200,12 +200,15 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels) {
     ctx.globalAlpha = 1;
   };
 
-  // Outer scale: fine ticks, slowly counter-rotating.
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-t * 0.05);
-  ctx.drawImage(scaleSprite(ctx, w, R, edge), -cx, -cy);
-  ctx.restore();
+  // Outer scale: fine ticks, slowly counter-rotating. The mini widget (#285)
+  // drops it, the inner scale, the blips and the readout: unreadable at its size.
+  if (!mini) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-t * 0.05);
+    ctx.drawImage(scaleSprite(ctx, w, R, edge), -cx, -cy);
+    ctx.restore();
+  }
 
   // Spectrum: 300° of radial bars, a gap at the bottom for the readout.
   const start = Math.PI / 2 + Math.PI / 6;
@@ -242,20 +245,22 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels) {
   stroke(inner, second, 3, 0.9);
 
   // Inner scale: lit ticks follow the level, a VU meter bent into a circle.
-  const lit = new Path2D();
-  const dark = new Path2D();
-  for (let i = 0; i < 48; i++) {
-    ray(i / 48 < lv ? lit : dark, -Math.PI / 2 + (i / 48) * TAU, R * 0.6, R * 0.66);
+  if (!mini) {
+    const lit = new Path2D();
+    const dark = new Path2D();
+    for (let i = 0; i < 48; i++) {
+      ray(i / 48 < lv ? lit : dark, -Math.PI / 2 + (i / 48) * TAU, R * 0.6, R * 0.66);
+    }
+    stroke(dark, edge, 2);
+    stroke(lit, second, 2);
   }
-  stroke(dark, edge, 2);
-  stroke(lit, second, 2);
 
   const meter = new Path2D();
   segment(meter, R * 0.72, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, lv));
   stroke(meter, state, 4);
 
   // Orbiting blips.
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < (mini ? 0 : 3); i++) {
     const a = t * (0.4 + i * 0.25) * spin + i * 2.1;
     ctx.fillStyle = i === 1 ? second : state;
     ctx.beginPath();
@@ -281,6 +286,7 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels) {
     stroke(sweep, state, 2, 0.6 * params.scan);
   }
 
+  if (mini) return;
   ctx.textAlign = "center";
   ctx.fillStyle = rgba(colors.fg);
   ctx.font = `600 ${Math.round(w * 0.05)}px ui-monospace, Menlo, monospace`;
@@ -296,7 +302,7 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels) {
  * Owns the canvas and the frame loop. `getLevel()` returns the live mic level
  * (0..1) or null when there is none; the ambient level fills in.
  */
-export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, footer }) {
+export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, footer, mini = false }) {
   const ctx = canvas.getContext("2d");
   const bars = new Array(BAR_COUNT).fill(0);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -310,6 +316,8 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
   let last = 0;
   let lastDrawn = 0;
   let onBattery = false;
+  // Held by the owner (the mini widget's idle pause): no visibility change restarts it.
+  let paused = false;
 
   if (typeof navigator.getBattery === "function") {
     navigator.getBattery().then((battery) => {
@@ -351,7 +359,7 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
     smooth += (raw - smooth) * Math.min(1, dt * 10 || 1);
     const current = colors ?? readColors();
     const drawn = fromColor ? { ...current, state: mixRgb(fromColor, current.state, colorMix) } : current;
-    drawHud(ctx, size(), t, smooth, params, drawn, bars, { state: labelFor(state), footer });
+    drawHud(ctx, size(), t, smooth, params, drawn, bars, { state: labelFor(state), footer }, mini);
   }
 
   function frame(now) {
@@ -363,7 +371,7 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
   }
 
   function start() {
-    if (raf || document.hidden) return;
+    if (raf || paused || document.hidden) return;
     if (reducedMotion.matches) {
       params = targetParams(state);
       render(performance.now());
@@ -398,6 +406,12 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
       colors = readColors();
       fromColor = null;
       if (reducedMotion.matches) render(performance.now());
+    },
+    /** Stops the loop on the last drawn frame until released. */
+    setPaused(next) {
+      paused = next;
+      if (paused) stop();
+      else start();
     },
     start,
     stop,

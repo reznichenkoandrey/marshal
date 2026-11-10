@@ -1,0 +1,82 @@
+/* Mini assistant widget (#285). Tokens only, like the home window. */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-sans);
+  color: var(--text-default);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.widget {
+  --state: var(--state-idle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.widget[data-state="listening"] { --state: var(--state-listen); }
+.widget[data-state="thinking"],
+.widget[data-state="working"] { --state: var(--state-think); }
+.widget[data-state="speaking"] { --state: var(--state-speak); }
+.widget[data-state="waiting"] { --state: var(--state-wait); }
+.widget[data-state="offline"] { --state: var(--state-fail); }
+
+.visual {
+  width: 112px;
+  height: 112px;
+  flex: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--bg-app) 88%, transparent) 58%, transparent 71%);
+  cursor: grab;
+}
+
+.visual:active { cursor: grabbing; }
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.card {
+  box-sizing: border-box;
+  height: 42px;
+  margin-top: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--state-wait) 55%, transparent);
+  border-left: 3px solid var(--state-wait);
+  background: color-mix(in srgb, var(--bg-app) 94%, transparent);
+  cursor: pointer;
+}
+
+.card:hover { background: var(--bg-elevated); }
+
+.card b,
+.card small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.card b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.card small {
+  font-family: var(--font-label);
+  font-size: var(--fs-xs);
+  /* Not the amber of the border: small amber text on light glass misses AA. */
+  color: var(--text-muted);
+}

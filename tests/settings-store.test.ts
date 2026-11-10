@@ -101,7 +101,10 @@ describe("saveSettings", () => {
       dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR",
       assistantLanguage: "en",
-      assistantWaitingBadge: false
+      assistantWaitingBadge: false,
+      assistantGlow: false,
+      assistantWidget: true,
+      assistantWidgetPosition: { x: 1500.4, y: 40 }
     });
     expect(saved).toEqual({
       bridgeMode: "api",
@@ -151,7 +154,10 @@ describe("saveSettings", () => {
       speechVoiceUk: "",
       speechVoiceEn: "",
       assistantLanguage: "en",
-      assistantWaitingBadge: false
+      assistantWaitingBadge: false,
+      assistantGlow: false,
+      assistantWidget: true,
+      assistantWidgetPosition: { x: 1500, y: 40 }
     });
   });
 

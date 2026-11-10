@@ -201,6 +201,12 @@ export type MarshalSettings = {
   assistantLanguage: AssistantLanguageSetting;
   /** Tray title shows how many Claude Code sessions wait for an answer (#309). */
   assistantWaitingBadge: boolean;
+  /** Glow along the screen edges while listening or speaking (#285). */
+  assistantGlow: boolean;
+  /** Mini assistant widget docked at a screen edge (#285). */
+  assistantWidget: boolean;
+  /** Where the widget was dragged last; null = top-right of the primary display. */
+  assistantWidgetPosition: { x: number; y: number } | null;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -257,7 +263,11 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   speechVoiceUk: "",
   speechVoiceEn: "",
   assistantLanguage: "auto",
-  assistantWaitingBadge: true
+  assistantWaitingBadge: true,
+  assistantGlow: true,
+  // Opt-in: an always-visible canvas costs a GPU pool while it animates (#310).
+  assistantWidget: false,
+  assistantWidgetPosition: null
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -576,8 +586,19 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantLanguage: input.assistantLanguage === "uk" || input.assistantLanguage === "en" ? input.assistantLanguage : "auto",
     assistantWaitingBadge: typeof input.assistantWaitingBadge === "boolean"
       ? input.assistantWaitingBadge
-      : DEFAULT_SETTINGS.assistantWaitingBadge
+      : DEFAULT_SETTINGS.assistantWaitingBadge,
+    assistantGlow: typeof input.assistantGlow === "boolean" ? input.assistantGlow : DEFAULT_SETTINGS.assistantGlow,
+    assistantWidget: typeof input.assistantWidget === "boolean" ? input.assistantWidget : DEFAULT_SETTINGS.assistantWidget,
+    assistantWidgetPosition: normalizePoint(input.assistantWidgetPosition)
   };
+}
+
+function normalizePoint(value: unknown): { x: number; y: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { x, y } = value as { x?: unknown; y?: unknown };
+  return typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y)
+    ? { x: Math.round(x), y: Math.round(y) }
+    : null;
 }
 
 function nonEmptyOr(value: unknown, fallback: string): string {
