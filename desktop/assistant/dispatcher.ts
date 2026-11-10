@@ -11,6 +11,7 @@ import path from "node:path";
 
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
+import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import {
   buildGeneralPrompt,
@@ -117,7 +118,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     const live = this.deps.liveSessions();
     if (!live.some((session) => this.isDispatcher(session))) {
       this.trust(this.dispatcherDir);
-      await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model), DISPATCHER_NAME);
+      await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
     }
     if (!live.some((session) => session.name === GENERAL_NAME)) await this.openGeneral();
   }
@@ -201,6 +202,11 @@ export class AssistantDispatcher implements AssistantRoutes {
       return action ? this.deps.runAction(action) : "usage: marshal do <action>";
     }
     if (route === "spawn") return this.spawn(args);
+    if (route === "peek") {
+      const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
+      if (!target) return `No live session named "${args.join(" ")}".`;
+      return formatRecentTurns(readRecentTurns(target));
+    }
     if (route === "sent") {
       const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
       if (!target) return `No live session named "${args.join(" ")}".`;
@@ -310,4 +316,11 @@ function listChildFolders(roots: readonly string[]): string[] {
       return [];
     }
   });
+}
+
+/** `./marshal peek <name>`: the session's last turns, for the dispatcher to retell in plain words. */
+export function formatRecentTurns(tail: TranscriptTail | null): string {
+  if (!tail || tail.turns.length === 0) return "No conversation yet.";
+  const lines = tail.turns.slice(-6).map((turn) => `${turn.role === "user" ? "Owner" : "Claude"}: ${turn.text}`);
+  return [tail.branch ? `Branch: ${tail.branch}` : "", ...lines].filter(Boolean).join("\n");
 }

@@ -455,8 +455,13 @@
   (`general` без префікса імені). **Уголос — лише те, про що власник спитав голосом**: відповідь
   `general` і сесій, яким диспетчер передав команду й позначив `./marshal sent <name>`
   (`answersVoiceCommand`, позначка гаситься на її Stop). Решта сесій — тиха нотифікація. «Що
-  відбувається» / «на якій стадії X» диспетчер відповідає сам, людською мовою з dossier-ів
-  (`./marshal context`), а не списком імен; «ти тут?» — одне живе речення. Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
+  відбувається» диспетчер відповідає сам, людською мовою з dossier-ів (`./marshal context`), а не
+  списком імен. «На якій стадії X» / «чи закінчився деплой у X» — `./marshal peek <name>` (останні
+  репліки transcript-а тієї сесії, `readRecentTurns` у `dossier.ts`), і диспетчер переказує їх сам
+  одним-двома реченнями: сесію не смикає й нічого не зачитує. «Ти тут?» — одне живе речення. Фраза —
+  до ~12 слів, без id, шляхів, сокетів, permission mode і причин; після успішної передачі диспетчер
+  мовчить (відповідь прийде голосом), на збої — лише «<name> зараз не приймає команди». Відповідь —
+  мовою команди (uk/en), не завжди англійською, як у Jarvis.
   Файли — `<userData>/assistant/`: `dispatcher/CLAUDE.md` (правила маршрутизації), `.claude/settings.json`
   (allow лише `./marshal`, `SendMessage`, `Monitor`; deny Edit/Write/Web/Agent), helper `marshal`
   (sh + curl, 0700) і `general-prompt.md`. Диспетчер стартує з `--setting-sources project`: hooks
@@ -471,8 +476,11 @@
   нова сесія не з'явиться в registry.
   **Перше натискання мікрофона вмикає асистента** (`assistantDispatcher`, `speechEnabled`) і ставить
   hooks — це явна дія власника. Settings → Voice assistant: вмикач, тека `general` (порожньо = тека в
-  userData), дозволи `general` (`auto` — `--permission-mode auto`, або питати щоразу у вікні), модель
-  диспетчера (`haiku`). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
+  userData), permission mode сесій асистента (`bypass` — дефолт, як у Claude desktop; `auto`; або
+  питати щоразу у вікні), модель диспетчера (`haiku`). **Режим однаковий для диспетчера й `general` і
+  має збігатися з режимом сесій власника:** Claude Code затримує `SendMessage` від сесії з іншим
+  permission mode і чекає підтвердження, а desktop-сесія його дати не може — повідомлення протухає
+  недоставленим. Deny-правила диспетчера (Edit/Write/Web/Agent) у `bypassPermissions` діють (перевірено). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
   Terminal без дозволу Automation → асистент каже, куди в System Settings.
   **Terminal не отримує ключі Marshal** (#322): `osascript` запускається з env, з яким стартував
   сам Marshal (знімок до `.env`), бо LaunchServices віддає його Terminal, а з ним і кожній вкладці.

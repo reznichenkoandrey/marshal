@@ -278,7 +278,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
   assistantGeneralDir: "",
-  assistantGeneralPermissionMode: "auto"
+  assistantGeneralPermissionMode: "bypass"
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -606,7 +606,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       ? input.assistantDispatcherModel.trim()
       : DEFAULT_SETTINGS.assistantDispatcherModel,
     assistantGeneralDir: typeof input.assistantGeneralDir === "string" ? input.assistantGeneralDir.trim() : DEFAULT_SETTINGS.assistantGeneralDir,
-    assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "default" ? "default" : "auto"
+    assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
+      ? input.assistantGeneralPermissionMode
+      : DEFAULT_SETTINGS.assistantGeneralPermissionMode
   };
 }
 
