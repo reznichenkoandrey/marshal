@@ -171,16 +171,13 @@ export class TranslatorWindow {
 
   /**
    * Hotkey and OCR results go to the compact popup — unless the full window
-   * is already on screen or pinned, in which case the user is working in it
-   * and the result lands there.
+   * is already on screen, in which case the user is working in it and the
+   * result lands there. Pinned alone does not count: it is persisted, and a
+   * closed pinned window would otherwise take over every popup (#348).
    */
   private openForResult(): void {
     this.ensureWindow();
-    const keepFull = this.state.pinned || (this.isVisible() && this.view === "full");
-    if (keepFull) {
-      if (!this.isVisible()) this.place();
-      this.setView("full");
-    } else {
+    if (!(this.isVisible() && this.view === "full")) {
       this.setView("compact");
       this.positionNearCursor(COMPACT_WIDTH, COMPACT_INITIAL_HEIGHT);
     }

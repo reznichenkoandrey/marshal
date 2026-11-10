@@ -3,7 +3,27 @@
 
 /* ── Layout: the visual keeps a narrow column, settings take the rest ── */
 .home[data-view="settings"] {
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+}
+
+/* The full-size dock is ~464 px; without this it overflows the column and
+   paints over the rail, swallowing its clicks (#347). */
+.home[data-view="settings"] .core { min-width: 0; }
+
+.home[data-view="settings"] .dock {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.home[data-view="settings"] .dock button {
+  width: 36px;
+  height: 36px;
+}
+
+.home[data-view="settings"] .dock .mic {
+  width: 44px;
+  height: 44px;
+  margin: 0;
 }
 
 .home[data-view="settings"] .side { display: none; }
