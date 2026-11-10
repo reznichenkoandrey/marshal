@@ -34,7 +34,7 @@ import {
 } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
 import type { Formality, TranslatorBackendChoice } from "./translator/translator-service.ts";
-import { DEFAULT_SPEECH_RATE, normalizeSpeechRate } from "./speech/speech-policy.ts";
+import { DEFAULT_SPEECH_RATE, normalizeSpeechEngine, normalizeSpeechRate, type SpeechEngine } from "./speech/speech-policy.ts";
 
 export type BridgeMode =
   | "claude-cli"
@@ -193,6 +193,8 @@ export type MarshalSettings = {
   lastSeenVersion: string;
   /** Spoken updates (#266): read short summaries aloud with the native macOS voices. */
   speechEnabled: boolean;
+  /** Engine for Ukrainian phrases (#325); English always uses `say`. */
+  speechEngine: SpeechEngine;
   /** `say -r` words per minute. */
   speechRate: number;
   /** Voice names as `say -v '?'` prints them; empty = pick automatically. */
@@ -266,6 +268,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   lastDismissedVersion: "",
   lastSeenVersion: "",
   speechEnabled: false,
+  speechEngine: "macos",
   speechRate: DEFAULT_SPEECH_RATE,
   speechVoiceUk: "",
   speechVoiceEn: "",
@@ -591,6 +594,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       ? input.lastSeenVersion
       : DEFAULT_SETTINGS.lastSeenVersion,
     speechEnabled: typeof input.speechEnabled === "boolean" ? input.speechEnabled : DEFAULT_SETTINGS.speechEnabled,
+    speechEngine: normalizeSpeechEngine(input.speechEngine),
     speechRate: normalizeSpeechRate(input.speechRate),
     speechVoiceUk: typeof input.speechVoiceUk === "string" ? input.speechVoiceUk.trim() : DEFAULT_SETTINGS.speechVoiceUk,
     speechVoiceEn: typeof input.speechVoiceEn === "string" ? input.speechVoiceEn.trim() : DEFAULT_SETTINGS.speechVoiceEn,

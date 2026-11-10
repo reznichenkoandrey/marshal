@@ -26,6 +26,7 @@ import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
 import { SpeechService } from "./speech/speech-service.ts";
+import { installPiper } from "./speech/piper.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -1711,6 +1712,7 @@ function initSpeech(): void {
       const settings = loadSettings();
       return {
         enabled: settings.speechEnabled,
+        engine: settings.speechEngine,
         rate: settings.speechRate,
         voiceUk: settings.speechVoiceUk,
         voiceEn: settings.speechVoiceEn
@@ -1721,6 +1723,16 @@ function initSpeech(): void {
     (speaking) => setAssistantInputs({ speaking })
   );
   handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
+  let piperInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
+  handleIpc("marshal:speech-install-piper", () => {
+    piperInstall ??= installPiper()
+      .then(() => ({ ok: true as const }))
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => {
+        piperInstall = null;
+      });
+    return piperInstall;
+  });
   handleIpc("marshal:speech-test", async () => [
     await speechService!.speak("Маршал на зв'язку. Сесія завершила задачу.", { lang: "uk", force: true }),
     await speechService!.speak("Marshal is ready. The session finished its task.", { lang: "en", force: true })

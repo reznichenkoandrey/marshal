@@ -340,8 +340,9 @@
   `google.com/url?q=` і Outlook safelinks), бо `shell.openExternal` отримує дані з чужого
   календаря. Верхній рядок tray-меню — поточна або наступна зустріч, клік = Join. Тести —
   на fixture-файлах `tests/fixtures/calendar/*.ics`, ніколи на живому календарі.
-- **Озвучення (spoken updates) — `desktop/speech/`** (#266). Лише нативні голоси macOS через
-  `/usr/bin/say`: 0 МБ, жодної моделі в пам'яті (бюджет #281). API для джерел подій —
+- **Озвучення (spoken updates) — `desktop/speech/`** (#266). Нативні голоси macOS через
+  `/usr/bin/say` (0 МБ) або, для української, локальний Piper (#325, нижче); жодної моделі в
+  пам'яті між фразами (бюджет #281). API для джерел подій —
   `speechService.speak(text, { lang?, key? })`; підключення до подій сесій (#262) — окремо.
   **Голос за мовою тексту, не за мовою UI:** `detectSpeechLang` рахує слова кирилицею проти
   латиниці, викинувши code spans, URL і все схоже на шлях чи ідентифікатор, і українська
@@ -359,6 +360,22 @@
   Текст іде в `say` через stdin, не argv: фраза, що починається з `-`, інакше стає прапорцем.
   Settings → Spoken updates: вмикач (за замовчуванням вимкнено), голос на мову, темп
   (`say -r`, 90–360 слів/хв) і «Speak test phrase» (говорить і при вимкненому вмикачі).
+  **Кращий голос macOS — Lesya Enhanced:** System Settings → Accessibility → Spoken Content →
+  System Voice → Manage Voices → Ukrainian → Lesya (Enhanced). Після завантаження вона з'являється
+  в списку `say` і в селекті «Ukrainian macOS voice» без рестарту (список перечитується).
+  **Piper — Settings → «Ukrainian engine» = `Piper (local)`** (#325, `desktop/speech/piper.ts`).
+  Голос `vits-piper-uk_UA-lada-x_low-int8` через CLI `sherpa-onnx-offline-tts` **v1.13.8**:
+  на кожну фразу — процес, що пише WAV у `os.tmpdir()`, потім `afplay`, файл видаляється
+  (~1 с синтезу, пік ~95 МБ, після фрази 0 МБ). Кнопка «Download Piper voice» качає ~32 МБ у
+  `<modelsDir>/piper/` — та сама тека поза бандлом, що й модель whisper (`MARSHAL_MODELS_DIR`);
+  з архіву runtime розпаковуються лише `bin/sherpa-onnx-offline-tts` і `lib/`. Piper — **лише
+  українська**: англійська завжди `say`; не завантажено або будь-який збій синтезу → та сама
+  фраза йде в `say` (`chooseSpeechEngine`, fallback у `SpeechService.play`). Текст іде після
+  `--`, бо інакше фраза з `-` стає прапорцем. **Версію не піднімати до 2.x:** sherpa-onnx v2
+  викинула espeak-ng і на Piper-голосах падає з «no frontend available». Голоси
+  `ukrainian_tts-medium` (lada / mykyta / tetiana) не підходять: їм потрібен наголошений
+  кириличний текст від Python-фронтенду, а через цей CLI виходить шум (перевірено whisper-ом).
+  Реліз rhasspy/piper для macOS зламаний (x86_64-бінарник без dylib-ів).
 
 - **Вікно асистента (home) — `desktop/assistant/`** (#284, #307). Клік по іконці в tray
   відкриває/закриває його. **Це єдине вікно Marshal** (#317): окремого вікна налаштувань і
