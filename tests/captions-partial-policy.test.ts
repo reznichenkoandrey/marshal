@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_PARTIAL_INTERVAL_MS,
+  LOCAL_PARTIAL_INTERVAL_MS,
   isPartialCurrent,
   MAX_PARTIAL_COOLDOWN_MS,
   MIN_PARTIAL_COOLDOWN_MS,
@@ -50,6 +51,12 @@ describe("resolvePartialIntervalMs", () => {
   it("clamps to the floor", () => {
     expect(resolvePartialIntervalMs("50")).toBe(MIN_PARTIAL_INTERVAL_MS);
     expect(resolvePartialIntervalMs("1500")).toBe(1_500);
+  });
+
+  it("moves faster on the local server, which has no request budget", () => {
+    expect(resolvePartialIntervalMs(undefined, "whisper-cpp")).toBe(LOCAL_PARTIAL_INTERVAL_MS);
+    expect(resolvePartialIntervalMs(undefined, "groq")).toBe(DEFAULT_PARTIAL_INTERVAL_MS);
+    expect(resolvePartialIntervalMs("1200", "whisper-cpp")).toBe(1_200);
   });
 });
 

@@ -25,17 +25,8 @@
     </header>
 
     <div class="strip" id="strip">
-      <div class="keys">
-        <span class="key" data-key="dictation">dict</span>
-        <span class="key" data-key="captions">capt</span>
-        <span class="key" data-key="translator">trns</span>
-        <span class="key" data-key="recording">rec</span>
-      </div>
       <div class="toggles">
         <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
-        <button type="button" class="tog" data-action="toggle-badge"><span class="sw" aria-hidden="true"></span><span data-label="badge"></span></button>
-        <button type="button" class="tog" data-action="toggle-glow"><span class="sw" aria-hidden="true"></span><span data-label="glow"></span></button>
-        <button type="button" class="tog" data-action="toggle-widget"><span class="sw" aria-hidden="true"></span><span data-label="widget"></span></button>
         <button type="button" class="tog lang" data-action="toggle-language"></button>
       </div>
       <div class="mem" id="mem" hidden><span class="batt" id="batt" aria-hidden="true"></span><span id="mem-text"></span></div>
@@ -59,6 +50,7 @@
       <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="26"></button>
       <button type="button" data-action="recordings" data-icon="history"></button>
       <button type="button" data-action="capture" data-icon="crop"></button>
+      <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal"></button>
       <button type="button" data-action="settings" data-icon="settings"></button>
     </nav>
     </section>
@@ -137,6 +129,28 @@
 
           <section class="settings-section" id="settings-sec-assistant" data-section="assistant">
             <h2 data-i18n="settings.assistantVoice">Assistant &amp; voice</h2>
+          <fieldset class="field-group">
+            <legend data-i18n="settings.indicators">Indicators</legend>
+
+            <label class="checkbox-row">
+              <input id="settings-assistant-widget" name="assistantWidget" type="checkbox" />
+              <span data-i18n="settings.assistantWidget">Mini widget on screen</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.assistantWidgetHint">A small voice visual you can drag anywhere. Shows which session waits for you; double-click opens this window.</p>
+
+            <label class="checkbox-row">
+              <input id="settings-assistant-glow" name="assistantGlow" type="checkbox" />
+              <span data-i18n="settings.assistantGlow">Screen edge glow</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.assistantGlowHint">The edges of the screen light up only while you dictate or Marshal speaks. Off during calls; hidden from screen sharing.</p>
+
+            <label class="checkbox-row">
+              <input id="settings-assistant-badge" name="assistantWaitingBadge" type="checkbox" />
+              <span data-i18n="settings.assistantBadge">Waiting count in the menu bar</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.assistantBadgeHint">A number next to the Marshal icon: how many Claude Code sessions wait for your answer. Empty when none wait; needs the Claude Code hooks.</p>
+          </fieldset>
+
           <fieldset class="field-group">
             <legend data-i18n="settings.voiceAssistant">Voice assistant</legend>
 

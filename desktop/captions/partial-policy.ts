@@ -27,6 +27,11 @@ import type { BackendName } from "../dictation/whisper-backend.ts";
  * most a pass sends, 1500 ms costs ~2 s of audio per second of speech.
  */
 export const DEFAULT_PARTIAL_INTERVAL_MS = 1_500;
+/**
+ * The resident local whisper-server has no request budget and answers a 3 s
+ * window in ~0.7 s (#218), so the live line can move twice as often (#339).
+ */
+export const LOCAL_PARTIAL_INTERVAL_MS = 750;
 /** Floor for the env override — below this the requests only queue up behind each other. */
 export const MIN_PARTIAL_INTERVAL_MS = 500;
 /**
@@ -91,9 +96,9 @@ export function resolvePartialBackend(raw: string | undefined, captionsBackend: 
   return captionsBackend === "whisper-cpp" ? "whisper-cpp" : "groq";
 }
 
-export function resolvePartialIntervalMs(raw: string | undefined): number {
+export function resolvePartialIntervalMs(raw: string | undefined, backend: BackendName | null = "groq"): number {
   const parsed = Number.parseInt(raw ?? "", 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_PARTIAL_INTERVAL_MS;
+  if (!Number.isFinite(parsed)) return backend === "whisper-cpp" ? LOCAL_PARTIAL_INTERVAL_MS : DEFAULT_PARTIAL_INTERVAL_MS;
   return Math.max(parsed, MIN_PARTIAL_INTERVAL_MS);
 }
 

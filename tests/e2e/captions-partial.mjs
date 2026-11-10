@@ -28,8 +28,8 @@ const ROOT = path.resolve(here, "../..");
 const RENDERER = path.join(ROOT, "dist", "desktop", "renderer");
 
 // Mirrors OVERLAY_DEFAULT_WIDTH / HEIGHT in desktop/captions/overlay-layout.ts.
-const OVERLAY_WIDTH = 640;
-const OVERLAY_HEIGHT = 190;
+const OVERLAY_WIDTH = 960;
+const OVERLAY_HEIGHT = 280;
 
 const LONG_PARTIAL =
   "so the way we handle backpressure on the ingestion side is that every consumer group " +

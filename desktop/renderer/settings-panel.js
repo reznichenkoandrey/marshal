@@ -54,6 +54,9 @@ const dom = {
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
   settingsSpeechEnabled: document.getElementById("settings-speech-enabled"),
   settingsAssistantDispatcher: document.getElementById("settings-assistant-dispatcher"),
+  settingsAssistantWidget: document.getElementById("settings-assistant-widget"),
+  settingsAssistantGlow: document.getElementById("settings-assistant-glow"),
+  settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
@@ -384,6 +387,9 @@ async function openSettings() {
     void api?.calendarStatus?.().then(renderCalendarStatus).catch(() => renderCalendarStatus(null));
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
+    if (dom.settingsAssistantWidget) dom.settingsAssistantWidget.checked = current.assistantWidget ?? false;
+    if (dom.settingsAssistantGlow) dom.settingsAssistantGlow.checked = current.assistantGlow ?? true;
+    if (dom.settingsAssistantBadge) dom.settingsAssistantBadge.checked = current.assistantWaitingBadge ?? true;
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
@@ -587,6 +593,9 @@ async function saveSettingsFromForm() {
     calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false,
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
+    assistantWidget: dom.settingsAssistantWidget?.checked ?? false,
+    assistantGlow: dom.settingsAssistantGlow?.checked ?? true,
+    assistantWaitingBadge: dom.settingsAssistantBadge?.checked ?? true,
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",

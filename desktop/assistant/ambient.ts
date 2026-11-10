@@ -19,9 +19,10 @@ export function glowFor(state: AssistantState, inCall: boolean, enabled: boolean
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Point = { x: number; y: number };
 
-export const WIDGET_WIDTH = 220;
-export const WIDGET_VISUAL = 112;
-export const WIDGET_CARD_HEIGHT = 46;
+// Mirrors .visual and .card in assistant-widget.css (#338).
+export const WIDGET_WIDTH = 168;
+export const WIDGET_VISUAL = 72;
+export const WIDGET_CARD_HEIGHT = 40;
 export const WIDGET_MAX_CARDS = 3;
 const WIDGET_MARGIN = 16;
 

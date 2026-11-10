@@ -17,8 +17,10 @@ export interface OverlayBoundsState {
   height: number;
 }
 
-export const OVERLAY_DEFAULT_WIDTH = 640;
-export const OVERLAY_DEFAULT_HEIGHT = 190;
+export const OVERLAY_DEFAULT_WIDTH = 960;
+export const OVERLAY_DEFAULT_HEIGHT = 280;
+/** Default before #339; a saved size equal to it was never chosen by the user. */
+const PREVIOUS_DEFAULT_SIZE = { width: 640, height: 190 };
 export const OVERLAY_MIN_WIDTH = 320;
 export const OVERLAY_MIN_HEIGHT = 96;
 /** Gap from the bottom edge when the overlay has never been moved. */
@@ -42,6 +44,13 @@ export function resolveOverlayBounds(state: OverlayBoundsState, workArea: Rect):
     width,
     height
   };
+}
+
+/** A saved size still at the old default moves to the new one; a size the user dragged stays. */
+export function upgradeSavedSize(size: { width: number; height: number }): { width: number; height: number } {
+  return size.width === PREVIOUS_DEFAULT_SIZE.width && size.height === PREVIOUS_DEFAULT_SIZE.height
+    ? { width: OVERLAY_DEFAULT_WIDTH, height: OVERLAY_DEFAULT_HEIGHT }
+    : size;
 }
 
 function clamp(value: number, min: number, max: number): number {

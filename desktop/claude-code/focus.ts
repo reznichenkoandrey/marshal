@@ -65,6 +65,8 @@ export function terminalTabScript(appPath: string, tty: string): string | null {
       "  repeat with w in windows",
       "    repeat with t in tabs of w",
       `      if tty of t is "${device}" then`,
+      // The assistant's sessions start minimised (#340).
+      "        set miniaturized of w to false",
       "        set selected of t to true",
       "        set index of w to 1",
       "        activate",

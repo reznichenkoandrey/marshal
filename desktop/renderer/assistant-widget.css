@@ -27,8 +27,8 @@ body {
 .widget[data-state="offline"] { --state: var(--state-fail); }
 
 .visual {
-  width: 112px;
-  height: 112px;
+  width: 72px;
+  height: 72px;
   flex: none;
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--bg-app) 88%, transparent) 58%, transparent 71%);
@@ -46,9 +46,9 @@ body {
 
 .card {
   box-sizing: border-box;
-  height: 42px;
+  height: 36px;
   margin-top: var(--space-1);
-  padding: var(--space-1) var(--space-3);
+  padding: 0 var(--space-2);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -69,7 +69,7 @@ body {
 }
 
 .card b {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-strong);
 }

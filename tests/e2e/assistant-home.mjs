@@ -213,10 +213,10 @@ async function main() {
   await fs.writeFile(preloadPath, preloadSource(), "utf8");
 
   const win = new BrowserWindow({
-    width: 920,
-    height: 600,
+    width: 1100,
+    height: 720,
     show: true,
-    // Like the real window: an occluded one gets no animation frames.
+    // Not like the real window (#336): an occluded test window gets no animation frames.
     alwaysOnTop: true,
     frame: false,
     transparent: true,
@@ -352,12 +352,9 @@ async function main() {
     strip: {
       active: { dictation: true, captions: false, translator: true, recording: false },
       speech: true,
-      badge: false,
       memory: { usedMb: 262, budgetMb: 300 },
       meeting: { title: "Daily", start: inTwelve, joinable: true },
-      hotkey: "CommandOrControl+Alt+A",
-      glow: true,
-      widget: false
+      hotkey: "CommandOrControl+Alt+A"
     }
   });
   await sleep(150);
@@ -365,11 +362,9 @@ async function main() {
     const strip = document.getElementById("strip");
     return {
       visible: !strip.hidden && getComputedStyle(strip).display !== "none",
-      lit: [...strip.querySelectorAll(".key.on")].map((key) => key.dataset.key),
+      lit: [...document.querySelectorAll(".dock button.on")].map((button) => button.dataset.action),
+      litTitle: document.querySelector('.dock [data-action="translator"]').title,
       speech: strip.querySelector('[data-action="toggle-speech"]').getAttribute("aria-pressed"),
-      badge: strip.querySelector('[data-action="toggle-badge"]').getAttribute("aria-pressed"),
-      glow: strip.querySelector('[data-action="toggle-glow"]').getAttribute("aria-pressed"),
-      widget: strip.querySelector('[data-action="toggle-widget"]').getAttribute("aria-pressed"),
       lang: strip.querySelector('[data-action="toggle-language"]').textContent,
       mem: document.getElementById("mem-text").textContent,
       cells: strip.querySelectorAll(".batt i.on").length,
@@ -378,10 +373,10 @@ async function main() {
       hotkey: document.getElementById("hotkey").textContent
     };
   })()`);
-  record("the strip lights what runs", stripView.visible && stripView.lit.join() === "dictation,translator", stripView.lit.join());
-  record("toggles show their state",
-    stripView.speech === "true" && stripView.badge === "false" && stripView.glow === "true" && stripView.widget === "false" && stripView.lang === "UK",
-    `${stripView.speech} / ${stripView.badge} / ${stripView.glow} / ${stripView.widget} / ${stripView.lang}`);
+  record("the dock lights what runs (#341)",
+    stripView.visible && stripView.lit.join() === "translator" && stripView.litTitle.endsWith("· увімкнено"),
+    `${stripView.lit.join()} — ${stripView.litTitle}`);
+  record("toggles show their state", stripView.speech === "true" && stripView.lang === "UK", `${stripView.speech} / ${stripView.lang}`);
   record("memory reads against the idle budget", stripView.mem === "mem 262/300" && stripView.cells === 9,
     `${stripView.mem}, ${stripView.cells} cells`);
   record("the next meeting counts down with Join", stripView.meeting === "Daily за 12 хв" && stripView.join, stripView.meeting);
@@ -389,23 +384,20 @@ async function main() {
   await shoot(win, "home-dark-strip");
   const before = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
   await win.webContents.executeJavaScript(
-    `["toggle-speech", "toggle-badge", "toggle-glow", "toggle-widget", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
+    `["toggle-speech", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
   );
   await sleep(100);
   const stripSent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(before);
-  record("strip clicks reach main by name", stripSent.join() === "toggle-speech,toggle-badge,toggle-glow,toggle-widget,toggle-language,join-meeting", stripSent.join());
+  record("strip clicks reach main by name", stripSent.join() === "toggle-speech,toggle-language,join-meeting", stripSent.join());
   win.webContents.send("marshal:assistant-state", {
     state: "waiting",
     lang: "uk",
     strip: {
       active: { dictation: false, captions: false, translator: false, recording: true },
       speech: false,
-      badge: true,
       memory: { usedMb: 340, budgetMb: 300 },
       meeting: { title: "Retro", start: new Date(Date.now() - 60_000).toISOString(), joinable: false },
-      hotkey: null,
-      glow: false,
-      widget: true
+      hotkey: null
     }
   });
   await sleep(150);
@@ -422,7 +414,7 @@ async function main() {
   await sleep(300);
   const narrow = await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector(".side")).display`);
   record("a narrow window drops the side panel, not the visual", narrow === "none", narrow);
-  win.setSize(920, 600);
+  win.setSize(1100, 720);
   await sleep(300);
   const RAIL = `document.querySelector("#settings-rail [data-section='dictation']").textContent`;
   const ukRail = await win.webContents.executeJavaScript(RAIL);
@@ -439,7 +431,7 @@ async function main() {
   const dock = await win.webContents.executeJavaScript(
     `[...document.querySelectorAll(".dock [data-action]")].map((b) => ({ action: b.dataset.action, title: b.title, icon: !!b.querySelector("svg") }))`
   );
-  record("every dock button has a title and an icon", dock.length === 7 && dock.every((b) => b.title && b.icon),
+  record("every dock button has a title and an icon", dock.length === 8 && dock.every((b) => b.title && b.icon),
     dock.map((b) => b.action).join(", "));
   record("the dock has no agent chat (#317)", !dock.some((b) => b.action === "agent"));
   const earlier = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
@@ -499,12 +491,12 @@ async function main() {
     await win.webContents.executeJavaScript(`document.getElementById("home").dataset.view === "settings"`));
   if (SHOTS) {
     await fs.mkdir(SHOTS, { recursive: true });
-    for (const width of [460, 760, 920]) {
-      win.setSize(width, 600);
+    for (const width of [520, 760, 1100]) {
+      win.setSize(width, 720);
       await sleep(250);
       await fs.writeFile(path.join(SHOTS, `home-settings-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
-    win.setSize(920, 600);
+    win.setSize(1100, 720);
     await sleep(250);
   }
   await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);

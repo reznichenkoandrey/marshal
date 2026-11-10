@@ -5,7 +5,8 @@ import {
   OVERLAY_DEFAULT_WIDTH,
   OVERLAY_MIN_WIDTH,
   resolveOverlayBounds,
-  shouldAcceptMouse
+  shouldAcceptMouse,
+  upgradeSavedSize
 } from "../desktop/captions/overlay-layout.ts";
 import { encodeWavPcm16Mono } from "../desktop/captions/wav.ts";
 
@@ -55,5 +56,15 @@ describe("encodeWavPcm16Mono", () => {
     expect(wav.readUInt32LE(40)).toBe(6);
     expect(wav.readInt16LE(44)).toBe(1);
     expect(wav.readInt16LE(48)).toBe(32767);
+  });
+});
+
+describe("upgradeSavedSize", () => {
+  it("moves a size still at the pre-#339 default to the new default", () => {
+    expect(upgradeSavedSize({ width: 640, height: 190 })).toEqual({ width: OVERLAY_DEFAULT_WIDTH, height: OVERLAY_DEFAULT_HEIGHT });
+  });
+
+  it("keeps a size the user chose", () => {
+    expect(upgradeSavedSize({ width: 700, height: 190 })).toEqual({ width: 700, height: 190 });
   });
 });

@@ -1,7 +1,8 @@
 // Assistant home window (#284): the HUD voice visual and the dock. Created on
 // open and destroyed on close, so no renderer — and no animation — lives on
-// while nobody looks at it (#281). Floating because Marshal is LSUIElement: a
-// plain window that falls behind another app has no way back (#168).
+// while nobody looks at it (#281). Not floating (#336): it falls behind the
+// app the user clicks, and the tray icon or the hotkey bring it back — the
+// way back an LSUIElement window needs (#168).
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,20 +15,16 @@ import type { AssistantState, SessionGroup } from "./assistant-state.ts";
 const currentFilePath = fileURLToPath(import.meta.url);
 const rendererDir = path.join(path.dirname(currentFilePath), "..", "renderer");
 
-const WIDTH = 920;
-const HEIGHT = 600;
+const WIDTH = 1100;
+const HEIGHT = 720;
 
 export type AssistantStrip = {
   active: { dictation: boolean; captions: boolean; translator: boolean; recording: boolean };
   speech: boolean;
-  badge: boolean;
   /** null until the one measurement taken on open finishes, or when it failed. */
   memory: { usedMb: number; budgetMb: number } | null;
   meeting: { title: string; start: string; joinable: boolean } | null;
   hotkey: string | null;
-  // Ambient indicators (#285).
-  glow: boolean;
-  widget: boolean;
 };
 
 export type AssistantView = {
@@ -55,9 +52,9 @@ export class AssistantHomeWindow {
     return this.window !== null && !this.window.isDestroyed();
   }
 
-  toggle(): void {
-    if (this.isOpen() && this.window?.isVisible()) this.close();
-    else this.open();
+  /** Open, shown and focused: a toggle closes it; anything less, a toggle raises it. */
+  isInFront(): boolean {
+    return this.isOpen() && (this.window?.isVisible() ?? false) && (this.window?.isFocused() ?? false);
   }
 
   open(): void {
@@ -73,8 +70,8 @@ export class AssistantHomeWindow {
     this.window = new BrowserWindow({
       width: WIDTH,
       height: HEIGHT,
-      minWidth: 460,
-      minHeight: 480,
+      minWidth: 520,
+      minHeight: 560,
       x: Math.round(area.x + (area.width - WIDTH) / 2),
       y: Math.round(area.y + (area.height - HEIGHT) / 2),
       show: false,
@@ -84,7 +81,6 @@ export class AssistantHomeWindow {
       hasShadow: true,
       resizable: true,
       fullscreenable: false,
-      alwaysOnTop: true,
       skipTaskbar: true,
       title: "Marshal",
       webPreferences: {

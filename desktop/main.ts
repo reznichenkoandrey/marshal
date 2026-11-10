@@ -520,6 +520,12 @@ function registerIpcHandlers(): void {
       saved.translatorFormality
     );
     broadcastUiLanguage();
+    // The ambient toggles live in Settings now (#341) and apply on save.
+    if (saved.assistantWidget) miniWidget?.open();
+    else miniWidget?.close();
+    updateAmbient();
+    countWaitingSessions();
+    pushAssistantStrip();
     // Only the reasoning bridge reads provider and model; anything else
     // restarting it would drop a running agent task for nothing (#317).
     if (BACKEND_SETTING_KEYS.some((key) => saved[key] !== before[key])) await backendClient.restart();
@@ -2680,12 +2686,9 @@ function assistantStrip(): AssistantStrip {
       recording: isMeetingRecording || isRecording
     },
     speech: settings.speechEnabled,
-    badge: settings.assistantWaitingBadge,
     memory: assistantMemory,
     meeting: meeting ? { title: meeting.title, start: meeting.start.toISOString(), joinable: meeting.link !== null } : null,
-    hotkey: assistantHotkey,
-    glow: settings.assistantGlow,
-    widget: settings.assistantWidget
+    hotkey: assistantHotkey
   };
 }
 
@@ -2742,8 +2745,9 @@ function registerAssistantHotkey(): void {
   console.log(`[assistant] hotkey ${accelerator} ${registered ? "registered" : "could not register — another app owns it"}`);
 }
 
+// A window behind another app is raised, not closed (#336).
 function toggleAssistantHome(): void {
-  if (assistantHome?.isOpen()) assistantHome.close();
+  if (assistantHome?.isInFront()) assistantHome.close();
   else openAssistantHome();
 }
 
@@ -2834,6 +2838,29 @@ async function syncAssistantDispatcher(): Promise<void> {
     sayAsAssistant(`Асистент не запустився: ${hooks.error}`);
     return;
   }
+  await assistantDispatcher.start();
+}
+
+// Dock button (#340): start the dispatcher if it is not running and show its
+// Terminal window. Pressing it is the same explicit choice as the first mic press.
+async function showDispatcherTerminal(): Promise<void> {
+  if (!assistantDispatcher || !claudeHooks) return;
+  if (!loadSettings().assistantDispatcher) {
+    saveSettings({ assistantDispatcher: true });
+    pushAssistantStrip();
+  }
+  const hooks = await claudeHooks.ensureInstalled();
+  if (hooks.error) {
+    announceToAssistant(`${t("home.dispatcherFailed")}: ${hooks.error}`);
+    return;
+  }
+  try {
+    await assistantDispatcher.reveal();
+  } catch (err) {
+    announceToAssistant(`${t("home.dispatcherFailed")}: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  // `general` too, minimised as usual; the dispatcher just opened is not opened twice.
   await assistantDispatcher.start();
 }
 
@@ -3011,29 +3038,14 @@ function runAssistantAction(name: string | undefined): void {
       broadcastUiLanguage();
       pushAssistantStrip();
       return;
-    case "toggle-glow":
-      saveSettings({ assistantGlow: !loadSettings().assistantGlow });
-      updateAmbient();
-      pushAssistantStrip();
+    case "dispatcher-terminal":
+      void showDispatcherTerminal();
       return;
-    case "toggle-widget": {
-      const widget = !loadSettings().assistantWidget;
-      saveSettings({ assistantWidget: widget });
-      if (widget) miniWidget?.open();
-      else miniWidget?.close();
-      pushAssistantStrip();
-      return;
-    }
     case "skip-speech":
       speechService?.skip();
       return;
     case "open-home":
       openAssistantHome();
-      return;
-    case "toggle-badge":
-      saveSettings({ assistantWaitingBadge: !loadSettings().assistantWaitingBadge });
-      countWaitingSessions();
-      pushAssistantStrip();
       return;
     case "join-meeting": {
       const link = calendarService?.nextMeeting()?.link;

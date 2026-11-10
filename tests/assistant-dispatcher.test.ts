@@ -228,6 +228,22 @@ describe("dispatcher over the hook receiver", () => {
     }
   });
 
+  it("reveal opens a missing dispatcher in plain sight, then un-minimises it while it starts", async () => {
+    const { dispatcher, scripts } = setup([]);
+    await dispatcher.reveal();
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]).toContain("--name marshal-dispatcher");
+    expect(scripts[0]).not.toContain("miniaturized");
+    expect(scripts[0]).toContain("activate");
+    await dispatcher.reveal();
+    expect(scripts[1]).toContain("set miniaturized of w to false");
+    expect(scripts[1]).toContain("contains \"marshal-dispatcher\"");
+    // `general` still opens minimised; the dispatcher is not opened twice.
+    await dispatcher.start();
+    expect(scripts).toHaveLength(3);
+    expect(scripts[2]).toContain("--name general");
+  });
+
   it("opens the dispatcher and general once, in minimised Terminal windows", async () => {
     const { dispatcher, scripts } = setup([]);
     await dispatcher.start();

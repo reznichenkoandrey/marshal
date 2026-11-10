@@ -183,13 +183,30 @@ export function sessionCommandLine(name: string | null): string {
 // window nobody looks at (#322); the assistant's sessions use the owner's login.
 const CLAUDE_ENV_RESET = "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL";
 
-export function terminalScript(cwd: string, commandLine: string, title: string): string {
+export function terminalScript(cwd: string, commandLine: string, title: string, minimised = true): string {
   const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}`;
   const appleString = `"${command.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
   return [
     "tell application \"Terminal\"",
     `  do script ${appleString}`,
-    "  set miniaturized of front window to true",
+    ...(minimised ? ["  set miniaturized of front window to true"] : ["  activate"]),
+    "end tell"
+  ].join("\n");
+}
+
+/** Brings the Terminal window whose title contains `title` forward, un-minimised. */
+export function unminimiseTerminalScript(title: string): string {
+  const appleTitle = `"${title.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  return [
+    "tell application \"Terminal\"",
+    "  repeat with w in windows",
+    `    if name of w contains ${appleTitle} then`,
+    "      set miniaturized of w to false",
+    "      set index of w to 1",
+    "      activate",
+    "      return",
+    "    end if",
+    "  end repeat",
     "end tell"
   ].join("\n");
 }
