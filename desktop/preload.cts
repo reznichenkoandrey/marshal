@@ -490,7 +490,14 @@ type AssistantPayload = {
   lang: "uk" | "en";
   lines?: string[];
   sessions?: { project: string; sessions: { pid: number; name: string; status: string | null; waitingFor: string | null }[] }[];
-  telemetry?: { label: string; value: string }[];
+  strip?: {
+    active: { dictation: boolean; captions: boolean; translator: boolean; recording: boolean };
+    speech: boolean;
+    badge: boolean;
+    memory: { usedMb: number; budgetMb: number } | null;
+    meeting: { title: string; start: string; joinable: boolean } | null;
+    hotkey: string | null;
+  };
 };
 const assistantApi = {
   onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>

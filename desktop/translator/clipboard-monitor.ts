@@ -25,7 +25,7 @@ import { acquireUiohook, type UiohookReleaseFn } from "../uiohook-lifecycle.ts";
 
 const DOUBLE_COPY_WINDOW_MS = 600;
 const POST_COPY_READ_DELAY_MS = 80;
-const DEDICATED_HOTKEY = "CommandOrControl+Alt+T";
+export const DEDICATED_HOTKEY = "CommandOrControl+Alt+T";
 const EMIT_DEBOUNCE_MS = 400;
 
 export class ClipboardMonitor extends EventEmitter {

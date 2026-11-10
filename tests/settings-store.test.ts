@@ -99,7 +99,9 @@ describe("saveSettings", () => {
       dictationAutoPaste: true,
       dictationHoldDelayMs: 350,
       dictationToggleTapCount: 2,
-      dictationPrompt: "React, Magento, PR"
+      dictationPrompt: "React, Magento, PR",
+      assistantLanguage: "en",
+      assistantWaitingBadge: false
     });
     expect(saved).toEqual({
       bridgeMode: "api",
@@ -147,7 +149,9 @@ describe("saveSettings", () => {
       speechEnabled: false,
       speechRate: 190,
       speechVoiceUk: "",
-      speechVoiceEn: ""
+      speechVoiceEn: "",
+      assistantLanguage: "en",
+      assistantWaitingBadge: false
     });
   });
 

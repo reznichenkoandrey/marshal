@@ -44,7 +44,9 @@ export class ClaudeHooksController {
   constructor(
     userDataDir: string,
     // Every notification text also goes to the assistant home's line (#308).
-    private readonly announce: (text: string) => void = () => {}
+    private readonly announce: (text: string) => void = () => {},
+    // Any hook event may change which sessions wait: the tray badge recounts (#309).
+    private readonly onSessionEvent: () => void = () => {}
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -68,6 +70,7 @@ export class ClaudeHooksController {
     });
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
       void this.notifier.handle(event);
+      this.onSessionEvent();
       // A finished turn is when "what it is doing now" changes.
       if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
