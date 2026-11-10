@@ -1,27 +1,34 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   NO_EN_VOICE_MESSAGE,
   NO_UK_VOICE_MESSAGE,
   SpeechQueue,
+  chooseSpeechEngine,
   detectSpeechLang,
   normalizeSpeechRate,
   parseSayVoices,
   pickVoice,
   voicesForLang,
+  type SpeechEngine,
   type SpeechItem,
   type SpeechLang,
   type SystemVoice
 } from "./speech-policy.ts";
+import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 
 const SAY_PATH = "/usr/bin/say";
+const AFPLAY_PATH = "/usr/bin/afplay";
 // How often a pending or playing phrase re-checks the "must stay silent"
 // signals. Push-to-talk calls interrupt() directly; this catches the rest.
 const GATE_POLL_MS = 250;
 
 export type SpeechSettings = {
   enabled: boolean;
+  engine: SpeechEngine;
   rate: number;
   voiceUk: string;
   voiceEn: string;
@@ -44,9 +51,13 @@ export type SpeechVoiceReport = {
   available: boolean;
   uk: SystemVoice[];
   en: SystemVoice[];
+  piperInstalled: boolean;
 };
 
-type QueuedPhrase = SpeechItem & { voice: string };
+/** `voice` is the `say` voice; empty when only Piper can speak the phrase (no fallback then). */
+type QueuedPhrase = SpeechItem & { voice: string; engine: SpeechEngine };
+
+type Playback = { phrase: QueuedPhrase; child: ChildProcess | null; requeue: boolean; cut: boolean };
 
 /**
  * Spoken updates (#266) through the native `say` voices — no model, no extra
@@ -56,7 +67,8 @@ type QueuedPhrase = SpeechItem & { voice: string };
  */
 export class SpeechService {
   private readonly queue = new SpeechQueue<QueuedPhrase>();
-  private current: { phrase: QueuedPhrase; child: ChildProcess; requeue: boolean } | null = null;
+  private current: Playback | null = null;
+  private wavCounter = 0;
   private voices: Promise<SystemVoice[]> | null = null;
   private gateTimer: NodeJS.Timeout | null = null;
 
@@ -87,7 +99,12 @@ export class SpeechService {
 
   async describeVoices(): Promise<SpeechVoiceReport> {
     const voices = await this.listVoices(true);
-    return { available: this.isAvailable(), uk: voicesForLang(voices, "uk"), en: voicesForLang(voices, "en") };
+    return {
+      available: this.isAvailable(),
+      uk: voicesForLang(voices, "uk"),
+      en: voicesForLang(voices, "en"),
+      piperInstalled: isPiperInstalled()
+    };
   }
 
   async speak(text: string, options: SpeakOptions = {}): Promise<SpeakResult> {
@@ -102,9 +119,15 @@ export class SpeechService {
     let voice = pickVoice(await this.listVoices(), lang, preferred);
     // A voice installed after the first listing should work without a restart.
     voice ??= pickVoice(await this.listVoices(true), lang, preferred);
+    const engine = chooseSpeechEngine(settings.engine, lang, isPiperInstalled());
+    if (engine === "piper") {
+      this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice?.name ?? "", engine });
+      this.pump();
+      return { ok: true, lang, voice: PIPER_VOICE_LABEL };
+    }
     if (!voice) return { ok: false, lang, error: lang === "uk" ? NO_UK_VOICE_MESSAGE : NO_EN_VOICE_MESSAGE };
 
-    this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice.name });
+    this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice.name, engine });
     this.pump();
     return { ok: true, lang, voice: voice.name };
   }
@@ -129,7 +152,8 @@ export class SpeechService {
   private cut(requeue: boolean): void {
     if (!this.current) return;
     this.current.requeue = requeue;
-    this.current.child.kill();
+    this.current.cut = true;
+    this.current.child?.kill();
   }
 
   private pump(): void {
@@ -142,29 +166,67 @@ export class SpeechService {
     if (this.blockedReason()) return;
     const phrase = this.queue.take();
     if (!phrase) return;
-    const rate = normalizeSpeechRate(this.settings().rate);
-    const child = spawn(SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], { stdio: ["pipe", "ignore", "pipe"] });
-    const entry = { phrase, child, requeue: false };
+    const entry: Playback = { phrase, child: null, requeue: false, cut: false };
     this.current = entry;
     this.onSpeakingChange(true);
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    // stdin, not argv: text that starts with "-" would otherwise parse as a flag.
-    child.stdin?.on("error", () => {});
-    child.stdin?.end(phrase.text);
-    const finish = (error?: string): void => {
+    void this.play(entry).then((error) => {
       if (this.current !== entry) return;
       this.current = null;
-      if (error) console.warn("[speech] say failed:", error);
+      if (error) console.warn("[speech] playback failed:", error);
       if (entry.requeue) this.queue.requeue(phrase);
       this.pump();
       // After pump: the next queued phrase keeps "speaking" without a flicker to idle.
       if (!this.current) this.onSpeakingChange(false);
-    };
-    child.on("error", (err) => finish(err.message));
-    child.on("exit", (code, signal) => finish(code === 0 || signal ? undefined : stderr.trim() || `exit ${code}`));
+    });
+  }
+
+  /** Resolves with an error message, or undefined when spoken or cut. */
+  private async play(entry: Playback): Promise<string | undefined> {
+    const { phrase } = entry;
+    const rate = normalizeSpeechRate(this.settings().rate);
+    if (phrase.engine === "piper") {
+      const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
+      try {
+        const paths = piperPaths();
+        const synthError = await this.run(entry, paths.binary, buildPiperArgs(paths, phrase.text, wav, rate));
+        if (entry.cut) return undefined;
+        if (!synthError) return await this.run(entry, AFPLAY_PATH, [wav]);
+        console.warn("[speech] Piper failed, falling back to say:", synthError);
+      } finally {
+        await fs.promises.rm(wav, { force: true });
+      }
+      if (entry.cut) return undefined;
+      if (!phrase.voice) return "Piper failed and no macOS voice is installed for this language.";
+    }
+    // stdin, not argv: text that starts with "-" would otherwise parse as a flag.
+    return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.text);
+  }
+
+  private run(entry: Playback, command: string, args: string[], stdinText?: string): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const child = spawn(command, args, { stdio: [stdinText === undefined ? "ignore" : "pipe", "ignore", "pipe"] });
+      entry.child = child;
+      let stderr = "";
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      if (stdinText !== undefined) {
+        child.stdin?.on("error", () => {});
+        child.stdin?.end(stdinText);
+      }
+      let settled = false;
+      const done = (error?: string): void => {
+        if (settled) return;
+        settled = true;
+        entry.child = null;
+        resolve(error);
+      };
+      child.on("error", (err) => done(err.message));
+      // sherpa-onnx prints its whole config first; the reason is the last line.
+      child.on("exit", (code, signal) =>
+        done(code === 0 || signal ? undefined : stderr.trim().split("\n").pop() || `exit ${code}`)
+      );
+    });
   }
 
   private startGate(): void {

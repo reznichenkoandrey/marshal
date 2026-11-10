@@ -166,12 +166,27 @@
               <span>Read short session updates aloud</span>
             </label>
             <p class="field-hint">
-              Native macOS voices, nothing to download. Ukrainian text gets the Ukrainian voice, English the
-              English one. Silent while dictating, recording a meeting or running live captions.
+              Ukrainian text gets the Ukrainian voice, English the English one. Silent while dictating,
+              recording a meeting or running live captions.
             </p>
 
             <div class="field">
-              <label for="settings-speech-voice-uk">Ukrainian voice</label>
+              <label for="settings-speech-engine">Ukrainian engine</label>
+              <select id="settings-speech-engine" name="speechEngine">
+                <option value="macos">macOS</option>
+                <option value="piper">Piper (local)</option>
+              </select>
+              <p id="settings-speech-piper-status" class="field-hint">
+                Piper is a local neural voice (Lada), Ukrainian only; English stays on macOS. Any Piper failure
+                falls back to the macOS voice.
+              </p>
+              <button type="button" id="settings-speech-piper-install" class="btn btn-secondary" hidden>
+                Download Piper voice (32 MB)
+              </button>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-voice-uk">Ukrainian macOS voice</label>
               <select id="settings-speech-voice-uk" name="speechVoiceUk">
                 <option value="">Automatic</option>
               </select>

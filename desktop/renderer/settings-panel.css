@@ -475,6 +475,8 @@
   color: var(--danger-text);
   background: var(--danger-soft);
 }
+.btn[hidden] { display: none; }
+
 .btn {
   font: inherit;
   font-size: var(--fs-base);

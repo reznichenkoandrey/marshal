@@ -55,6 +55,9 @@ const dom = {
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
+  settingsSpeechEngine: document.getElementById("settings-speech-engine"),
+  settingsSpeechPiperStatus: document.getElementById("settings-speech-piper-status"),
+  settingsSpeechPiperInstall: document.getElementById("settings-speech-piper-install"),
   settingsSpeechVoiceUk: document.getElementById("settings-speech-voice-uk"),
   settingsSpeechVoiceEn: document.getElementById("settings-speech-voice-en"),
   settingsSpeechRate: document.getElementById("settings-speech-rate"),
@@ -142,12 +145,36 @@ async function populateSpeechVoices(voiceUk, voiceEn) {
   };
   fill(dom.settingsSpeechVoiceUk, report?.uk ?? [], voiceUk);
   fill(dom.settingsSpeechVoiceEn, report?.en ?? [], voiceEn);
+  showPiperState(report?.piperInstalled === true);
   if (!dom.settingsSpeechStatus) return;
   dom.settingsSpeechStatus.textContent = SPEECH_TEST_HINT;
   if (!report?.available) {
     dom.settingsSpeechStatus.textContent = "Spoken updates need macOS speech (`say` was not found).";
   } else if ((report.uk ?? []).length === 0) {
     dom.settingsSpeechStatus.textContent = NO_UK_VOICE_HINT;
+  }
+}
+
+function showPiperState(installed) {
+  if (dom.settingsSpeechPiperInstall) dom.settingsSpeechPiperInstall.hidden = installed;
+  if (!dom.settingsSpeechPiperStatus) return;
+  dom.settingsSpeechPiperStatus.textContent = installed
+    ? "Piper voice installed (Lada, Ukrainian). English stays on macOS; any Piper failure falls back to macOS."
+    : "Piper is a local neural voice (Lada), Ukrainian only. Not downloaded yet — macOS speaks until it is.";
+}
+
+async function installPiperVoice() {
+  if (!api?.installPiperVoice || !dom.settingsSpeechPiperInstall) return;
+  dom.settingsSpeechPiperInstall.disabled = true;
+  if (dom.settingsSpeechPiperStatus) dom.settingsSpeechPiperStatus.textContent = "Downloading Piper voice…";
+  try {
+    const result = await api.installPiperVoice();
+    if (result.ok) showPiperState(true);
+    else if (dom.settingsSpeechPiperStatus) dom.settingsSpeechPiperStatus.textContent = `Download failed: ${result.error}`;
+  } catch (err) {
+    if (dom.settingsSpeechPiperStatus) dom.settingsSpeechPiperStatus.textContent = `Download failed: ${err?.message ?? String(err)}`;
+  } finally {
+    dom.settingsSpeechPiperInstall.disabled = false;
   }
 }
 
@@ -299,6 +326,7 @@ async function openSettings() {
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "auto";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
+    if (dom.settingsSpeechEngine) dom.settingsSpeechEngine.value = current.speechEngine === "piper" ? "piper" : "macos";
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
@@ -491,6 +519,7 @@ async function saveSettingsFromForm() {
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "auto",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
+    speechEngine: dom.settingsSpeechEngine?.value ?? "macos",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
     speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? ""
@@ -782,6 +811,7 @@ function bindEvents() {
   });
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
+  dom.settingsSpeechPiperInstall?.addEventListener("click", installPiperVoice);
   dom.appearanceSegmented?.addEventListener("click", (e) => {
     const btn = e.target.closest(".segmented-btn");
     if (!btn?.dataset.appearance) return;

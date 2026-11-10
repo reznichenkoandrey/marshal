@@ -187,6 +187,7 @@ const desktopApi = {
     assistantGeneralDir?: string;
     assistantGeneralPermissionMode?: string;
     assistantDispatcherModel?: string;
+    speechEngine?: string;
     speechRate?: number;
     speechVoiceUk?: string;
     speechVoiceEn?: string;
@@ -206,7 +207,11 @@ const desktopApi = {
     available: boolean;
     uk: Array<{ name: string; locale: string }>;
     en: Array<{ name: string; locale: string }>;
+    piperInstalled: boolean;
   }>,
+  installPiperVoice: () => ipcRenderer.invoke("marshal:speech-install-piper") as Promise<
+    { ok: true } | { ok: false; error: string }
+  >,
   speakTestPhrase: () => ipcRenderer.invoke("marshal:speech-test") as Promise<
     Array<{ ok: true; lang: string; voice: string } | { ok: false; lang?: string; error: string }>
   >,
