@@ -14,6 +14,11 @@ export interface BlurContext {
   pinned: boolean;
   /** The source field holds text — a translation in progress. */
   hasContent: boolean;
+  /**
+   * The hotkey popup (#344). It only shows a result, nothing is being typed
+   * in it, and the translation is already in history — so it always goes.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -24,6 +29,7 @@ export interface BlurContext {
  * close button and Clear remain the explicit ways out.
  */
 export function shouldHideOnBlur(context: BlurContext): boolean {
+  if (context.compact) return true;
   if (context.pinned) return false;
   return !context.hasContent;
 }

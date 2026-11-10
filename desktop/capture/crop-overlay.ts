@@ -49,7 +49,11 @@ export interface CropOverlayOptions {
   preloadPath: string;
   /** Directory holding the compiled renderer assets. */
   rendererDir: string;
-  /** Full-display PNG as a data URL; older overlay payloads still read it. */
+  /**
+   * Full-display PNG as a data URL, grabbed before the overlay opened. The
+   * overlay paints it as a frozen screen, so menus and popovers that close
+   * when the overlay takes focus stay visible and selectable (#342).
+   */
   screenshotDataUrl: string;
   /** Called with the live window so a caller can keep its own reference. */
   onWindow?: (window: BrowserWindow | null) => void;
@@ -69,6 +73,7 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
     const token = randomUUID();
     const selectChannel = `marshal:crop-selected:${token}`;
     const cancelChannel = `marshal:crop-cancelled:${token}`;
+    const readyChannel = `marshal:crop-ready:${token}`;
 
     const cropWindow = new BrowserWindow({
       // Cover the whole display without fullscreen mode: setFullScreen(true)
@@ -89,6 +94,10 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
       resizable: false,
       movable: false,
       focusable: true,
+      // Shown once the frozen screenshot is painted (#342): a window shown
+      // earlier flashes the live screen, where the menu the user wanted to
+      // capture has already closed.
+      show: false,
       webPreferences: {
         preload: opts.preloadPath,
         contextIsolation: true,
@@ -108,13 +117,20 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
       if (cropWindow.isDestroyed()) return;
       cropWindow.webContents.send("crop-init", {
         dataUrl: opts.screenshotDataUrl,
-        channels: { select: selectChannel, cancel: cancelChannel }
+        channels: { select: selectChannel, cancel: cancelChannel, ready: readyChannel }
       });
     });
+
+    const onReady = (): void => {
+      if (cropWindow.isDestroyed()) return;
+      cropWindow.show();
+      cropWindow.focus();
+    };
 
     const detach = (): void => {
       ipcMain.removeListener(selectChannel, onRegion);
       ipcMain.removeListener(cancelChannel, onCancel);
+      ipcMain.removeListener(readyChannel, onReady);
     };
 
     const cleanup = (): void => {
@@ -135,6 +151,7 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
 
     ipcMain.once(selectChannel, onRegion);
     ipcMain.once(cancelChannel, onCancel);
+    ipcMain.once(readyChannel, onReady);
 
     cropWindow.on("closed", () => {
       detach();

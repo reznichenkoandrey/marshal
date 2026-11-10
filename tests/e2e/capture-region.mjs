@@ -33,7 +33,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, nativeImage, screen, systemPreferences } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, screen, systemPreferences } from "electron";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -49,6 +49,13 @@ const log = (step, detail) => {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The real preload asks main for the UI language synchronously; without an
+// answer the overlay page stalls ~30 s before it loads, and it stays hidden
+// until it has painted the frozen screen (#342).
+ipcMain.on("marshal:ui-language", (event) => {
+  event.returnValue = "en";
+});
 
 app.on("window-all-closed", () => {
   // This harness manages its own lifetime.
@@ -93,7 +100,8 @@ async function waitForOverlay(display, exclude) {
   for (let i = 0; i < 100; i += 1) {
     await sleep(100);
     const found = BrowserWindow.getAllWindows().find((w) => {
-      if (w.isDestroyed() || exclude.includes(w)) return false;
+      // Hidden until the frozen screenshot is painted (#342).
+      if (w.isDestroyed() || !w.isVisible() || exclude.includes(w)) return false;
       const b = w.getBounds();
       return b.width === display.bounds.width && b.height === display.bounds.height;
     });
@@ -192,6 +200,37 @@ app.whenReady().then(async () => {
     report.checks.overlayCoversDisplay =
       viewport.w === display.bounds.width && viewport.h === display.bounds.height;
 
+    // ── 1b. The overlay shows the frozen screen (#342) ────────────────────
+    // The marker stands in for another app's popup menu: it disappears once
+    // the overlay is up, the way a menu closes when the overlay takes focus.
+    // The user must still see it on the overlay, and the crop must still hold it.
+    holder.hide();
+    await sleep(200);
+    const markerCenter = {
+      x: Math.round((holderBounds.x - display.bounds.x + holderBounds.width / 2) * scale),
+      y: Math.round((holderBounds.y - display.bounds.y + holderBounds.height / 2) * scale)
+    };
+    const frozenPixel = JSON.parse(
+      await overlay.webContents.executeJavaScript(`(() => {
+        const img = document.getElementById("frozen");
+        if (!img || !img.naturalWidth) return JSON.stringify(null);
+        const canvas = document.createElement("canvas");
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, ${markerCenter.x}, ${markerCenter.y}, 1, 1, 0, 0, 1, 1);
+        const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+        const rect = img.getBoundingClientRect();
+        return JSON.stringify({ r, g, b, cssWidth: rect.width, cssHeight: rect.height });
+      })()`)
+    );
+    log("frozen pixel under the vanished marker", frozenPixel);
+    report.checks.frozenPixel = frozenPixel;
+    report.checks.frozenScreenShown =
+      frozenPixel !== null &&
+      frozenPixel.r > 200 && frozenPixel.g < 70 && frozenPixel.b > 200 &&
+      frozenPixel.cssWidth === display.bounds.width && frozenPixel.cssHeight === display.bounds.height;
+
     // ── 2. Draw a rectangle around the marker and check where it lands ──
     // Screen coordinates throughout — that is what the user points at, and
     // what the returned crop has to agree with.
@@ -242,6 +281,7 @@ app.whenReady().then(async () => {
     const mustPass = [
       "overlayAtDisplayOrigin",
       "overlayCoversDisplay",
+      "frozenScreenShown",
       "heightNotClipped",
       "widthMatches",
       "markerFound",

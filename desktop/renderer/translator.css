@@ -873,3 +873,38 @@ input:focus-visible {
   background-clip: padding-box;
   border: 2px solid transparent;
 }
+
+/* ── Compact popup (#344) ──
+   What double ⌘C, ⌘⌥T and ⌘⇧2 open: the translation and its actions, sized
+   to the text. The full window is one click away (Expand). */
+body:not([data-view="compact"]) #btn-expand {
+  display: none;
+}
+
+body[data-view="compact"] .full-only,
+body[data-view="compact"] .lang-bar,
+body[data-view="compact"] .pane-source {
+  display: none;
+}
+
+body[data-view="compact"] .panes {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+body[data-view="compact"] .pane + .pane {
+  border: none;
+}
+
+/* Natural height, so the window can be sized to the text; scrolls past the cap. */
+body[data-view="compact"] .result-text {
+  flex: 0 1 auto;
+}
+
+body[data-view="compact"] .error-msg {
+  position: static;
+}
+
+body[data-view="compact"] .state-hint {
+  display: none;
+}

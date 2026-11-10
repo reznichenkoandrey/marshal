@@ -100,31 +100,27 @@ describe("translatorBackendForBridge", () => {
   });
 });
 
-// A CLI backend answers in about ten seconds (measured: 9.7 s for one
-// sentence through claude-cli), and the translator translates while the user
-// types. When an API key exists, `auto` must take the fast path instead —
-// see #155.
+// Codex CLI answers in about ten seconds, and the translator translates while
+// the user types. When an API key exists, `auto` must take the fast path
+// instead — see #155. Claude CLI keeps a warm process and answers in ~1 s, so
+// it stays on the user's subscription (#344).
 describe("translatorBackendForBridge with an API key available", () => {
   const withKey = { apiKeyPresent: true };
 
-  it("replaces a CLI backend with the local-OCR hybrid on macOS", () => {
-    expect(translatorBackendForBridge("claude-cli", { ...withKey, platform: "darwin" }))
-      .toBe("apple-vision");
+  it("replaces Codex CLI with the local-OCR hybrid on macOS", () => {
     expect(translatorBackendForBridge("codex-cli", { ...withKey, platform: "darwin" }))
       .toBe("apple-vision");
   });
 
-  it("replaces a CLI backend with the plain API elsewhere", () => {
-    expect(translatorBackendForBridge("claude-cli", { ...withKey, platform: "linux" }))
-      .toBe("openai-api");
+  it("replaces Codex CLI with the plain API elsewhere", () => {
     expect(translatorBackendForBridge("codex-cli", { ...withKey, platform: "win32" }))
       .toBe("openai-api");
   });
 
-  it("also covers the browser-automation bridges, which map to a CLI backend", () => {
-    for (const mode of ["claude-web", "playwright", "extension"] as const) {
+  it("keeps Claude CLI, and the browser bridges that map to it, on the subscription", () => {
+    for (const mode of ["claude-cli", "claude-web", "playwright", "extension"] as const) {
       expect(translatorBackendForBridge(mode, { ...withKey, platform: "darwin" }))
-        .toBe("apple-vision");
+        .toBe("claude-cli");
     }
   });
 

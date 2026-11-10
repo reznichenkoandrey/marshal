@@ -531,6 +531,7 @@ export const en = {
   "translator.captureTitle": "Capture screen region (⌘⇧2)",
   "translator.uploadTitle": "Upload image",
   "translator.closeTitle": "Close (Esc)",
+  "translator.expandTitle": "Open the full translator",
   "translator.detectLanguage": "Detect language",
   "translator.swapTitle": "Swap languages (⌘⇧S)",
   "translator.formalityTitle": "Register of the translation",

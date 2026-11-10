@@ -13,6 +13,7 @@ import type {
 } from "./types.ts";
 import {
   buildOcrTranslatePrompt,
+  claudeImageMediaType,
   buildTranslateJsonPrompt,
   ocrSourceLang,
   parseTranslateJson,
@@ -87,7 +88,7 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
     targetLang: TargetLang,
     options?: TranslateOptions
   ): Promise<TranslationResult> {
-    const mediaType = this.normalizeMediaType(mimeType);
+    const mediaType = claudeImageMediaType(mimeType);
     const response = await this.send({
       model: this.model,
       max_tokens: MAX_TOKENS,
@@ -140,21 +141,5 @@ export class ClaudeApiTranslatorBackend implements TranslatorBackend {
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
       .join("\n");
-  }
-
-  private normalizeMediaType(
-    mime: string
-  ): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
-    switch (mime) {
-      case "image/jpeg":
-      case "image/jpg":
-        return "image/jpeg";
-      case "image/gif":
-        return "image/gif";
-      case "image/webp":
-        return "image/webp";
-      default:
-        return "image/png";
-    }
   }
 }

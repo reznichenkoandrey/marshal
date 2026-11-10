@@ -26,10 +26,20 @@
       }
 
       /*
-       * Initial dark overlay — covers entire screen before user starts dragging.
-       * BrowserWindow is transparent:true, so OS content shows through the
-       * semi-transparent backdrop (no screenshot capture needed).
+       * The screen as it was when capture started (#342). Menus and popovers
+       * close once this window takes focus; the frozen frame keeps them
+       * visible, and it is exactly the image the crop is cut from.
        */
+      #frozen {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      /* Dark veil over the whole frozen screen until the user starts dragging. */
       #overlay {
         position: fixed;
         inset: 0;
@@ -130,6 +140,7 @@
     </style>
   </head>
   <body>
+    <img id="frozen" alt="" draggable="false" />
     <div id="overlay"></div>
 
     <div id="selection">
@@ -161,11 +172,21 @@
       let selectChannel = "marshal:crop-selected";
       let cancelChannel = "marshal:crop-cancelled";
 
-      api.onCropInit((_event, payload) => {
-        if (payload && typeof payload === "object" && payload.channels) {
+      const frozen = document.getElementById("frozen");
+
+      api.onCropInit(async (_event, payload) => {
+        if (!payload || typeof payload !== "object") return;
+        if (payload.channels) {
           selectChannel = payload.channels.select ?? selectChannel;
           cancelChannel = payload.channels.cancel ?? cancelChannel;
         }
+        if (payload.dataUrl) {
+          frozen.src = payload.dataUrl;
+          // A failed decode still opens the overlay; the user can Esc out.
+          await frozen.decode().catch(() => undefined);
+        }
+        // Not behind requestAnimationFrame: a hidden window gets no frames.
+        if (payload.channels?.ready) api.readyCrop(payload.channels.ready);
       });
 
       document.addEventListener("mousedown", (e) => {

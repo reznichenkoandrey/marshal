@@ -54,6 +54,10 @@ const languages = [
 
 let alternativesCalls = 0;
 let lastPayload = null;
+let viewListener = null;
+let resultListener = null;
+const fitHeights = [];
+let expandCalls = 0;
 
 contextBridge.exposeInMainWorld("marshalTranslator", {
   getLanguages: async () => ({
@@ -87,7 +91,10 @@ contextBridge.exposeInMainWorld("marshalTranslator", {
   pushHistory: async () => [],
   clearHistory: async () => [],
   onLoading: noopListener,
-  onResult: noopListener,
+  onResult: (cb) => { resultListener = cb; return () => {}; },
+  onView: (cb) => { viewListener = cb; return () => {}; },
+  expand: async () => { expandCalls += 1; },
+  fitCompact: async (height) => { fitHeights.push(height); },
   onError: noopListener,
   onNotice: noopListener,
   onCropInit: noopListener,
@@ -100,7 +107,11 @@ contextBridge.exposeInMainWorld("marshalTranslator", {
 // is invisible to the page.
 contextBridge.exposeInMainWorld("__altProbe", {
   calls: () => alternativesCalls,
-  lastPayload: () => lastPayload
+  lastPayload: () => lastPayload,
+  setView: (view) => viewListener?.(null, { view }),
+  pushResult: (data) => resultListener?.(null, data),
+  fitHeights: () => fitHeights.slice(),
+  expandCalls: () => expandCalls
 });
 `;
 }
@@ -253,6 +264,65 @@ async function main() {
   record(
     "Escape closes the popover",
     (await win.webContents.executeJavaScript(`document.getElementById("alt-popover").hidden`)) === true
+  );
+
+  // ── Compact popup (#344): what double ⌘C and ⌘⇧2 open ──
+  win.setContentSize(420, 150);
+  await win.webContents.executeJavaScript(`(() => {
+    window.__altProbe.setView("compact");
+    window.__altProbe.pushResult({
+      mode: "image",
+      translation: "Скасуйте підписку будь-коли в налаштуваннях акаунта.",
+      sourceLang: "en",
+      targetLang: "uk",
+      sourceText: "Cancel your subscription anytime in Account Settings."
+    });
+  })()`);
+  await sleep(300);
+  const compact = await win.webContents.executeJavaScript(`(() => {
+    const shown = (sel) => { const el = document.querySelector(sel); return !!el && el.offsetParent !== null; };
+    return {
+      view: document.body.dataset.view,
+      sourcePane: shown(".pane-source"),
+      langBar: shown(".lang-bar"),
+      expand: shown("#btn-expand"),
+      pin: shown("#btn-pin"),
+      source: document.getElementById("input-text").value,
+      result: document.getElementById("result-text").textContent,
+      fits: window.__altProbe.fitHeights()
+    };
+  })()`);
+  record(
+    "compact view shows only the translation",
+    compact.view === "compact" && !compact.sourcePane && !compact.langBar && !compact.pin && compact.expand,
+    JSON.stringify({ sourcePane: compact.sourcePane, langBar: compact.langBar, pin: compact.pin, expand: compact.expand })
+  );
+  record(
+    "image result keeps the recognized text for Expand",
+    compact.source === "Cancel your subscription anytime in Account Settings." && compact.result.startsWith("Скасуйте"),
+    JSON.stringify(compact.source)
+  );
+  const lastFit = compact.fits.at(-1);
+  record(
+    "compact popup asks for a height that fits its content",
+    typeof lastFit === "number" && lastFit >= 80 && lastFit <= 300,
+    JSON.stringify(compact.fits)
+  );
+  if (typeof lastFit === "number") win.setContentSize(420, Math.round(lastFit));
+  await sleep(200);
+  if (process.env.MARSHAL_E2E_SHOTS) {
+    const image = await win.webContents.capturePage();
+    await fs.mkdir(process.env.MARSHAL_E2E_SHOTS, { recursive: true });
+    await fs.writeFile(path.join(process.env.MARSHAL_E2E_SHOTS, "translator-compact.png"), image.toPNG());
+  }
+  const expandAt = await win.webContents.executeJavaScript(`(() => {
+    const r = document.getElementById("btn-expand").getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  await click(win, expandAt);
+  record(
+    "Expand asks main for the full window",
+    (await win.webContents.executeJavaScript(`window.__altProbe.expandCalls()`)) === 1
   );
 
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));

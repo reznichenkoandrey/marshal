@@ -20,6 +20,10 @@ describe("shouldHideOnBlur", () => {
     expect(shouldHideOnBlur({ pinned: true, hasContent: false })).toBe(false);
     expect(shouldHideOnBlur({ pinned: true, hasContent: true })).toBe(false);
   });
+
+  it("always hides the hotkey popup, even though it holds the copied text (#344)", () => {
+    expect(shouldHideOnBlur({ pinned: false, hasContent: true, compact: true })).toBe(true);
+  });
 });
 
 describe("decideHotkeyAction", () => {
