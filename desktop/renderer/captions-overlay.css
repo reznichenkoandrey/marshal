@@ -5,17 +5,17 @@
  */
 :root {
   --captions-font: -apple-system, "SF Pro Text", Inter, sans-serif;
-  --captions-bg: rgba(14, 18, 27, 0.82);
-  --captions-bg-interactive: rgba(14, 18, 27, 0.94);
-  --captions-border: rgba(255, 255, 255, 0.12);
-  --captions-border-interactive: rgba(56, 189, 248, 0.7);
+  --captions-bg: rgba(5, 11, 20, 0.82);
+  --captions-bg-interactive: rgba(5, 11, 20, 0.94);
+  --captions-border: rgba(77, 195, 255, 0.18);
+  --captions-border-interactive: rgba(77, 195, 255, 0.7);
   --captions-fg: rgba(255, 255, 255, 0.96);
   --captions-fg-muted: rgba(255, 255, 255, 0.62);
   --captions-fg-faint: rgba(255, 255, 255, 0.4);
-  --captions-accent: #38bdf8;
-  --captions-keyword: #fbbf24;
-  --captions-danger: #f87171;
-  --captions-radius: 14px;
+  --captions-accent: #4dc3ff;
+  --captions-keyword: #ffb547;
+  --captions-danger: #ff4d6a;
+  --captions-radius: 8px;
   --captions-fs-summary: 15px;
   --captions-fs-caption: 13px;
   --captions-fs-meta: 11px;
@@ -69,6 +69,7 @@ body.interactive button { -webkit-app-region: no-drag; }
   color: var(--captions-fg-muted);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  font-family: var(--font-label);
   min-height: 20px;
 }
 

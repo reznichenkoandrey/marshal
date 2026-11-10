@@ -713,6 +713,7 @@ input:focus-visible {
   font-weight: var(--fw-semibold);
   color: var(--text-default);
   text-transform: uppercase;
+  font-family: var(--font-label);
   letter-spacing: var(--letter-wider);
 }
 
@@ -753,6 +754,7 @@ input:focus-visible {
   color: var(--text-subtle);
   letter-spacing: var(--letter-wider);
   text-transform: uppercase;
+  font-family: var(--font-label);
   margin-bottom: 2px;
   font-weight: var(--fw-semibold);
 }

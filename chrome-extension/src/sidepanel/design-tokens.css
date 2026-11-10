@@ -3,11 +3,16 @@
  * spacing, radii, shadows across the desktop app. Mirror in
  * chrome-extension/src/sidepanel/design-tokens.css whenever edited.
  *
- * Theming:
- *   - Defaults to light.
- *   - `@media (prefers-color-scheme: dark)` picks dark when OS asks.
- *   - `data-theme="light" | "dark"` on <html> forces an explicit choice.
- *     Absence of the attribute = "system".
+ * Two independent axes (#283):
+ *   - Mode: `data-theme="light" | "dark"` on <html>; absent = follow the OS.
+ *     Every color seed is `light-dark(<light>, <dark>)`, resolved by
+ *     `color-scheme`, so each look is written once, not once per mode.
+ *   - Look: `data-look="hud" | "classic" | "liquid" | "signal" | "soft"`,
+ *     plus `data-palette="blue" | "teal" | "green" | "amber"` for HUD.
+ *     No attribute = HUD blue. theme.js applies the saved choice.
+ *
+ * A look only sets seeds (--seed-*), radii and the label font. Semantic tokens
+ * below are derived from the seeds, so components never see the difference.
  */
 
 :root {
@@ -37,12 +42,6 @@
   --letter-wide: 0.02em;
   --letter-wider: 0.06em;
 
-  /* Radii — Raycast/Arc soft-modern */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
   --radius-pill: 9999px;
 
   /* Spacing */
@@ -61,179 +60,247 @@
   --dur-slow: 260ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  color-scheme: light dark;
 }
 
-/* ── Light theme (default) ── */
-:root {
-  --bg-app: #fbfbfc;
-  --bg-surface: #ffffff;
-  --bg-elevated: #ffffff;
-  --bg-muted: #f4f4f6;
-  --bg-hover: #eeeef1;
-  --bg-pressed: #e4e4e8;
-
-  --border-subtle: rgba(0, 0, 0, 0.06);
-  --border-default: rgba(0, 0, 0, 0.09);
-  --border-strong: rgba(0, 0, 0, 0.14);
-
-  --text-strong: #0a0a0b;
-  --text-default: #1c1c1f;
-  --text-muted: #64646c;
-  --text-subtle: #95959d;
-  --text-disabled: #b8b8bf;
-  --text-on-accent: #ffffff;
-
-  --accent: #0066ff;
-  --accent-hover: #0053d6;
-  --accent-pressed: #0047b8;
-  --accent-ring: rgba(0, 102, 255, 0.14);
-  --accent-soft: rgba(0, 102, 255, 0.08);
-  --accent-soft-hover: rgba(0, 102, 255, 0.14);
-  --accent-text: #0053d6;
-
-  --danger: #e5484d;
-  --danger-hover: #cc3d42;
-  --danger-soft: rgba(229, 72, 77, 0.1);
-  --danger-text: #c1272d;
-  --success: #30a46c;
-  --success-soft: rgba(48, 164, 108, 0.1);
-  --success-text: #218358;
-  --warning: #d97706;
-  --warning-soft: rgba(217, 119, 6, 0.1);
-
-  --shadow-xs: 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.12);
-  --shadow-overlay: 0 24px 64px rgba(0, 0, 0, 0.18);
-  --shadow-focus: 0 0 0 1.5px var(--accent-ring);
-
-  --scrollbar-thumb: rgba(0, 0, 0, 0.14);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.22);
-
-  /* Chat-specific */
-  --bubble-user-bg: var(--accent);
-  --bubble-user-text: #ffffff;
-  --bubble-assistant-bg: var(--bg-muted);
-  --bubble-assistant-text: var(--text-default);
-  --bubble-system-bg: transparent;
-  --bubble-system-text: var(--text-muted);
-
+:root[data-theme="light"] {
   color-scheme: light;
 }
 
-/* ── Dark theme via system preference (when no explicit attribute set) ── */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg-app: #0b0b0d;
-    --bg-surface: #131316;
-    --bg-elevated: #1a1a1f;
-    --bg-muted: #1e1e24;
-    --bg-hover: #25252c;
-    --bg-pressed: #2c2c34;
-
-    --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-default: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.16);
-
-    --text-strong: #f5f5f7;
-    --text-default: #e4e4e7;
-    --text-muted: #9a9aa3;
-    --text-subtle: #6a6a73;
-    --text-disabled: #4a4a53;
-    --text-on-accent: #ffffff;
-
-    --accent: #4d9aff;
-    --accent-hover: #78b2ff;
-    --accent-pressed: #a0c8ff;
-    --accent-ring: rgba(77, 154, 255, 0.22);
-    --accent-soft: rgba(77, 154, 255, 0.14);
-    --accent-soft-hover: rgba(77, 154, 255, 0.22);
-    --accent-text: #78b2ff;
-
-    --danger: #f87171;
-    --danger-hover: #fca5a5;
-    --danger-soft: rgba(248, 113, 113, 0.14);
-    --danger-text: #fca5a5;
-    --success: #4ade80;
-    --success-soft: rgba(74, 222, 128, 0.14);
-    --success-text: #86efac;
-    --warning: #fbbf24;
-    --warning-soft: rgba(251, 191, 36, 0.14);
-
-    --shadow-xs: 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 16px 64px rgba(0, 0, 0, 0.55);
-    --shadow-overlay: 0 32px 80px rgba(0, 0, 0, 0.6);
-
-    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
-
-    --bubble-user-bg: var(--accent);
-    --bubble-user-text: #ffffff;
-    --bubble-assistant-bg: var(--bg-muted);
-    --bubble-assistant-text: var(--text-default);
-    --bubble-system-bg: transparent;
-    --bubble-system-text: var(--text-muted);
-
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
-/* ── Explicit dark override (works regardless of OS preference) ── */
-:root[data-theme="dark"] {
-  --bg-app: #0b0b0d;
-  --bg-surface: #131316;
-  --bg-elevated: #1a1a1f;
-  --bg-muted: #1e1e24;
-  --bg-hover: #25252c;
-  --bg-pressed: #2c2c34;
+/* ── Look: HUD (default), blue palette ── */
+:root {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  /* Uppercase labels and readouts. */
+  --font-label: var(--font-mono);
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --seed-bg: light-dark(#eef3f8, #050b14);
+  --seed-surface: light-dark(#f8fbfe, #0a1626);
+  --seed-fg: light-dark(#0a2a4a, #dcefff);
+  --seed-muted: light-dark(#486683, #8fb4d4);
+  --seed-accent: light-dark(#0b5fa8, #4dc3ff);
+  --seed-accent-2: light-dark(#b0237f, #ff6bd6);
+  /* A light accent needs dark text on it; white fails contrast. */
+  --seed-on-accent: light-dark(#ffffff, #04121f);
+  --seed-line: var(--seed-accent);
+  --seed-shadow: light-dark(#0a2a4a, #000000);
+  --seed-danger: light-dark(#c8243f, #ff4d6a);
+  --seed-success: light-dark(#13844a, #5cf28a);
+  --seed-warning: light-dark(#b86a00, #ffb547);
+  --seed-think: light-dark(#6a4dc9, #a98bff);
+  --seed-idle: light-dark(#6585a3, #3d6f95);
+}
 
-  --text-strong: #f5f5f7;
-  --text-default: #e4e4e7;
-  --text-muted: #9a9aa3;
-  --text-subtle: #6a6a73;
-  --text-disabled: #4a4a53;
-  --text-on-accent: #ffffff;
+:root[data-look="hud"][data-palette="teal"] {
+  --seed-bg: light-dark(#eef5f5, #040c0d);
+  --seed-surface: light-dark(#f7fbfb, #0b1d20);
+  --seed-fg: light-dark(#06393c, #d6fbf8);
+  --seed-muted: light-dark(#3f6f70, #7cbcb9);
+  --seed-accent: light-dark(#007c7a, #3ff0e6);
+  --seed-accent-2: light-dark(#b86a00, #ffb43d);
+  --seed-on-accent: light-dark(#ffffff, #03201f);
+  --seed-think: light-dark(#3557c9, #7fa8ff);
+  --seed-idle: light-dark(#5f9594, #3a8f8b);
+}
 
-  --accent: #4d9aff;
-  --accent-hover: #78b2ff;
-  --accent-pressed: #a0c8ff;
-  --accent-ring: rgba(77, 154, 255, 0.38);
-  --accent-soft: rgba(77, 154, 255, 0.14);
-  --accent-soft-hover: rgba(77, 154, 255, 0.22);
-  --accent-text: #78b2ff;
+:root[data-look="hud"][data-palette="green"] {
+  --seed-bg: light-dark(#eef5f0, #040d07);
+  --seed-surface: light-dark(#f7fbf8, #0a1d12);
+  --seed-fg: light-dark(#083a1f, #dcfbe8);
+  --seed-muted: light-dark(#3f6d52, #7cc49c);
+  --seed-accent: light-dark(#0a7a3e, #46ff9a);
+  --seed-accent-2: light-dark(#6e5f00, #e6ff5a);
+  --seed-on-accent: light-dark(#ffffff, #03200f);
+  --seed-success: light-dark(#0a7a3e, #46ff9a);
+  --seed-think: light-dark(#3557c9, #7fa8ff);
+  --seed-idle: light-dark(#5f9474, #3a8f60);
+}
 
-  --danger: #f87171;
-  --danger-hover: #fca5a5;
-  --danger-soft: rgba(248, 113, 113, 0.14);
-  --danger-text: #fca5a5;
-  --success: #4ade80;
-  --success-soft: rgba(74, 222, 128, 0.14);
-  --success-text: #86efac;
-  --warning: #fbbf24;
-  --warning-soft: rgba(251, 191, 36, 0.14);
+:root[data-look="hud"][data-palette="amber"] {
+  --seed-bg: light-dark(#f7f2ea, #0d0904);
+  --seed-surface: light-dark(#fcf9f4, #1d150a);
+  --seed-fg: light-dark(#3d2600, #fff1dc);
+  --seed-muted: light-dark(#6e5a3c, #c4a374);
+  --seed-accent: light-dark(#9a5800, #ffb43d);
+  --seed-accent-2: light-dark(#007c7a, #3ff0e6);
+  --seed-on-accent: light-dark(#ffffff, #231500);
+  --seed-think: light-dark(#3557c9, #7fa8ff);
+  --seed-idle: light-dark(#9c8466, #8f6a3a);
+}
 
-  --shadow-xs: 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 16px 64px rgba(0, 0, 0, 0.55);
-  --shadow-overlay: 0 32px 80px rgba(0, 0, 0, 0.6);
+/* ── Look: Classic (the pre-#283 palette) ── */
+:root[data-look="classic"] {
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --font-label: var(--font-sans);
 
-  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
+  --seed-bg: light-dark(#fbfbfc, #0b0b0d);
+  --seed-surface: light-dark(#ffffff, #131316);
+  --seed-fg: light-dark(#1c1c1f, #e4e4e7);
+  --seed-muted: light-dark(#5f5f67, #9a9aa3);
+  --seed-accent: light-dark(#0066ff, #4d9aff);
+  --seed-accent-2: light-dark(#7c3aed, #a78bfa);
+  --seed-on-accent: light-dark(#ffffff, #06142b);
+  --seed-line: var(--seed-fg);
+  --seed-shadow: #000000;
+  --seed-danger: light-dark(#d93a40, #f87171);
+  --seed-success: light-dark(#218358, #4ade80);
+  --seed-warning: light-dark(#b45f05, #fbbf24);
+  --seed-think: light-dark(#7c3aed, #a78bfa);
+  --seed-idle: light-dark(#95959d, #6a6a73);
+}
 
+/* ── Look: Liquid — soft violet night, rounded ── */
+:root[data-look="liquid"] {
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --font-label: var(--font-sans);
+
+  --seed-bg: light-dark(#eef0fb, #14121f);
+  --seed-surface: light-dark(#fbfbff, #1e1b2e);
+  --seed-fg: light-dark(#171826, #f5f6fb);
+  --seed-muted: light-dark(#55576b, #aeb0c4);
+  --seed-accent: light-dark(#3360f0, #8fb4ff);
+  --seed-accent-2: light-dark(#c75a10, #ffa257);
+  --seed-on-accent: light-dark(#ffffff, #0d1030);
+  --seed-line: var(--seed-fg);
+  --seed-shadow: light-dark(#3c3278, #000000);
+  --seed-danger: light-dark(#d02a40, #ff6b7d);
+  --seed-success: light-dark(#13804f, #48d597);
+  --seed-warning: light-dark(#a86f00, #ffc04d);
+  --seed-think: light-dark(#6a4dff, #9a86ff);
+  --seed-idle: light-dark(#3e6bff, #8fb4ff);
+}
+
+/* ── Look: Signal — monochrome, one acid accent, mono labels ── */
+:root[data-look="signal"] {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --font-label: var(--font-mono);
+
+  --seed-bg: light-dark(#ecece6, #0b0c0a);
+  --seed-surface: light-dark(#ffffff, #121311);
+  --seed-fg: light-dark(#141512, #e8e8e3);
+  --seed-muted: light-dark(#5f5f59, #9a9a93);
+  --seed-accent: light-dark(#4a7d00, #c4ff3d);
+  --seed-accent-2: light-dark(#8a6500, #ffd43d);
+  --seed-on-accent: light-dark(#ffffff, #0b0c0a);
+  --seed-line: var(--seed-fg);
+  --seed-shadow: #000000;
+  --seed-danger: light-dark(#c62f22, #ff5a4a);
+  --seed-success: light-dark(#4a7d00, #c4ff3d);
+  --seed-warning: light-dark(#8a6500, #ffd43d);
+  --seed-think: light-dark(#0f6db3, #6fc3ff);
+  --seed-idle: light-dark(#6b6b65, #8a8a84);
+}
+
+/* ── Look: Soft 3D — lavender, pebble-round, tinted shadows ── */
+:root[data-look="soft"] {
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --font-label: var(--font-sans);
+
+  --seed-bg: light-dark(#f1ecff, #1d1930);
+  --seed-surface: light-dark(#f9f7ff, #2a2540);
+  --seed-fg: light-dark(#2a2540, #f1edff);
+  --seed-muted: light-dark(#5f5978, #b3acd0);
+  --seed-accent: light-dark(#6a4bf0, #a993ff);
+  --seed-accent-2: light-dark(#c2522a, #ff8a5c);
+  --seed-on-accent: light-dark(#ffffff, #1d1930);
+  --seed-line: light-dark(#5a46a0, #ffffff);
+  --seed-shadow: light-dark(#5a46a0, #000000);
+  --seed-danger: light-dark(#c8335a, #f2557a);
+  --seed-success: light-dark(#17824f, #35c27a);
+  --seed-warning: light-dark(#9a6500, #f4a92a);
+  --seed-think: light-dark(#6a4bf0, #8f72ff);
+  --seed-idle: light-dark(#8576d6, #9b8cff);
+}
+
+/* ── Semantic tokens, derived from the seeds of whichever look is active ── */
+:root {
+  --bg-app: var(--seed-bg);
+  --bg-surface: var(--seed-surface);
+  --bg-elevated: light-dark(#ffffff, color-mix(in srgb, var(--seed-fg) 4%, var(--seed-surface)));
+  --bg-muted: color-mix(in srgb, var(--seed-fg) 5%, var(--seed-surface));
+  --bg-hover: color-mix(in srgb, var(--seed-fg) 9%, var(--seed-surface));
+  --bg-pressed: color-mix(in srgb, var(--seed-fg) 13%, var(--seed-surface));
+
+  --border-subtle: color-mix(in srgb, var(--seed-line) 10%, transparent);
+  --border-default: color-mix(in srgb, var(--seed-line) 17%, transparent);
+  --border-strong: color-mix(in srgb, var(--seed-line) 30%, transparent);
+
+  --text-strong: color-mix(in srgb, var(--seed-fg) 70%, light-dark(#000000, #ffffff));
+  --text-default: var(--seed-fg);
+  --text-muted: var(--seed-muted);
+  --text-subtle: color-mix(in srgb, var(--seed-muted) 75%, var(--seed-surface));
+  --text-disabled: color-mix(in srgb, var(--seed-muted) 45%, var(--seed-surface));
+  --text-on-accent: var(--seed-on-accent);
+
+  --accent: var(--seed-accent);
+  --accent-hover: color-mix(in srgb, var(--seed-accent) 82%, light-dark(#000000, #ffffff));
+  --accent-pressed: color-mix(in srgb, var(--seed-accent) 68%, light-dark(#000000, #ffffff));
+  --accent-ring: color-mix(in srgb, var(--seed-accent) 32%, transparent);
+  --accent-soft: color-mix(in srgb, var(--seed-accent) 10%, transparent);
+  --accent-soft-hover: color-mix(in srgb, var(--seed-accent) 17%, transparent);
+  --accent-text: color-mix(in srgb, var(--seed-accent) 82%, light-dark(#000000, #ffffff));
+  --accent-2: var(--seed-accent-2);
+
+  --danger: var(--seed-danger);
+  --danger-hover: color-mix(in srgb, var(--seed-danger) 82%, light-dark(#000000, #ffffff));
+  --danger-soft: color-mix(in srgb, var(--seed-danger) 12%, transparent);
+  --danger-text: color-mix(in srgb, var(--seed-danger) 82%, light-dark(#000000, #ffffff));
+  --success: var(--seed-success);
+  --success-soft: color-mix(in srgb, var(--seed-success) 12%, transparent);
+  --success-text: color-mix(in srgb, var(--seed-success) 82%, light-dark(#000000, #ffffff));
+  --warning: var(--seed-warning);
+  --warning-soft: color-mix(in srgb, var(--seed-warning) 12%, transparent);
+
+  /* Assistant states (#284/#285): what the voice gauge and edge glow show. */
+  --state-listen: var(--accent);
+  --state-think: var(--seed-think);
+  --state-speak: var(--accent-2);
+  --state-wait: var(--warning);
+  --state-done: var(--success);
+  --state-fail: var(--danger);
+  --state-idle: var(--seed-idle);
+
+  --shadow-xs: 0 0 0 1px var(--border-subtle);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--seed-shadow) 12%, transparent),
+    0 0 0 1px var(--border-subtle);
+  --shadow-md: 0 2px 6px color-mix(in srgb, var(--seed-shadow) 12%, transparent),
+    0 8px 24px color-mix(in srgb, var(--seed-shadow) 10%, transparent);
+  --shadow-lg: 0 12px 48px color-mix(in srgb, var(--seed-shadow) 20%, transparent);
+  --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--seed-shadow) 28%, transparent);
+  --shadow-focus: 0 0 0 1.5px var(--accent-ring);
+
+  --scrollbar-thumb: color-mix(in srgb, var(--seed-line) 18%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--seed-line) 30%, transparent);
+
+  /* Chat-specific */
   --bubble-user-bg: var(--accent);
-  --bubble-user-text: #ffffff;
+  --bubble-user-text: var(--text-on-accent);
   --bubble-assistant-bg: var(--bg-muted);
   --bubble-assistant-text: var(--text-default);
   --bubble-system-bg: transparent;
   --bubble-system-text: var(--text-muted);
-
-  color-scheme: dark;
 }
