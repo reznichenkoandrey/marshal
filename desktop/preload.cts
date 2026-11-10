@@ -113,6 +113,8 @@ contextBridge.exposeInMainWorld("marshalTranslator", translatorApi);
 
 // ── Desktop API ──
 const desktopApi = {
+  // The assistant home's Settings button opens the modal that lives here.
+  onOpenSettings: (cb: () => void) => registerListener<[]>("marshal:open-settings", () => cb()),
   getHealth: () => ipcRenderer.invoke("marshal:get-health"),
   listProjects: () => ipcRenderer.invoke("marshal:list-projects"),
   createProject: (name: string) => ipcRenderer.invoke("marshal:create-project", name),
@@ -481,6 +483,23 @@ const toolbarApi = {
 
 contextBridge.exposeInMainWorld("marshalToolbar", toolbarApi);
 
+// ── Assistant home (#284) ──
+// Main owns the state; the window draws it and forwards dock clicks.
+type AssistantPayload = {
+  state: string;
+  lang: "uk" | "en";
+  line?: string;
+  telemetry?: { label: string; value: string }[];
+};
+const assistantApi = {
+  onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>
+    registerListener<[AssistantPayload]>("marshal:assistant-state", cb),
+  action: (name: string) => ipcRenderer.invoke("marshal:assistant:action", { name }),
+  close: () => ipcRenderer.invoke("marshal:assistant:close")
+};
+
+contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);
+
 declare global {
   interface Window {
     marshalDesktop: typeof desktopApi;
@@ -491,5 +510,6 @@ declare global {
     marshalCaptions: typeof captionsApi;
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
+    marshalAssistant: typeof assistantApi;
   }
 }
