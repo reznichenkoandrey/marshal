@@ -60,6 +60,10 @@ import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-windo
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
+import { AssistantDispatcher } from "./assistant/dispatcher.ts";
+import { briefSessions, GENERAL_NAME } from "./assistant/dispatcher-files.ts";
+import { parseRoutingRoots } from "./claude-code/context-router.ts";
+import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -179,6 +183,7 @@ let captionsAccelerators: { toggle: string; ocr: string } = {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
+let assistantDispatcher: AssistantDispatcher | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -286,10 +291,11 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions());
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent);
       void claudeHooks.startIfInstalled();
       initCalendar();
       initSpeech();
+      initAssistantDispatcher();
       registerAssistantHotkey();
       initAmbient();
       void initExtensionBridge();
@@ -491,6 +497,7 @@ function registerIpcHandlers(): void {
     saved = applyLaunchAtLogin(saved);
     restartDictation();
     syncCalendar();
+    void syncAssistantDispatcher();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1508,6 +1515,9 @@ function initDictation(): void {
     void sessionDictation.handle(text).catch((err: unknown) => {
       console.error("[claude-dictation] delivery failed:", err);
     });
+  });
+  dictationService.on("assistant-command", (text: string) => {
+    assistantDispatcher?.submit(text);
   });
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
@@ -2794,8 +2804,156 @@ function announceToAssistant(text: string): void {
   assistantHome?.update({ lines: assistantLines });
 }
 
+// Voice assistant (#318): the home mic talks to the dispatcher session, which
+// routes the command and calls back through `./marshal say | do | spawn`.
+function initAssistantDispatcher(): void {
+  if (!claudeHooks) return;
+  const hooks = claudeHooks;
+  const ownSessions = () => listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session));
+  assistantDispatcher = new AssistantDispatcher({
+    userDataDir: app.getPath("userData"),
+    hookDir: () => hooks.hookDir,
+    settings: () => {
+      const settings = loadSettings();
+      return {
+        model: settings.assistantDispatcherModel,
+        // Same "~/" expansion as the routing roots.
+        generalDir: parseRoutingRoots(settings.assistantGeneralDir)[0] ?? "",
+        generalMode: settings.assistantGeneralPermissionMode,
+        routingRoots: parseRoutingRoots(settings.claudeCodeRoutingRoots)
+      };
+    },
+    liveSessions: () => listLiveSessions(),
+    context: () => hooks.routingContext(ownSessions()),
+    say: sayAsAssistant,
+    runAction: assistantVoiceAction,
+    announce: announceToAssistant,
+    focus: (pid) => {
+      void focusSession(pid).catch(() => undefined);
+    }
+  });
+  hooks.setAssistantRoutes(assistantDispatcher);
+  void syncAssistantDispatcher();
+}
+
+async function syncAssistantDispatcher(): Promise<void> {
+  if (!assistantDispatcher || !claudeHooks) return;
+  if (!loadSettings().assistantDispatcher) {
+    assistantDispatcher.stop();
+    return;
+  }
+  // Without the receiver the helper has nobody to talk to, and without the
+  // Stop hook the owner never hears what a session did.
+  const hooks = await claudeHooks.ensureInstalled();
+  if (hooks.error) {
+    sayAsAssistant(`Асистент не запустився: ${hooks.error}`);
+    return;
+  }
+  await assistantDispatcher.start();
+}
+
+// The home mic. The first press turns the assistant on: that press is the
+// owner's explicit choice, and a voice assistant that cannot speak is useless.
+function talkToAssistant(): void {
+  if (!dictationService) return;
+  const settings = loadSettings();
+  if (!dictationService.isCurrentlyRecording() && !settings.assistantDispatcher) {
+    saveSettings({ assistantDispatcher: true, speechEnabled: true });
+    pushAssistantStrip();
+    announceToAssistant("Асистент увімкнено: hooks Claude Code встановлено, диспетчер і general стартують у Terminal.");
+    void syncAssistantDispatcher();
+  }
+  dictationService.toggleRecording("assistant");
+}
+
+function sayAsAssistant(text: string): void {
+  announceToAssistant(text);
+  void speechService?.speak(text);
+}
+
+function speakSessionEvent(event: SpokenSessionEvent): void {
+  const uk = assistantLanguage() === "uk";
+  if (event.kind === "finished") {
+    const summary = event.summary ?? (uk ? "готово" : "finished");
+    // `general` answers the owner's own question: its name is noise.
+    void speechService?.speak(event.name === GENERAL_NAME ? summary : `${event.name}: ${summary}`, { key: `session:${event.name}` });
+    return;
+  }
+  const what = event.confirmation ? (uk ? "чекає на дозвіл" : "needs your confirmation") : (uk ? "чекає на відповідь" : "needs your input");
+  void speechService?.speak(`${event.name} ${what}.`, { lang: uk ? "uk" : "en", key: `session:${event.name}` });
+}
+
+async function assistantVoiceAction(action: string): Promise<string> {
+  const uk = assistantLanguage() === "uk";
+  const t = (ukText: string, enText: string) => (uk ? ukText : enText);
+  let reply: string;
+  switch (action) {
+    case "translator":
+      runAssistantAction("translator");
+      reply = t("Відкрив перекладач.", "The translator is open.");
+      break;
+    case "captions": {
+      const wasOn = captionsService?.isRunning() ?? false;
+      await toggleLiveCaptions();
+      reply = wasOn ? t("Субтитри вимкнено.", "Captions are off.") : t("Субтитри увімкнено.", "Captions are on.");
+      break;
+    }
+    case "record-call":
+    case "record-screen": {
+      const wasOn = isMeetingRecording;
+      await toggleMeetingRecording(action === "record-screen" ? "screen" : "audio");
+      reply = wasOn ? t("Запис зупинено.", "Recording stopped.")
+        : isMeetingRecording ? t("Записую.", "Recording.")
+        : t("Запис не стартував.", "The recording did not start.");
+      break;
+    }
+    case "recordings":
+      runAssistantAction("recordings");
+      reply = t("Відкрив записи дзвінків.", "Meeting recordings are open.");
+      break;
+    case "capture":
+      runAssistantAction("capture");
+      reply = t("Виділи область.", "Select an area.");
+      break;
+    case "settings":
+      runAssistantAction("settings");
+      reply = t("Відкрив налаштування.", "Settings are open.");
+      break;
+    case "skip":
+      speechService?.skip();
+      return "ok";
+    case "next-meeting": {
+      const meeting = calendarService?.nextMeeting() ?? null;
+      const time = meeting?.start.toLocaleTimeString(uk ? "uk-UA" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+      reply = meeting
+        ? t(`Наступна зустріч «${meeting.title}» о ${time}.`, `Next meeting: "${meeting.title}" at ${time}.`)
+        : t("Найближчих зустрічей немає.", "No upcoming meetings.");
+      break;
+    }
+    case "join-meeting": {
+      const meeting = calendarService?.nextMeeting() ?? null;
+      if (meeting?.link) {
+        // classifyMeetingUrl lets only https links to known meeting hosts through.
+        void shell.openExternal(meeting.link.url);
+        reply = t(`Підключаю до «${meeting.title}».`, `Joining "${meeting.title}".`);
+      } else {
+        reply = t("Немає зустрічі з посиланням.", "No meeting with a link.");
+      }
+      break;
+    }
+    case "brief":
+      reply = briefSessions(listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session)), uk ? "uk" : "en");
+      break;
+    default:
+      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting, brief.`;
+  }
+  sayAsAssistant(reply);
+  return reply;
+}
+
 function refreshAssistantSessions(): void {
-  const live = listLiveSessions();
+  // The dispatcher routes, it is not one of the owner's sessions.
+  const live = listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session));
   setAssistantInputs(sessionCounts(live));
   countWaitingSessions();
   const groups = groupSessions(live);
@@ -2836,7 +2994,7 @@ function watchAssistantSessions(open: boolean): void {
 function runAssistantAction(name: string | undefined): void {
   switch (name) {
     case "dictate-session":
-      dictationService?.toggleRecording("session");
+      void talkToAssistant();
       return;
     case "translator":
       translatorWindow?.show();

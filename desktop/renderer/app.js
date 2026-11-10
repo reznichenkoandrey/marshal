@@ -195,6 +195,10 @@ const dom = {
   settingsCaptureFolderPick: document.getElementById("settings-capture-folder-pick"),
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
   settingsSpeechEnabled: document.getElementById("settings-speech-enabled"),
+  settingsAssistantDispatcher: document.getElementById("settings-assistant-dispatcher"),
+  settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
+  settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
+  settingsAssistantModel: document.getElementById("settings-assistant-model"),
   settingsSpeechVoiceUk: document.getElementById("settings-speech-voice-uk"),
   settingsSpeechVoiceEn: document.getElementById("settings-speech-voice-en"),
   settingsSpeechRate: document.getElementById("settings-speech-rate"),
@@ -1168,6 +1172,10 @@ async function openSettings() {
     if (dom.settingsCalendarUrl) dom.settingsCalendarUrl.value = "";
     void api?.calendarStatus?.().then(renderCalendarStatus).catch(() => renderCalendarStatus(null));
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
+    if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
+    if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
+    if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "auto";
+    if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
     refreshSettingsVisibility();
@@ -1360,6 +1368,10 @@ async function saveSettingsFromForm() {
     checkForUpdatesAutomatic: dom.settingsCheckUpdates?.checked ?? true,
     calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false,
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
+    assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
+    assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
+    assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "auto",
+    assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
     speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? ""

@@ -13,9 +13,9 @@ import { createContextRouter, isUnderRoots, parseRoutingRoots, routedNotice, typ
 import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
 import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, uninstallHooks } from "./hook-installer.ts";
-import { ClaudeHookService } from "./hook-service.ts";
+import { ClaudeHookService, type AssistantRoutes } from "./hook-service.ts";
 import { listLiveSessions, type ClaudeSession } from "./registry.ts";
-import { SessionNotifier } from "./session-notifier.ts";
+import { SessionNotifier, type SpokenSessionEvent } from "./session-notifier.ts";
 
 const MAX_HELD_NOTIFICATIONS = 20;
 
@@ -46,7 +46,9 @@ export class ClaudeHooksController {
     // Every notification text also goes to the assistant home's line (#308).
     private readonly announce: (text: string) => void = () => {},
     // Any hook event may change which sessions wait: the tray badge recounts (#309).
-    private readonly onSessionEvent: () => void = () => {}
+    private readonly onSessionEvent: () => void = () => {},
+    // Session results read aloud for the voice assistant (#318).
+    speak: (event: SpokenSessionEvent) => void = () => {}
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -60,6 +62,7 @@ export class ClaudeHooksController {
     });
     this.notifier = new SessionNotifier({
       notify: (title, body, onClick) => this.notify(title, body, onClick),
+      speak,
       summarize: (text) => summarizeAnswer(text, loadSettings().claudeCodeSummaryLanguage),
       findSession: (sessionId) => listLiveSessions().find((session) => session.sessionId === sessionId),
       focus: (pid) => {
@@ -85,6 +88,37 @@ export class ClaudeHooksController {
     await this.service.start().catch((err: unknown) => {
       console.warn("[claude-hooks] receiver failed to start:", err instanceof Error ? err.message : err);
     });
+  }
+
+  /** The voice dispatcher's helper reaches Marshal through the hook receiver (#318). */
+  setAssistantRoutes(routes: AssistantRoutes | null): void {
+    this.service.setAssistantRoutes(routes);
+  }
+
+  /** The voice assistant needs the receiver and the Stop hook: installing them is part of turning it on. */
+  async ensureInstalled(): Promise<ClaudeHooksState> {
+    if (readHooksInstalled()) {
+      await this.service.start();
+      return this.state();
+    }
+    return this.setInstalled(true);
+  }
+
+  /** For the dispatcher's `./marshal context`: the same scope and dossiers as #286. */
+  async routingContext(sessions: readonly ClaudeSession[]): Promise<string> {
+    if (!loadSettings().claudeCodeContextRouting) return "off";
+    const routable = sessions.filter(inRoutingRoots);
+    if (routable.length === 0) return "off";
+    const dossiers = await this.dossiers.dossiersFor(routable);
+    return JSON.stringify(routable.map((session) => ({
+      name: session.name,
+      folder: path.basename(session.cwd),
+      dossier: dossiers.get(session.sessionId) ?? null
+    })));
+  }
+
+  get hookDir(): string {
+    return path.dirname(this.service.scriptPath);
   }
 
   state(error?: string): ClaudeHooksState {

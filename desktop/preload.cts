@@ -185,6 +185,10 @@ const desktopApi = {
     captionsMixMicrophone?: boolean;
     calendarEnabled?: boolean;
     speechEnabled?: boolean;
+    assistantDispatcher?: boolean;
+    assistantGeneralDir?: string;
+    assistantGeneralPermissionMode?: string;
+    assistantDispatcherModel?: string;
     speechRate?: number;
     speechVoiceUk?: string;
     speechVoiceEn?: string;
