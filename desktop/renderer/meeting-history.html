@@ -4,35 +4,37 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src file:; object-src 'none'; base-uri 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Marshal — Meeting Recordings</title>
+  <title data-i18n="meetings.windowTitle">Marshal — Meeting Recordings</title>
   <link rel="stylesheet" href="./design-tokens.css" />
   <link rel="stylesheet" href="./capture-history.css" />
   <link rel="stylesheet" href="./meeting-history.css" />
   <script src="./theme.js"></script>
+  <script src="./locales.js"></script>
+  <script src="./i18n.js"></script>
 </head>
 <body>
   <header class="history-toolbar">
     <div class="history-title">
-      <span class="history-title-label">Meeting Recordings</span>
+      <span class="history-title-label" data-i18n="meetings.title">Meeting Recordings</span>
       <span id="folder-path" class="history-folder"></span>
     </div>
     <div class="history-actions">
-      <select id="notes-language" class="notes-language" title="Language of the notes made by Transcribe &amp; summarize">
-        <option value="auto">Notes: Auto</option>
-        <option value="uk">Notes: Українська</option>
-        <option value="en">Notes: English</option>
+      <select id="notes-language" class="notes-language" title="Language of the notes made by Transcribe &amp; summarize" data-i18n-title="meetings.notesLanguageTitle">
+        <option value="auto" data-i18n="meetings.notesAuto">Notes: Auto</option>
+        <option value="uk" data-i18n="meetings.notesUk">Notes: Українська</option>
+        <option value="en" data-i18n="meetings.notesEn">Notes: English</option>
       </select>
-      <button id="refresh-btn" type="button" class="ghost-btn">Refresh</button>
-      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the recordings folder in Finder">Open folder</button>
-      <button id="close-btn" type="button" class="ghost-btn">Close</button>
+      <button id="refresh-btn" type="button" class="ghost-btn" data-i18n="meetings.refresh">Refresh</button>
+      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the recordings folder in Finder" data-i18n="meetings.openFolder" data-i18n-title="meetings.openFolderTitle">Open folder</button>
+      <button id="close-btn" type="button" class="ghost-btn" data-i18n="meetings.close">Close</button>
     </div>
   </header>
 
   <main>
     <ul id="list" class="meeting-list"></ul>
     <div id="empty" class="history-empty hidden">
-      <p>No meeting recordings yet.</p>
-      <p class="history-empty-hint">Tray → Record Meeting (Audio) or (Audio + Screen), or <kbd>⌘⌥⇧M</kbd>.</p>
+      <p data-i18n="meetings.empty">No meeting recordings yet.</p>
+      <p class="history-empty-hint" data-i18n-html="meetings.emptyHint">Tray → Record Meeting (Audio) or (Audio + Screen), or <kbd>⌘⌥⇧M</kbd>.</p>
     </div>
   </main>
 

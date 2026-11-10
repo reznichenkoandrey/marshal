@@ -18,104 +18,20 @@ const sessionsList = document.getElementById("sessions");
 const sessionsEmpty = document.getElementById("sessions-empty");
 const recentList = document.getElementById("recent");
 
-const HINTS = {
-  uk: {
-    idle: "Натисни мікрофон і скажи команду для сесії Claude Code",
-    listening: "Слухаю… натисни ще раз, щоб надіслати",
-    thinking: "Розпізнаю сказане",
-    speaking: "",
-    working: "Сесії працюють",
-    waiting: "Сесія чекає на тебе",
-    offline: "Розпізнавання мовлення недоступне — перевір Settings → Dictation"
-  },
-  en: {
-    idle: "Press the mic and say a command for a Claude Code session",
-    listening: "Listening… press again to send",
-    thinking: "Recognising what you said",
-    speaking: "",
-    working: "Sessions are working",
-    waiting: "A session needs you",
-    offline: "Speech recognition is unavailable — check Settings → Dictation"
-  }
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
+const lang = () => window.MarshalI18n?.language() ?? "en";
+const HINT_STATES = new Set(["idle", "listening", "thinking", "working", "waiting", "offline"]);
+const SESSION_STATUSES = new Set(["busy", "waiting", "shell", "idle"]);
+const DOCK_TITLES = {
+  translator: "home.dock.translator",
+  captions: "home.dock.captions",
+  "record-call": "home.dock.recordCall",
+  "dictate-session": "home.dock.dictateSession",
+  recordings: "home.dock.recordings",
+  capture: "home.dock.capture",
+  settings: "home.dock.settings"
 };
 
-const TEXT = {
-  uk: {
-    sessions: "Сесії Claude Code",
-    recent: "Останнє",
-    noSessions: "Немає живих сесій",
-    status: { busy: "працює", waiting: "чекає", shell: "shell", idle: "вільна" },
-    focusFailed: "Не вдалося відкрити сесію",
-    keys: { dictation: "Диктовка", captions: "Субтитри", translator: "Перекладач", recording: "Запис" },
-    on: "увімкнено",
-    off: "вимкнено",
-    speech: "голос",
-    speechTitle: "Озвучувати оновлення сесій",
-    badge: "бейдж",
-    badgeTitle: "Кількість сесій, що чекають, біля іконки в menu bar",
-    glow: "рамка",
-    glowTitle: "Світіння по краях екрана, поки слухаю або говорю",
-    widget: "віджет",
-    widgetTitle: "Міні-асистент біля краю екрана",
-    langTitle: "Мова асистента — натисни, щоб змінити",
-    memTitle: (used, budget) => `${used} з ${budget} МБ бюджету idle, заміряно при відкритті вікна, без моделі мовлення`,
-    join: "Join",
-    now: "триває",
-    inMinutes: (minutes) => `за ${minutes} хв`,
-    inHours: (hours, minutes) => `за ${hours} год ${minutes} хв`,
-    hotkey: "Відкрити або закрити це вікно"
-  },
-  en: {
-    sessions: "Claude Code sessions",
-    recent: "Recent",
-    noSessions: "No live sessions",
-    status: { busy: "working", waiting: "waiting", shell: "shell", idle: "idle" },
-    focusFailed: "Could not open the session",
-    keys: { dictation: "Dictation", captions: "Live captions", translator: "Translator", recording: "Recording" },
-    on: "on",
-    off: "off",
-    speech: "voice",
-    speechTitle: "Speak session updates aloud",
-    badge: "badge",
-    badgeTitle: "Count of waiting sessions next to the menu bar icon",
-    glow: "glow",
-    glowTitle: "Glow along the screen edges while listening or speaking",
-    widget: "widget",
-    widgetTitle: "Mini assistant at the screen edge",
-    langTitle: "Assistant language — click to switch",
-    memTitle: (used, budget) => `${used} of the ${budget} MB idle budget, measured when this window opened, without the speech model`,
-    join: "Join",
-    now: "now",
-    inMinutes: (minutes) => `in ${minutes} min`,
-    inHours: (hours, minutes) => `in ${hours} h ${minutes} min`,
-    hotkey: "Open or close this window"
-  }
-};
-
-const TITLES = {
-  uk: {
-    translator: "Перекладач",
-    captions: "Живі субтитри",
-    "record-call": "Записати дзвінок",
-    "dictate-session": "Говорити з Marshal",
-    recordings: "Записи дзвінків",
-    capture: "Знімок екрана",
-    settings: "Налаштування",
-    close: "Закрити"
-  },
-  en: {
-    translator: "Translator",
-    captions: "Live captions",
-    "record-call": "Record a call",
-    "dictate-session": "Talk to Marshal",
-    recordings: "Call recordings",
-    capture: "Screen capture",
-    settings: "Settings",
-    close: "Close"
-  }
-};
-
-let lang = "en";
 let state = "idle";
 let lines = [];
 let groups = [];
@@ -179,42 +95,37 @@ function micLevel() {
 const visual = createHudVisual(canvas, {
   resolveColor,
   getLevel: () => (state === "listening" ? micLevel() : null),
-  labelFor: (value) => stateLabel(value, lang),
+  labelFor: (value) => stateLabel(value, lang()),
   footer: "VOX · UK/EN"
 });
 
 // ── Rendering ──
 function applyTitles() {
-  const titles = TITLES[lang] ?? TITLES.en;
   document.querySelectorAll(".dock [data-action]").forEach((button) => {
-    const title = titles[button.dataset.action] ?? "";
+    const key = DOCK_TITLES[button.dataset.action];
+    const title = key ? t(key) : "";
     button.title = title;
     button.setAttribute("aria-label", title);
   });
   const close = document.getElementById("close-btn");
-  close.title = titles.close;
-  close.setAttribute("aria-label", titles.close);
+  close.title = t("home.close");
+  close.setAttribute("aria-label", t("home.close"));
 }
 
 function render() {
   home.dataset.state = state;
-  chip.textContent = stateLabel(state, lang);
-  const hint = (HINTS[lang] ?? HINTS.en)[state] || "";
+  chip.textContent = stateLabel(state, lang());
+  const hint = HINT_STATES.has(state) ? t(`home.hint.${state}`) : "";
   line.textContent = HINT_FIRST.has(state) ? hint || lines[0] || "" : lines[0] || hint;
   visual.setState(state);
   if (state === "listening") void openMic();
   else closeMic();
 }
 
-function text() {
-  return TEXT[lang] ?? TEXT.en;
-}
-
 function renderSide() {
-  const t = text();
-  document.getElementById("sessions-title").textContent = t.sessions;
-  document.getElementById("recent-title").textContent = t.recent;
-  sessionsEmpty.textContent = groups.length ? "" : t.noSessions;
+  document.getElementById("sessions-title").textContent = t("home.sessions");
+  document.getElementById("recent-title").textContent = t("home.recent");
+  sessionsEmpty.textContent = groups.length ? "" : t("home.noSessions");
   sessionsList.replaceChildren(
     ...groups.flatMap(({ project, sessions }) => [
       Object.assign(document.createElement("li"), { className: "project", textContent: project }),
@@ -225,7 +136,7 @@ function renderSide() {
         button.className = "session";
         button.dataset.pid = String(session.pid);
         button.dataset.status = session.status ?? "idle";
-        const tag = t.status[session.status] ?? t.status.idle;
+        const tag = t(`home.status.${SESSION_STATUSES.has(session.status) ? session.status : "idle"}`);
         button.title = session.waitingFor ? `${session.name} — ${session.waitingFor}` : session.name;
         const dot = Object.assign(document.createElement("span"), { className: "dot" });
         const label = document.createElement("span");
@@ -248,38 +159,38 @@ function hotkeyLabel(accelerator) {
 
 function meetingWhen(startIso, now = Date.now()) {
   const minutes = Math.ceil((Date.parse(startIso) - now) / 60_000);
-  if (minutes <= 0) return text().now;
-  return minutes < 60 ? text().inMinutes(minutes) : text().inHours(Math.floor(minutes / 60), minutes % 60);
+  if (minutes <= 0) return t("home.meetingNow");
+  return minutes < 60
+    ? t("home.inMinutes", { minutes })
+    : t("home.inHours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 function renderStrip() {
-  const t = text();
   const view = stripView;
   strip.hidden = !view;
   if (!view) return;
   strip.querySelectorAll("[data-key]").forEach((key) => {
     const on = Boolean(view.active?.[key.dataset.key]);
     key.classList.toggle("on", on);
-    key.title = `${t.keys[key.dataset.key]}: ${on ? t.on : t.off}`;
+    key.title = `${t(`home.key.${key.dataset.key}`)}: ${t(on ? "home.on" : "home.off")}`;
   });
   const toggles = {
-    "toggle-speech": [view.speech, t.speechTitle],
-    "toggle-badge": [view.badge, t.badgeTitle],
-    "toggle-glow": [view.glow, t.glowTitle],
-    "toggle-widget": [view.widget, t.widgetTitle]
+    "toggle-speech": [view.speech, t("home.speechTitle")],
+    "toggle-badge": [view.badge, t("home.badgeTitle")],
+    "toggle-glow": [view.glow, t("home.glowTitle")],
+    "toggle-widget": [view.widget, t("home.widgetTitle")]
   };
   for (const [action, [pressed, title]] of Object.entries(toggles)) {
     const button = strip.querySelector(`[data-action="${action}"]`);
     button.setAttribute("aria-pressed", String(Boolean(pressed)));
     button.title = title;
   }
-  strip.querySelector('[data-label="speech"]').textContent = t.speech;
-  strip.querySelector('[data-label="badge"]').textContent = t.badge;
-  strip.querySelector('[data-label="glow"]').textContent = t.glow;
-  strip.querySelector('[data-label="widget"]').textContent = t.widget;
+  for (const label of ["speech", "badge", "glow", "widget"]) {
+    strip.querySelector(`[data-label="${label}"]`).textContent = t(`home.${label}`);
+  }
   const language = strip.querySelector('[data-action="toggle-language"]');
-  language.textContent = lang.toUpperCase();
-  language.title = t.langTitle;
+  language.textContent = lang().toUpperCase();
+  language.title = t("home.langTitle");
 
   const mem = document.getElementById("mem");
   mem.hidden = !view.memory;
@@ -291,7 +202,7 @@ function renderStrip() {
     );
     document.getElementById("mem-text").textContent = `mem ${usedMb}/${budgetMb}`;
     mem.classList.toggle("over", usedMb > budgetMb);
-    mem.title = t.memTitle(usedMb, budgetMb);
+    mem.title = t("home.memTitle", { used: usedMb, budget: budgetMb });
   }
 
   const meeting = document.getElementById("meeting");
@@ -301,14 +212,14 @@ function renderStrip() {
     document.getElementById("meeting-when").textContent = meetingWhen(view.meeting.start);
     const join = document.getElementById("join");
     join.hidden = !view.meeting.joinable;
-    join.textContent = t.join;
+    join.textContent = t("home.join");
   }
 
   const hotkey = document.getElementById("hotkey");
   hotkey.hidden = !view.hotkey;
   if (view.hotkey) {
     hotkey.textContent = hotkeyLabel(view.hotkey);
-    hotkey.title = t.hotkey;
+    hotkey.title = t("home.hotkey");
   }
 }
 
@@ -326,14 +237,10 @@ document.addEventListener("visibilitychange", () => {
   syncCountdown();
 });
 
+// Main resolves the language for every window; the state payload carries it
+// too, so the e2e stub (no i18n preload) still switches.
 api?.onState((_event, payload) => {
-  if (payload.lang === "uk" || payload.lang === "en") {
-    if (payload.lang !== lang) {
-      lang = payload.lang;
-      document.documentElement.lang = lang;
-      applyTitles();
-    }
-  }
+  window.MarshalI18n?.set(payload.lang);
   if (Array.isArray(payload.lines)) lines = payload.lines.filter((value) => typeof value === "string");
   if (Array.isArray(payload.sessions)) groups = payload.sessions;
   state = normalizeState(payload.state);
@@ -349,7 +256,7 @@ sessionsList.addEventListener("click", async (event) => {
   if (!button) return;
   const result = await api?.focusSession(Number(button.dataset.pid));
   if (result && !result.ok) {
-    lines = [`${text().focusFailed}: ${result.error}`, ...lines].slice(0, 5);
+    lines = [`${t("home.focusFailed")}: ${result.error}`, ...lines].slice(0, 5);
     render();
     renderSide();
   }
@@ -444,3 +351,10 @@ render();
 renderSide();
 renderStrip();
 visual.start();
+
+window.addEventListener("marshal:language", () => {
+  applyTitles();
+  render();
+  renderSide();
+  renderStrip();
+});

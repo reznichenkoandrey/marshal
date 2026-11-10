@@ -12,6 +12,7 @@ import { finishMeeting } from "./meeting-assembly.ts";
 import type { MeetingLibrary } from "./meeting-library.ts";
 import { meetingNotesFiles, parseNotesLanguage } from "./meeting-notes.ts";
 import { MeetingNotesService } from "./meeting-notes-service.ts";
+import { t, uiLanguage } from "../i18n/ui-language.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
@@ -21,7 +22,9 @@ export class MeetingHistoryWindow {
   private window: BrowserWindow | null = null;
   private readonly finishing = new Set<string>();
   // Owned here, not by the BrowserWindow: closing the window keeps the job running.
-  private readonly notes = new MeetingNotesService((progress) => this.sendNotesProgress(progress));
+  private readonly notes = new MeetingNotesService((progress) => this.sendNotesProgress(progress), {
+    language: uiLanguage
+  });
 
   constructor(
     private readonly preloadPath: string,
@@ -90,9 +93,9 @@ export class MeetingHistoryWindow {
   /** "Transcribe & summarize" (#271). Only ever started by this click — never automatically (#229). */
   async summarize(id: string, language: string): Promise<{ ok: boolean; error?: string }> {
     const entry = this.library.list(this.activeId()).find((candidate) => candidate.id === id);
-    if (!entry) return { ok: false, error: "Recording not found." };
-    if (entry.state !== "done" || !entry.audioPath) return { ok: false, error: "This recording has no finished audio." };
-    if (this.finishing.has(id)) return { ok: false, error: "This recording is being finished." };
+    if (!entry) return { ok: false, error: t("meetings.error.notFound") };
+    if (entry.state !== "done" || !entry.audioPath) return { ok: false, error: t("meetings.error.noAudio") };
+    if (this.finishing.has(id)) return { ok: false, error: t("meetings.error.finishing") };
     const result = await this.notes.run({
       id,
       folder: entry.folder,
@@ -120,24 +123,24 @@ export class MeetingHistoryWindow {
 
   async openNotesFile(id: string, file: "notes" | "transcript"): Promise<{ ok: boolean; error?: string }> {
     const folder = this.library.folderFor(id);
-    if (!folder) return { ok: false, error: "Recording not found." };
+    if (!folder) return { ok: false, error: t("meetings.error.notFound") };
     const files = meetingNotesFiles(folder);
     const failure = await shell.openPath(file === "transcript" ? files.transcript : files.notesMd);
     return failure ? { ok: false, error: failure } : { ok: true };
   }
 
   reveal(filePath: string): { ok: boolean; error?: string } {
-    if (!this.library.contains(filePath)) return { ok: false, error: "Path is outside the recordings folder." };
+    if (!this.library.contains(filePath)) return { ok: false, error: t("meetings.error.outsideFolder") };
     shell.showItemInFolder(filePath);
     return { ok: true };
   }
 
   /** Builds the final files of an interrupted or failed recording from its raw chunks (#254). */
   async finish(id: string): Promise<{ ok: boolean; error?: string }> {
-    if (id === this.activeId()) return { ok: false, error: "This recording is still in progress." };
-    if (this.finishing.has(id)) return { ok: false, error: "This recording is already being finished." };
+    if (id === this.activeId()) return { ok: false, error: t("meetings.error.inProgress") };
+    if (this.finishing.has(id)) return { ok: false, error: t("meetings.error.alreadyFinishing") };
     const folder = this.library.folderFor(id);
-    if (!folder) return { ok: false, error: "Recording not found." };
+    if (!folder) return { ok: false, error: t("meetings.error.notFound") };
     this.finishing.add(id);
     try {
       await finishMeeting(folder);
@@ -151,11 +154,11 @@ export class MeetingHistoryWindow {
   }
 
   async trash(id: string): Promise<{ ok: boolean; error?: string }> {
-    if (id === this.activeId()) return { ok: false, error: "This recording is still in progress." };
-    if (this.finishing.has(id)) return { ok: false, error: "This recording is being finished." };
-    if (this.notes.current()?.id === id) return { ok: false, error: "This recording is being transcribed." };
+    if (id === this.activeId()) return { ok: false, error: t("meetings.error.inProgress") };
+    if (this.finishing.has(id)) return { ok: false, error: t("meetings.error.finishing") };
+    if (this.notes.current()?.id === id) return { ok: false, error: t("meetings.error.transcribing") };
     const folder = this.library.folderFor(id);
-    if (!folder) return { ok: false, error: "Recording not found." };
+    if (!folder) return { ok: false, error: t("meetings.error.notFound") };
     try {
       await shell.trashItem(folder);
       this.refresh();

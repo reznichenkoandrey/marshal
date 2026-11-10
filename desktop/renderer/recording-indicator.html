@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body {
@@ -79,8 +81,8 @@
     <div class="pill">
       <span class="dot" id="dot"></span>
       <span id="time">00:00</span>
-      <button id="toggle" title="Pause / Resume"><span class="icon pause" id="toggle-icon"></span></button>
-      <button id="stop" class="stop" title="Stop"><span class="icon square"></span></button>
+      <button id="toggle" title="Pause / Resume" aria-label="Pause / Resume" data-i18n-title="indicator.pauseResume" data-i18n-aria-label="indicator.pauseResume"><span class="icon pause" id="toggle-icon"></span></button>
+      <button id="stop" class="stop" title="Stop" aria-label="Stop" data-i18n-title="indicator.stop" data-i18n-aria-label="indicator.stop"><span class="icon square"></span></button>
     </div>
     <script type="module">
       const api = window.marshalCapture;

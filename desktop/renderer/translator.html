@@ -4,36 +4,38 @@
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Marshal Translator</title>
+    <title data-i18n="translator.windowTitle">Marshal Translator</title>
     <link rel="stylesheet" href="./translator.css" />
     <script src="./theme.js"></script>
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
   </head>
   <body>
     <!-- Header: window chrome + global actions -->
     <div class="header">
       <span class="header-title">
         <span data-icon="languages" data-icon-size="14"></span>
-        Translator
+        <span data-i18n="translator.title">Translator</span>
       </span>
 
       <div class="header-right">
         <button class="icon-btn" id="btn-pin" title="Keep window open (⌘P)" aria-pressed="false">
           <span data-icon="pin" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-glossary" title="Glossary — terms the translator must not rewrite">
+        <button class="icon-btn" id="btn-glossary" title="Glossary — terms the translator must not rewrite" data-i18n-title="translator.glossaryTitle">
           <span data-icon="book" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)">
+        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)" data-i18n-title="translator.historyTitle">
           <span data-icon="rotate-ccw" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)">
+        <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)" data-i18n-title="translator.captureTitle">
           <span data-icon="crop" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-upload" title="Upload image">
+        <button class="icon-btn" id="btn-upload" title="Upload image" data-i18n-title="translator.uploadTitle">
           <span data-icon="folder-open" data-icon-size="14"></span>
         </button>
         <input type="file" id="file-input" accept="image/*" hidden />
-        <button class="icon-btn close" id="close-btn" title="Close (Esc)">
+        <button class="icon-btn close" id="close-btn" title="Close (Esc)" data-i18n-title="translator.closeTitle">
           <span data-icon="x" data-icon-size="14"></span>
         </button>
       </div>
@@ -47,7 +49,7 @@
         <span data-icon="chevron-down" data-icon-size="12"></span>
       </button>
 
-      <button class="swap-btn" id="btn-swap" title="Swap languages (⌘⇧S)">
+      <button class="swap-btn" id="btn-swap" title="Swap languages (⌘⇧S)" data-i18n-title="translator.swapTitle">
         <span data-icon="arrow-left-right" data-icon-size="14"></span>
       </button>
 
@@ -56,7 +58,7 @@
         <span data-icon="chevron-down" data-icon-size="12"></span>
       </button>
 
-      <button class="formality-btn" id="btn-formality" title="Register of the translation">
+      <button class="formality-btn" id="btn-formality" title="Register of the translation" data-i18n-title="translator.formalityTitle">
         <span id="formality-label">Neutral</span>
       </button>
     </div>
@@ -68,18 +70,19 @@
           id="input-text"
           class="input-textarea"
           placeholder="Type or paste text…"
+          data-i18n-placeholder="translator.inputPlaceholder"
           spellcheck="false"
         ></textarea>
         <div class="pane-footer">
           <span class="char-count" id="char-count"></span>
           <div class="pane-actions">
-            <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard">
+            <button class="toolbar-btn" id="btn-paste" title="Paste from clipboard" data-i18n-title="translator.pasteTitle">
               <span data-icon="clipboard" data-icon-size="12"></span>
-              Paste
+              <span data-i18n="translator.paste">Paste</span>
             </button>
-            <button class="toolbar-btn" id="btn-clear" title="Clear">
+            <button class="toolbar-btn" id="btn-clear" title="Clear" data-i18n-title="translator.clear">
               <span data-icon="eraser" data-icon-size="12"></span>
-              Clear
+              <span data-i18n="translator.clear">Clear</span>
             </button>
           </div>
         </div>
@@ -91,16 +94,16 @@
 
           <!-- Alternatives for a clicked word (#146). Anchored to the word
                inside .result-body, which is the positioned ancestor. -->
-          <div class="alt-popover" id="alt-popover" hidden role="listbox" aria-label="Alternative translations"></div>
+          <div class="alt-popover" id="alt-popover" hidden role="listbox" aria-label="Alternative translations" data-i18n-aria-label="translator.alternativesLabel"></div>
 
           <div class="state-overlay" id="state-loading" style="display:none">
             <div class="spinner"></div>
-            <span>Translating…</span>
+            <span data-i18n="translator.translating">Translating…</span>
           </div>
 
           <div class="state-overlay" id="state-empty">
-            <span>Start typing to translate</span>
-            <span class="state-hint">
+            <span data-i18n="translator.emptyState">Start typing to translate</span>
+            <span class="state-hint" data-i18n-html="translator.emptyHint">
               <kbd>⌘C</kbd> <kbd>⌘C</kbd> double-copy · <kbd>⌘⌥T</kbd> copied text · <kbd>⌘⇧2</kbd> capture
             </span>
           </div>
@@ -111,13 +114,13 @@
         <div class="pane-footer">
           <span class="lang-badge" id="lang-badge"></span>
           <div class="pane-actions">
-            <button class="toolbar-btn" id="btn-insert" title="Paste into the app you came from (⌘⇧V)" disabled>
+            <button class="toolbar-btn" id="btn-insert" title="Paste into the app you came from (⌘⇧V)" data-i18n-title="translator.insertTitle" disabled>
               <span data-icon="corner-down-left" data-icon-size="12"></span>
-              Insert
+              <span data-i18n="translator.insert">Insert</span>
             </button>
             <button class="copy-btn" id="copy-btn" disabled>
               <span data-icon="copy" data-icon-size="12"></span>
-              Copy
+              <span data-i18n="translator.copy">Copy</span>
             </button>
           </div>
         </div>
@@ -128,7 +131,7 @@
     <div class="lang-popover" id="lang-popover" role="listbox" hidden>
       <div class="lang-search">
         <span data-icon="search" data-icon-size="12"></span>
-        <input type="text" id="lang-filter" placeholder="Search language" spellcheck="false" />
+        <input type="text" id="lang-filter" placeholder="Search language" data-i18n-placeholder="translator.searchLanguage" spellcheck="false" />
       </div>
       <div class="lang-options" id="lang-options"></div>
     </div>
@@ -136,13 +139,13 @@
     <!-- Glossary: terms that must always come out the same way -->
     <div id="glossary-panel" class="history-panel glossary-panel" hidden>
       <div class="history-header">
-        <span class="history-title">Glossary</span>
+        <span class="history-title" data-i18n="translator.glossary">Glossary</span>
         <span class="glossary-hint" id="glossary-hint"></span>
       </div>
       <form class="glossary-form" id="glossary-form">
-        <input type="text" id="glossary-term" placeholder="Term, e.g. backoff" spellcheck="false" />
-        <input type="text" id="glossary-translation" placeholder="Empty = keep as-is" spellcheck="false" />
-        <button type="submit" class="toolbar-btn" id="glossary-add">Add</button>
+        <input type="text" id="glossary-term" placeholder="Term, e.g. backoff" data-i18n-placeholder="translator.glossaryTermPlaceholder" spellcheck="false" />
+        <input type="text" id="glossary-translation" placeholder="Empty = keep as-is" data-i18n-placeholder="translator.glossaryTranslationPlaceholder" spellcheck="false" />
+        <button type="submit" class="toolbar-btn" id="glossary-add" data-i18n="translator.add">Add</button>
       </form>
       <div id="glossary-list" class="history-list glossary-list"></div>
     </div>
@@ -150,8 +153,8 @@
     <!-- History dropdown -->
     <div id="history-panel" class="history-panel" hidden>
       <div class="history-header">
-        <span class="history-title">Recent translations</span>
-        <button class="history-clear" id="history-clear" title="Clear all history">Clear</button>
+        <span class="history-title" data-i18n="translator.recentTranslations">Recent translations</span>
+        <button class="history-clear" id="history-clear" title="Clear all history" data-i18n-title="translator.clearHistoryTitle" data-i18n="translator.clear">Clear</button>
       </div>
       <div id="history-list" class="history-list"></div>
     </div>

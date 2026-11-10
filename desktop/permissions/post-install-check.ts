@@ -1,3 +1,4 @@
+import { translate, type UiLanguage } from "../i18n/catalog.ts";
 import type { MarshalSettings } from "../settings-store.ts";
 
 type MediaAccessStatus = "not-determined" | "granted" | "denied" | "restricted" | "unknown";
@@ -41,6 +42,8 @@ export type PostInstallPermissionCheckDeps = {
     cancelId?: number;
   }) => Promise<{ response: number }>;
   openExternal: (url: string) => Promise<unknown>;
+  /** UI language of the dialogs; English when not given. */
+  language?: UiLanguage;
 };
 
 const PERMISSION_DEFS: Record<MissingPermissionId, Omit<MissingPermission, "status">> = {
@@ -121,23 +124,22 @@ export async function runPostInstallPermissionCheck(
     return;
   }
 
+  const lang = deps.language ?? "en";
   let missing = decision.missing;
   while (true) {
     const buttons = [
-      ...missing.map((permission) => `Open ${permission.label}`),
-      "Re-test",
-      "Later"
+      ...missing.map((permission) => translate(lang, "permission.open", { label: permission.label })),
+      translate(lang, "permission.retest"),
+      translate(lang, "update.later")
     ];
     const retestIndex = missing.length;
     const laterIndex = missing.length + 1;
 
     const { response } = await deps.showMessageBox({
       type: "info",
-      title: "Marshal permissions may need attention",
-      message:
-        "Marshal was updated or rebuilt. macOS may require privacy permissions again " +
-        "before dictation, push-to-talk, and capture work correctly.",
-      detail: buildPermissionDetail(missing),
+      title: translate(lang, "permission.attentionTitle"),
+      message: translate(lang, "permission.attentionMessage"),
+      detail: buildPermissionDetail(missing, lang),
       buttons,
       defaultId: 0,
       cancelId: laterIndex
@@ -158,9 +160,9 @@ export async function runPostInstallPermissionCheck(
       if (!next.shouldPrompt) {
         await deps.showMessageBox({
           type: "info",
-          title: "Marshal permissions are ready",
-          message: "Microphone, Accessibility, and Screen Recording permissions look ready.",
-          buttons: ["OK"],
+          title: translate(lang, "permission.readyTitle"),
+          message: translate(lang, "permission.readyMessage"),
+          buttons: [translate(lang, "common.ok")],
           defaultId: 0,
           cancelId: 0
         });
@@ -176,13 +178,10 @@ export async function runPostInstallPermissionCheck(
   }
 }
 
-function buildPermissionDetail(missing: MissingPermission[]): string {
+function buildPermissionDetail(missing: MissingPermission[], lang: UiLanguage): string {
   const lines = missing.map((permission) =>
-    `- ${permission.label}: ${permission.status}. Open ${permission.action}.`
+    translate(lang, "permission.detailLine", { label: permission.label, status: permission.status, action: permission.action })
   );
-  lines.push(
-    "",
-    "Input Monitoring has no Electron status API. If push-to-talk still does not react after Accessibility is granted, also check System Settings -> Privacy & Security -> Input Monitoring."
-  );
+  lines.push("", translate(lang, "permission.inputMonitoring"));
   return lines.join("\n");
 }

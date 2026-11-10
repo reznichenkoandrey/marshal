@@ -25,9 +25,14 @@ const DEBOUNCE_MS = 650;
 // A translation is only worth remembering once the user stops changing it.
 const HISTORY_COMMIT_MS = 2500;
 const MAX_CHARS = 5000;
-const AUTO_LABEL = "Detect language";
 const FORMALITY_CYCLE = ["default", "formal", "informal"];
-const FORMALITY_LABELS = { default: "Neutral", formal: "Formal", informal: "Informal" };
+const FORMALITY_KEYS = {
+  default: "translator.formalityNeutral",
+  formal: "translator.formalityFormal",
+  informal: "translator.formalityInformal"
+};
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
+const autoLabel = () => t("translator.detectLanguage");
 
 // ── State ──
 let languages = [];
@@ -38,6 +43,8 @@ let pinned = false;
 let currentTranslation = "";
 // Last detected source language, needed to swap out of "Detect language".
 let detectedSourceLang = "";
+// What the language badge shows, kept so it can re-render on a UI language switch.
+let badge = null;            // { mode, from, to } | null
 // Guards against re-translating text that is already on screen.
 let lastRequest = { text: "", sourceLang: "", targetLang: "", formality: "" };
 let requestSeq = 0;
@@ -115,7 +122,7 @@ let glossaryEntries = [];
 // ── Language helpers ──
 
 function languageName(code) {
-  if (code === "auto") return AUTO_LABEL;
+  if (code === "auto") return autoLabel();
   return languages.find((entry) => entry.code === code)?.name ?? String(code || "").toUpperCase();
 }
 
@@ -126,7 +133,7 @@ function renderLanguageBar() {
   dom.tgtLangLabel.textContent = languageName(targetLang);
   // Swapping out of auto-detect needs a concrete language to swap to.
   dom.btnSwap.disabled = sourceLang === "auto" && !detectedSourceLang;
-  dom.formalityLabel.textContent = FORMALITY_LABELS[formality];
+  dom.formalityLabel.textContent = t(FORMALITY_KEYS[formality]);
   dom.btnFormality.classList.toggle("active", formality !== "default");
   // The panel shows renderings for the active target, so it follows the pair.
   if (dom.glossaryPanel && !dom.glossaryPanel.hidden) renderGlossary();
@@ -179,8 +186,8 @@ function visibleLangOptions() {
       entry.code.startsWith(query)
   );
   // Only the source side can defer to detection.
-  if (popoverSide === "source" && (!query || AUTO_LABEL.toLowerCase().includes(query))) {
-    return [{ code: "auto", name: AUTO_LABEL, native: "" }, ...entries];
+  if (popoverSide === "source" && (!query || autoLabel().toLowerCase().includes(query))) {
+    return [{ code: "auto", name: autoLabel(), native: "" }, ...entries];
   }
   return entries;
 }
@@ -193,7 +200,7 @@ function renderLangOptions() {
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "lang-option-empty";
-    empty.textContent = "No language matches";
+    empty.textContent = t("translator.noLanguageMatches");
     dom.langOptions.appendChild(empty);
     return;
   }
@@ -319,9 +326,13 @@ dom.btnPin.addEventListener("click", async () => {
   } catch {
     pinned = !pinned;
   }
-  dom.btnPin.setAttribute("aria-pressed", pinned ? "true" : "false");
-  dom.btnPin.title = pinned ? "Unpin — hide when focus leaves (⌘P)" : "Keep window open (⌘P)";
+  renderPin();
 });
+
+function renderPin() {
+  dom.btnPin.setAttribute("aria-pressed", pinned ? "true" : "false");
+  dom.btnPin.title = t(pinned ? "translator.unpinTitle" : "translator.pinTitle");
+}
 
 // ── Close ──
 dom.closeBtn.addEventListener("click", () => api.close());
@@ -408,7 +419,7 @@ function clearAll() {
   detectedSourceLang = "";
   lastRequest = { text: "", sourceLang: "", targetLang: "", formality: "" };
   renderTranslation("");
-  dom.langBadge.textContent = "";
+  setBadge(null);
   setResultActions(false);
   renderLanguageBar();
   setState("empty");
@@ -450,14 +461,14 @@ async function runTranslate() {
   if (!text) {
     currentTranslation = "";
     renderTranslation("");
-    dom.langBadge.textContent = "";
+    setBadge(null);
     setResultActions(false);
     setState("empty");
     return;
   }
 
   if (text.length > MAX_CHARS) {
-    showError(`Text is ${text.length} characters — the limit is ${MAX_CHARS}.`);
+    showError(t("translator.textTooLong", { length: text.length, max: MAX_CHARS }));
     return;
   }
 
@@ -483,8 +494,15 @@ async function runTranslate() {
     scheduleHistoryCommit({ ...result, text, mode: "text" });
   } catch (err) {
     if (seq !== requestSeq) return;
-    showError(err?.message || "Translation failed");
+    showError(err?.message || t("translator.translationFailed"));
   }
+}
+
+function setBadge(next) {
+  badge = next;
+  if (!badge) dom.langBadge.textContent = "";
+  else if (badge.mode === "image") dom.langBadge.textContent = t("translator.imageBadge", { lang: languageName(badge.to) });
+  else dom.langBadge.textContent = `${languageName(badge.from)} → ${languageName(badge.to)}`;
 }
 
 /** Renders a finished translation into the target pane. */
@@ -494,13 +512,11 @@ function applyResult(result) {
 
   if (result.mode === "image") {
     detectedSourceLang = "";
-    dom.langBadge.textContent = `Image → ${languageName(result.targetLang)}`;
   } else {
     const detected = typeof result.sourceLang === "string" ? result.sourceLang : "";
     detectedSourceLang = detected && detected !== "auto" ? detected : "";
-    const from = detectedSourceLang ? languageName(detectedSourceLang) : AUTO_LABEL;
-    dom.langBadge.textContent = `${from} → ${languageName(result.targetLang)}`;
   }
+  setBadge({ mode: result.mode, from: detectedSourceLang || "auto", to: result.targetLang });
 
   renderLanguageBar();
   setResultActions(!!currentTranslation);
@@ -607,7 +623,7 @@ async function openAlternatives(span) {
     renderAlternatives(list.length ? "ready" : "empty");
   } catch (err) {
     if (seq !== altSeq) return;
-    renderAlternatives("error", err?.message || "Could not load alternatives");
+    renderAlternatives("error", err?.message || t("translator.couldNotLoadAlternatives"));
   }
 }
 
@@ -619,8 +635,8 @@ function renderAlternatives(state, message = "") {
     const note = document.createElement("div");
     note.className = state === "error" ? "alt-state alt-state-error" : "alt-state";
     note.textContent =
-      state === "loading" ? "Looking for alternatives…" :
-      state === "empty" ? "No alternatives for this word" :
+      state === "loading" ? t("translator.lookingForAlternatives") :
+      state === "empty" ? t("translator.noAlternatives") :
       message;
     dom.altPopover.appendChild(note);
     return;
@@ -785,7 +801,7 @@ dom.btnCapture.addEventListener("click", async () => {
     applyResult({ ...result, mode: "image" });
     await refreshHistory();
   } catch (err) {
-    showError(err?.message || "Capture failed");
+    showError(err?.message || t("translator.captureFailed"));
   } finally {
     dom.btnCapture.disabled = false;
   }
@@ -812,7 +828,7 @@ dom.fileInput.addEventListener("change", () => {
       applyResult({ ...result, mode: "image" });
       await refreshHistory();
     } catch (err) {
-      showError(err?.message || "Translation failed");
+      showError(err?.message || t("translator.translationFailed"));
     }
   };
   reader.readAsDataURL(file);
@@ -831,10 +847,14 @@ dom.copyBtn.addEventListener("click", () => {
   if (!currentTranslation) return;
   navigator.clipboard.writeText(currentTranslation).then(() => {
     const checkSvg = window.MarshalIcons?.render("check", { size: 12 }) ?? "";
-    dom.copyBtn.innerHTML = `${checkSvg}<span>Copied!</span>`;
+    dom.copyBtn.innerHTML = checkSvg;
+    const copied = document.createElement("span");
+    copied.textContent = t("translator.copied");
+    dom.copyBtn.appendChild(copied);
     dom.copyBtn.classList.add("copied");
     setTimeout(() => {
       dom.copyBtn.innerHTML = defaultCopyHTML;
+      window.MarshalI18n?.apply(dom.copyBtn);
       dom.copyBtn.classList.remove("copied");
     }, 1500);
     flushHistory();
@@ -848,13 +868,10 @@ dom.btnInsert.addEventListener("click", async () => {
   try {
     const outcome = await api.insertTranslation(currentTranslation);
     if (outcome && outcome.ok === false && outcome.reason === "paste-failed") {
-      showError(
-        "Could not paste into the other app — the translation is on your clipboard. " +
-        "Grant Accessibility to Marshal in System Settings → Privacy & Security."
-      );
+      showError(t("translator.pasteFailed"));
     }
   } catch (err) {
-    showError(err?.message || "Insert failed");
+    showError(err?.message || t("translator.insertFailed"));
   } finally {
     dom.btnInsert.disabled = !currentTranslation;
   }
@@ -996,7 +1013,7 @@ function showNotice(message) {
   text.textContent = message;
   const dismiss = document.createElement("button");
   dismiss.className = "notice-dismiss";
-  dismiss.title = "Dismiss";
+  dismiss.title = t("translator.dismiss");
   dismiss.textContent = "✕";
   dismiss.addEventListener("click", () => {
     dom.noticeMsg.hidden = true;
@@ -1101,7 +1118,7 @@ function renderHistoryPanel() {
   if (historyItems.length === 0) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "No translations yet. Use ⌘⌥T or capture a region to start.";
+    empty.textContent = t("translator.historyEmpty");
     dom.historyList.appendChild(empty);
     return;
   }
@@ -1113,7 +1130,7 @@ function renderHistoryPanel() {
     lang.className = "history-item-lang";
     const src = (item.sourceLang || "").toUpperCase();
     const tgt = (item.targetLang || "").toUpperCase();
-    lang.textContent = item.mode === "image" ? `IMAGE → ${tgt}` : `${src || "?"} → ${tgt}`;
+    lang.textContent = item.mode === "image" ? t("translator.historyImage", { lang: tgt }) : `${src || "?"} → ${tgt}`;
 
     const txt = document.createElement("div");
     txt.className = "history-item-text";
@@ -1157,7 +1174,7 @@ dom.glossaryForm.addEventListener("submit", async (e) => {
   try {
     glossaryEntries = await api.addGlossaryEntry({ term, targetLang, translation });
   } catch (err) {
-    showError(err?.message || "Could not save the term");
+    showError(err?.message || t("translator.couldNotSaveTerm"));
     return;
   }
   dom.glossaryTerm.value = "";
@@ -1178,13 +1195,13 @@ async function refreshGlossary() {
 }
 
 function renderGlossary() {
-  dom.glossaryHint.textContent = `${languageName(targetLang)} column`;
+  dom.glossaryHint.textContent = t("translator.glossaryColumn", { lang: languageName(targetLang) });
   dom.glossaryList.innerHTML = "";
 
   if (glossaryEntries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "No fixed terms yet. Add one to stop it being translated.";
+    empty.textContent = t("translator.glossaryEmpty");
     dom.glossaryList.appendChild(empty);
     return;
   }
@@ -1203,20 +1220,20 @@ function renderGlossary() {
     if (mapped) {
       value.textContent = `→ ${mapped}`;
     } else {
-      value.textContent = "kept as-is";
+      value.textContent = t("translator.keptAsIs");
       value.classList.add("kept");
     }
 
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "glossary-remove";
-    remove.title = `Remove "${entry.term}"`;
+    remove.title = t("translator.removeTerm", { term: entry.term });
     remove.textContent = "✕";
     remove.addEventListener("click", async () => {
       try {
         glossaryEntries = await api.removeGlossaryEntry(entry.term);
       } catch (err) {
-        showError(err?.message || "Could not remove the term");
+        showError(err?.message || t("translator.couldNotRemoveTerm"));
         return;
       }
       renderGlossary();
@@ -1228,6 +1245,15 @@ function renderGlossary() {
     dom.glossaryList.appendChild(row);
   });
 }
+
+// Static markup is handled by i18n.js; this redraws what the script wrote.
+window.addEventListener("marshal:language", () => {
+  renderPin();
+  renderLanguageBar();
+  setBadge(badge);
+  if (popoverSide) renderLangOptions();
+  if (!dom.historyPanel.hidden) renderHistoryPanel();
+});
 
 // ── Init ──
 
@@ -1244,7 +1270,7 @@ async function init() {
     // still works — translating must not depend on the popover.
     languages = [];
   }
-  dom.btnPin.setAttribute("aria-pressed", pinned ? "true" : "false");
+  renderPin();
   renderLanguageBar();
   updateCharCount();
   setResultActions(false);

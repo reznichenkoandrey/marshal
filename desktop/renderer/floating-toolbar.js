@@ -4,6 +4,7 @@
 // channel the indicator window listens on.
 
 const api = window.marshalToolbar;
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
 const btnArea = document.getElementById("btn-area");
 const btnFullscreen = document.getElementById("btn-fullscreen");
 const btnRecord = document.getElementById("btn-record");
@@ -12,9 +13,10 @@ const btnHistory = document.getElementById("btn-history");
 const btnClose = document.getElementById("btn-close");
 const iconIdle = document.getElementById("record-icon-idle");
 const iconStop = document.getElementById("record-icon-stop");
+let recording = null;
 
 if (!api) {
-  document.body.textContent = "Toolbar API unavailable.";
+  document.body.textContent = t("toolbar.apiUnavailable");
 } else {
   btnArea?.addEventListener("click", () => void api.captureArea());
   btnFullscreen?.addEventListener("click", () => void api.captureFullscreen());
@@ -27,12 +29,17 @@ if (!api) {
   api.onRecordingState((_event, payload) => setRecording(Boolean(payload?.recording)));
 
   void api.pollRecordingState().then((state) => setRecording(Boolean(state?.recording)));
+
+  window.addEventListener("marshal:language", () => {
+    if (recording !== null) setRecording(recording);
+  });
 }
 
 function setRecording(isRecording) {
   if (!btnRecord) return;
+  recording = isRecording;
   btnRecord.classList.toggle("recording", isRecording);
   iconIdle?.classList.toggle("hidden", isRecording);
   iconStop?.classList.toggle("hidden", !isRecording);
-  btnRecord.title = isRecording ? "Stop recording" : "Start recording (⌘⌥6)";
+  btnRecord.title = t(isRecording ? "toolbar.stopRecording" : "toolbar.startRecording");
 }

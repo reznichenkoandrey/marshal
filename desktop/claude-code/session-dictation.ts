@@ -5,6 +5,7 @@
 import { app, clipboard, Menu, Notification, type Tray } from "electron";
 
 import { deliverTranscript, insertTextIntoFocused, probeFocusedElement, sendKeystroke } from "../dictation/focus-paste.ts";
+import { t, uiLanguage } from "../i18n/ui-language.ts";
 import { focusSession } from "./focus.ts";
 import { describeStatus, listLiveSessions, type ClaudeSession } from "./registry.ts";
 import type { ContextRouter } from "./context-router.ts";
@@ -38,10 +39,10 @@ export class SessionDictation {
       case "cancelled":
         return;
       case "no-sessions":
-        this.notify("No Claude Code session is running", transcript);
+        this.notify(t("claude.noSession"), transcript);
         return;
       case "empty":
-        this.notify(`Nothing to send to ${decision.session.name}`, "Say the command right after the session name.");
+        this.notify(t("claude.nothingToSend", { name: decision.session.name }), t("claude.nothingToSendBody"));
         return;
       case "send":
         if ((await this.send(decision.session, decision.command)) && decision.byContext) {
@@ -60,7 +61,7 @@ export class SessionDictation {
   private async resend(wrong: ClaudeSession, command: string): Promise<void> {
     const others = listLiveSessions().filter((session) => session.sessionId !== wrong.sessionId);
     if (others.length === 0) {
-      this.notify("No other Claude Code session is running", command);
+      this.notify(t("claude.noOtherSession"), command);
       return;
     }
     const session = await this.pick(others, command);
@@ -71,7 +72,7 @@ export class SessionDictation {
   private async send(session: ClaudeSession, command: string): Promise<boolean> {
     const delivery = planDelivery(command, session);
     if (delivery.kind === "blocked") {
-      this.notify(`${session.name} ${delivery.reason}`, command);
+      this.notify(t("claude.blockedPermission", { name: session.name }), command);
       return false;
     }
     // Paste or typing only reaches the right session when its own tab is in
@@ -81,8 +82,8 @@ export class SessionDictation {
     if (focused !== "tab") {
       if (delivery.kind === "text") clipboard.writeText(delivery.text);
       this.notify(
-        `Open ${session.name} to send this`,
-        `Marshal can type only into Terminal and iTerm sessions. ${delivery.kind === "text" ? "The command is on the clipboard." : ""}`.trim()
+        t("claude.openToSend", { name: session.name }),
+        t(delivery.kind === "text" ? "claude.onlyTerminalClipboard" : "claude.onlyTerminal")
       );
       return false;
     }
@@ -91,7 +92,7 @@ export class SessionDictation {
       this.router.remember(session.sessionId);
       return true;
     }
-    this.notify(`Could not type into ${session.name}`, "The command is on the clipboard.");
+    this.notify(t("claude.couldNotType", { name: session.name }), t("claude.onClipboard"));
     return false;
   }
 
@@ -120,13 +121,13 @@ export class SessionDictation {
       };
       const preview = command.length > 60 ? `${command.slice(0, 57)}…` : command;
       const menu = Menu.buildFromTemplate([
-        { label: `Send “${preview}” to:`, enabled: false },
+        { label: t("claude.sendTo", { preview }), enabled: false },
         ...candidates.map((session) => ({
-          label: `${session.name} — ${describeStatus(session)}`,
+          label: `${session.name} — ${describeStatus(session, uiLanguage())}`,
           click: () => settle(session)
         })),
         { type: "separator" as const },
-        { label: "Cancel", click: () => settle(null) }
+        { label: t("common.cancel"), click: () => settle(null) }
       ]);
       menu.once("menu-will-close", () => setTimeout(() => settle(null), PICKER_CLICK_GRACE_MS));
       // A tray menu of an inactive app is closed by macOS ~0.5 s after it opens (#304).
@@ -137,6 +138,6 @@ export class SessionDictation {
 
   private notify(title: string, body: string): void {
     if (!Notification.isSupported()) return;
-    new Notification({ title: `Marshal — ${title}`, body, silent: true }).show();
+    new Notification({ title, body, silent: true }).show();
   }
 }

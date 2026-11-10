@@ -11,6 +11,10 @@
 
 import { filterEntries, groupByDay, kindLabel } from "./capture-history-filter.js";
 
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
+const locale = () => (window.MarshalI18n?.language() === "uk" ? "uk-UA" : "en-GB");
+const dayLabels = () => ({ today: t("history.today"), yesterday: t("history.yesterday"), locale: locale() });
+
 const groups = document.getElementById("groups");
 const empty = document.getElementById("empty");
 const folderLabel = document.getElementById("folder-path");
@@ -28,7 +32,7 @@ if (!api) {
   // The preload script is mandatory. Surface a useful message rather than a
   // blank window if something went wrong with preload registration.
   empty.classList.remove("hidden");
-  empty.innerHTML = "<p>History API unavailable — preload script failed to load.</p>";
+  empty.innerHTML = `<p>${escapeText(t("history.apiUnavailable"))}</p>`;
 } else {
   api.onLoaded((event, payload) => {
     allEntries = Array.isArray(payload?.entries) ? payload.entries : [];
@@ -42,6 +46,7 @@ if (!api) {
 }
 
 searchInput?.addEventListener("input", renderView);
+if (api) window.addEventListener("marshal:language", renderView);
 // Esc clears the query rather than closing the window — the window is the
 // thing being searched, and losing it mid-search is never what was meant.
 searchInput?.addEventListener("keydown", (e) => {
@@ -65,19 +70,20 @@ document.addEventListener("keydown", (e) => {
 function renderView() {
   const query = searchInput?.value ?? "";
   const now = Date.now();
-  const matching = filterEntries(allEntries, query, now);
+  const labels = dayLabels();
+  const matching = filterEntries(allEntries, query, now, labels);
   groups.innerHTML = "";
 
   if (matching.length === 0) {
     empty.classList.remove("hidden");
     empty.innerHTML = allEntries.length === 0
-      ? '<p>No Marshal captures yet.</p><p class="history-empty-hint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>'
-      : `<p>Nothing matches “${escapeText(query)}”.</p>`;
+      ? `<p>${escapeText(t("history.empty"))}</p><p class="history-empty-hint">${t("history.emptyHint")}</p>`
+      : `<p>${escapeText(t("history.noMatch", { query }))}</p>`;
     return;
   }
   empty.classList.add("hidden");
 
-  for (const day of groupByDay(matching, now)) {
+  for (const day of groupByDay(matching, now, labels)) {
     groups.appendChild(buildDaySection(day));
   }
 }
@@ -92,7 +98,7 @@ function buildDaySection(day) {
 
   const count = document.createElement("span");
   count.className = "history-day-count";
-  count.textContent = day.entries.length === 1 ? "1 capture" : `${day.entries.length} captures`;
+  count.textContent = captureCount(day.entries.length);
   heading.appendChild(count);
 
   const grid = document.createElement("div");
@@ -153,7 +159,7 @@ function buildTile(entry) {
 
   const openBtn = document.createElement("button");
   openBtn.className = "tile-action-btn";
-  openBtn.textContent = entry.kind === "image" ? "Edit" : "Open";
+  openBtn.textContent = t(entry.kind === "image" ? "history.edit" : "history.open");
   openBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     void handleOpen(entry);
@@ -161,7 +167,7 @@ function buildTile(entry) {
 
   const revealBtn = document.createElement("button");
   revealBtn.className = "tile-action-btn";
-  revealBtn.textContent = "Reveal";
+  revealBtn.textContent = t("history.reveal");
   revealBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     void api.reveal(entry.path);
@@ -175,8 +181,8 @@ function buildTile(entry) {
   if (entry.source === "archive") {
     const source = document.createElement("span");
     source.className = "tile-source";
-    source.textContent = "Not saved";
-    source.title = "Kept in Marshal's capture history, not in your capture folder";
+    source.textContent = t("history.notSaved");
+    source.title = t("history.notSavedTitle");
     tile.appendChild(source);
   }
 
@@ -198,7 +204,14 @@ async function handleOpen(entry) {
 
 /** Day grouping already carries the date, so the tile only needs the clock. */
 function clockTime(ms) {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+}
+
+const COUNT_KEYS = { one: "history.countOne", few: "history.countFew" };
+
+function captureCount(count) {
+  const category = new Intl.PluralRules(window.MarshalI18n?.language() ?? "en").select(count);
+  return t(COUNT_KEYS[category] ?? "history.countMany", { count });
 }
 
 function humanSize(bytes) {

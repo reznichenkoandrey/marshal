@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
-    <title>Convert to GIF</title>
+    <title data-i18n="gif.windowTitle">Convert to GIF</title>
     <link rel="stylesheet" href="design-tokens.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -126,30 +126,32 @@
       .ghost:hover { background: var(--bg-hover); }
     </style>
     <script src="./theme.js"></script>
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
   </head>
   <body>
-    <header><h1>Convert video to GIF</h1></header>
+    <header><h1 data-i18n="gif.heading">Convert video to GIF</h1></header>
     <main>
       <div class="file" id="file-path">—</div>
 
       <div class="row">
         <label for="fps">FPS</label>
         <select id="fps">
-          <option value="10">10 — small</option>
-          <option value="15" selected>15 — default</option>
-          <option value="24">24 — smooth</option>
-          <option value="30">30 — max</option>
+          <option value="10" data-i18n="gif.fpsSmall">10 — small</option>
+          <option value="15" selected data-i18n="gif.fpsDefault">15 — default</option>
+          <option value="24" data-i18n="gif.fpsSmooth">24 — smooth</option>
+          <option value="30" data-i18n="gif.fpsMax">30 — max</option>
         </select>
       </div>
 
       <div class="row">
-        <label for="width">Width</label>
+        <label for="width" data-i18n="gif.width">Width</label>
         <select id="width">
           <option value="480">480 px</option>
           <option value="720" selected>720 px</option>
           <option value="960">960 px</option>
           <option value="1280">1280 px</option>
-          <option value="0">Original</option>
+          <option value="0" data-i18n="gif.original">Original</option>
         </select>
       </div>
 
@@ -157,19 +159,20 @@
         <span></span>
         <label class="check">
           <input type="checkbox" id="loop" checked />
-          Loop forever
+          <span data-i18n="gif.loop">Loop forever</span>
         </label>
       </div>
 
       <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
-      <div id="status">Ready.</div>
+      <div id="status" data-i18n="gif.ready">Ready.</div>
     </main>
     <footer>
-      <button class="ghost" id="cancel">Close</button>
-      <button class="primary" id="export">Export GIF</button>
+      <button class="ghost" id="cancel" data-i18n="gif.close">Close</button>
+      <button class="primary" id="export" data-i18n="gif.export">Export GIF</button>
     </footer>
     <script type="module">
       const api = window.marshalCapture;
+      const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
       const fileEl = document.getElementById("file-path");
       const fpsEl = document.getElementById("fps");
       const widthEl = document.getElementById("width");
@@ -179,45 +182,55 @@
       const exportBtn = document.getElementById("export");
       const cancelBtn = document.getElementById("cancel");
 
-      let inputPath = "";
+      // null until main sends gif-init; the file row keeps its "—" placeholder.
+      let inputPath = null;
+      let busy = false;
+      // Status is either a catalog key with params or raw error text, so a
+      // language switch can re-render it.
+      let status = { key: "gif.ready", className: "" };
+
+      function render() {
+        if (inputPath !== null) fileEl.textContent = inputPath || t("gif.noFile");
+        statusEl.textContent = status.raw ?? t(status.key, status.params);
+        statusEl.className = status.className;
+        exportBtn.disabled = busy;
+        exportBtn.textContent = t(busy ? "gif.working" : "gif.export");
+      }
+
+      function setStatus(next, isBusy = busy) {
+        status = { className: "", ...next };
+        busy = isBusy;
+        render();
+      }
+
+      window.addEventListener("marshal:language", render);
 
       api.onGifInit((_event, payload) => {
         inputPath = payload.inputPath || "";
-        fileEl.textContent = inputPath || "No file selected";
+        render();
       });
 
       api.onGifProgress((_event, payload) => {
         const pct = Math.round((payload.progress || 0) * 100);
         progressEl.style.width = `${pct}%`;
-        statusEl.textContent = `Encoding… ${pct}%`;
-        statusEl.className = "";
+        setStatus({ key: "gif.encoding", params: { pct } });
       });
 
       api.onGifDone((_event, payload) => {
         progressEl.style.width = "100%";
-        statusEl.textContent = `Saved: ${payload.outputPath}`;
-        statusEl.className = "success";
-        exportBtn.disabled = false;
-        exportBtn.textContent = "Export GIF";
+        setStatus({ key: "gif.saved", params: { path: payload.outputPath }, className: "success" }, false);
       });
 
       api.onGifError((_event, payload) => {
-        statusEl.textContent = payload.message || "Failed";
-        statusEl.className = "error";
-        exportBtn.disabled = false;
-        exportBtn.textContent = "Export GIF";
+        setStatus(payload.message ? { raw: payload.message, className: "error" } : { key: "gif.failed", className: "error" }, false);
       });
 
       exportBtn.addEventListener("click", async () => {
         if (!inputPath) {
-          statusEl.textContent = "Pick a video first.";
-          statusEl.className = "error";
+          setStatus({ key: "gif.pickVideo", className: "error" });
           return;
         }
-        exportBtn.disabled = true;
-        exportBtn.textContent = "Working…";
-        statusEl.textContent = "Starting encode…";
-        statusEl.className = "";
+        setStatus({ key: "gif.starting" }, true);
         progressEl.style.width = "0%";
         try {
           await api.gifStart({
@@ -227,10 +240,7 @@
             loop: loopEl.checked
           });
         } catch (err) {
-          statusEl.textContent = err && err.message ? err.message : String(err);
-          statusEl.className = "error";
-          exportBtn.disabled = false;
-          exportBtn.textContent = "Export GIF";
+          setStatus({ raw: err && err.message ? err.message : String(err), className: "error" }, false);
         }
       });
 

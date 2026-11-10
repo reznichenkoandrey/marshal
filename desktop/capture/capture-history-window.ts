@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, shell } from "electron";
 
+import { t } from "../i18n/ui-language.ts";
 import type { CaptureArchive } from "./capture-archive.ts";
 import {
   mergeHistoryEntries,
@@ -102,7 +103,7 @@ export class CaptureHistoryWindow {
   /** Hand a file off to its OS-default app. Used by renderer for non-image kinds. */
   async revealOrOpen(filePath: string, mode: "open" | "reveal"): Promise<{ ok: boolean; error?: string }> {
     if (!this.belongsToFolder(filePath)) {
-      return { ok: false, error: "Path is outside the capture folder." };
+      return { ok: false, error: t("history.error.outsideFolder") };
     }
     try {
       if (mode === "reveal") {

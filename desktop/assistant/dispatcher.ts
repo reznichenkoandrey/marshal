@@ -11,6 +11,7 @@ import path from "node:path";
 
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
+import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import {
   buildGeneralPrompt,
@@ -75,6 +76,8 @@ function defaultRunAppleScript(script: string): Promise<void> {
 export class AssistantDispatcher implements AssistantRoutes {
   private readonly queue = new AssistantCommandQueue();
   private readonly launchedAt = new Map<string, number>();
+  /** Sessions holding an owner's voice command: only their answers are spoken. */
+  private readonly awaitingAnswer = new Set<string>();
   private readonly runAppleScript: (script: string) => Promise<void>;
   readonly dispatcherDir: string;
   private readonly assistantDir: string;
@@ -115,7 +118,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     const live = this.deps.liveSessions();
     if (!live.some((session) => this.isDispatcher(session))) {
       this.trust(this.dispatcherDir);
-      await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model), DISPATCHER_NAME);
+      await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
     }
     if (!live.some((session) => session.name === GENERAL_NAME)) await this.openGeneral();
   }
@@ -130,6 +133,13 @@ export class AssistantDispatcher implements AssistantRoutes {
         // Already gone.
       }
     }
+  }
+
+  /** Whether this session event answers a voice command; a finished turn uses the claim up. */
+  answersVoiceCommand(sessionId: string, finished: boolean): boolean {
+    if (!this.awaitingAnswer.has(sessionId)) return false;
+    if (finished) this.awaitingAnswer.delete(sessionId);
+    return true;
   }
 
   /** A voice command from the home mic. Waits in the queue while the dispatcher is not listening. */
@@ -192,6 +202,17 @@ export class AssistantDispatcher implements AssistantRoutes {
       return action ? this.deps.runAction(action) : "usage: marshal do <action>";
     }
     if (route === "spawn") return this.spawn(args);
+    if (route === "peek") {
+      const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
+      if (!target) return `No live session named "${args.join(" ")}".`;
+      return formatRecentTurns(readRecentTurns(target));
+    }
+    if (route === "sent") {
+      const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
+      if (!target) return `No live session named "${args.join(" ")}".`;
+      this.awaitingAnswer.add(target.sessionId);
+      return "ok";
+    }
     return null;
   }
 
@@ -295,4 +316,11 @@ function listChildFolders(roots: readonly string[]): string[] {
       return [];
     }
   });
+}
+
+/** `./marshal peek <name>`: the session's last turns, for the dispatcher to retell in plain words. */
+export function formatRecentTurns(tail: TranscriptTail | null): string {
+  if (!tail || tail.turns.length === 0) return "No conversation yet.";
+  const lines = tail.turns.slice(-6).map((turn) => `${turn.role === "user" ? "Owner" : "Claude"}: ${turn.text}`);
+  return [tail.branch ? `Branch: ${tail.branch}` : "", ...lines].filter(Boolean).join("\n");
 }

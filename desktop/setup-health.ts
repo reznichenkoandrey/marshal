@@ -1,7 +1,10 @@
 import fs from "node:fs";
 
 import { formatMegabytes, IDLE_BUDGET_BYTES, type FootprintSummary } from "./perf/footprint.ts";
+import { translate, type MessageKey, type MessageParams, type UiLanguage } from "./i18n/catalog.ts";
 import type { DictationBackend } from "./settings-store.ts";
+
+type Tr = (key: MessageKey, params?: MessageParams) => string;
 
 export type SetupHealthStatus = "ok" | "warn" | "error" | "unknown";
 type MediaPermissionStatus = "not-determined" | "granted" | "denied" | "restricted" | "unknown";
@@ -47,6 +50,8 @@ export type SetupHealthInput = {
   /** Measured footprint of Marshal's process tree; null when measuring failed (#281). */
   memory?: FootprintSummary | null;
   exists?: (path: string) => boolean;
+  /** Language of labels and details; English when not given. */
+  language?: UiLanguage;
 };
 
 export type SetupHealthSummary = {
@@ -59,92 +64,87 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
   const whisperBinExists = exists(input.whisperBinPath);
   const whisperModelExists = exists(input.whisperModelPath);
   const items: SetupHealthItem[] = [];
+  const lang = input.language ?? "en";
+  const tr: Tr = (key, params) => translate(lang, key, params);
 
-  if (input.appVersion !== undefined) items.push(buildItem(input.appVersion, input.buildInfo));
+  if (input.appVersion !== undefined) items.push(buildItem(tr, input.appVersion, input.buildInfo, lang));
 
   items.push(input.dictationEnabled
-    ? permissionItem({
+    ? permissionItem(tr, {
       id: "microphone",
-      label: "Microphone",
+      label: tr("health.microphone"),
       status: input.platform === "darwin" ? input.microphoneStatus : undefined,
-      okDetail: "Granted. Dictation can record audio.",
-      missingDetail: "Required for voice dictation.",
+      okDetail: tr("health.micOk"),
+      missingDetail: tr("health.micMissing"),
       action: "System Settings -> Privacy & Security -> Microphone",
       // The recording is done by the audio-recorder helper, which holds its
       // own grant under its own name. This app never asks for the microphone
       // itself (#82), so its status sits at "not-determined" forever — a warn
       // there would be permanent and wrong (#174).
       notDeterminedIsUnknown: true,
-      notDeterminedDetail:
-        "Held by the audio-recorder helper, not by Marshal itself — check the " +
-        "`audio-recorder` row in System Settings -> Privacy & Security -> Microphone. " +
-        "Dictation raises the system prompt on its first recording."
+      notDeterminedDetail: tr("health.micHelper")
     })
-    : disabledDictationItem("microphone", "Microphone"));
+    : disabledDictationItem(tr, "microphone", tr("health.microphone")));
 
   items.push({
     id: "accessibility",
-    label: "Accessibility",
+    label: tr("health.accessibility"),
     status: input.platform === "darwin"
       ? input.accessibilityTrusted ? "ok" : "error"
       : "unknown",
     detail: input.platform === "darwin"
-      ? input.accessibilityTrusted
-        ? "Granted. Hotkeys and text insertion can control the focused app."
-        : "Required for global hotkeys and direct text insertion."
-      : "Only checked on macOS.",
+      ? tr(input.accessibilityTrusted ? "health.accessOk" : "health.accessMissing")
+      : tr("health.macOnly"),
     action: input.platform === "darwin"
       ? "System Settings -> Privacy & Security -> Accessibility"
       : undefined
   });
 
-  items.push(permissionItem({
+  items.push(permissionItem(tr, {
     id: "screen-recording",
-    label: "Screen Recording",
+    label: tr("health.screenRecording"),
     status: input.platform === "darwin" ? input.screenStatus : undefined,
-    okDetail: "Granted. OCR translation and capture workflows can read the screen.",
-    missingDetail: "Required for OCR translation and screen capture.",
+    okDetail: tr("health.screenOk"),
+    missingDetail: tr("health.screenMissing"),
     action: "System Settings -> Privacy & Security -> Screen Recording"
   }));
 
   items.push(input.dictationEnabled
     ? {
       id: "whisper-local",
-      label: "Local Whisper",
+      label: tr("health.localWhisper"),
       status: whisperStatus(input.dictationBackend, whisperBinExists, whisperModelExists),
-      detail: whisperDetail(input.dictationBackend, whisperBinExists, whisperModelExists),
-      action: whisperAction(whisperBinExists, whisperModelExists)
+      detail: whisperDetail(tr, input.dictationBackend, whisperBinExists, whisperModelExists),
+      action: whisperAction(tr, whisperBinExists, whisperModelExists)
     }
-    : disabledDictationItem("whisper-local", "Local Whisper"));
+    : disabledDictationItem(tr, "whisper-local", tr("health.localWhisper")));
 
   items.push(input.dictationEnabled
     ? {
       id: "cloud-api",
-      label: "Cloud API key",
+      label: tr("health.cloudApiKey"),
       status: cloudStatus(input.dictationBackend, input.apiKeyPresent),
-      detail: cloudDetail(input.dictationBackend, input.apiKeyPresent),
-      action: apiKeyAction(input.apiKeyPresent, input.envFilePath)
+      detail: cloudDetail(tr, input.dictationBackend, input.apiKeyPresent),
+      action: apiKeyAction(tr, input.apiKeyPresent, input.envFilePath)
     }
-    : disabledDictationItem("cloud-api", "Cloud API key"));
+    : disabledDictationItem(tr, "cloud-api", tr("health.cloudApiKey")));
 
   items.push({
     id: "codesign",
-    label: "Stable dev codesign",
+    label: tr("health.codesign"),
     status: input.platform === "darwin"
       ? input.codesignIdentityPresent ? "ok" : "warn"
       : "unknown",
     detail: input.platform === "darwin"
-      ? input.codesignIdentityPresent
-        ? "Marshal Self-Signed identity is available. macOS TCC grants should survive rebuilds."
-        : "Missing Marshal Self-Signed identity. Rebuilds may reset TCC permissions."
-      : "Only checked on macOS.",
+      ? tr(input.codesignIdentityPresent ? "health.codesignOk" : "health.codesignMissing")
+      : tr("health.macOnly"),
     action: input.platform === "darwin" && !input.codesignIdentityPresent
-      ? "Run npm run setup:codesign-cert"
+      ? tr("health.codesignAction")
       : undefined
   });
 
-  items.push(launchAtLoginItem(input));
-  if (input.memory !== undefined) items.push(memoryItem(input.memory));
+  items.push(launchAtLoginItem(tr, input));
+  if (input.memory !== undefined) items.push(memoryItem(tr, input.memory));
 
   return {
     items,
@@ -152,46 +152,53 @@ export function buildSetupHealth(input: SetupHealthInput): SetupHealthSummary {
   };
 }
 
-function buildItem(version: string, info: BuildInfo | null | undefined): SetupHealthItem {
+function buildItem(tr: Tr, version: string, info: BuildInfo | null | undefined, lang: UiLanguage): SetupHealthItem {
+  const label = tr("health.build");
   if (!info) {
-    return { id: "build", label: "Build", status: "unknown", detail: `${version} · dev, unbuilt (no build-info.json)` };
+    return { id: "build", label, status: "unknown", detail: tr("health.buildUnbuilt", { version }) };
   }
   const revision = info.revision
-    ? `${info.revision}${info.dirty ? " + uncommitted changes" : ""}${info.branch ? ` (${info.branch})` : ""}`
-    : "unknown revision";
+    ? `${info.revision}${info.dirty ? tr("health.uncommitted") : ""}${info.branch ? ` (${info.branch})` : ""}`
+    : tr("health.unknownRevision");
   const builtAt = new Date(info.builtAt);
   const when = Number.isNaN(builtAt.getTime())
     ? info.builtAt
-    : builtAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
-  return { id: "build", label: "Build", status: "ok", detail: `${version} · ${revision} · built ${when}` };
+    : builtAt.toLocaleString(lang === "uk" ? "uk-UA" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
+  return { id: "build", label, status: "ok", detail: tr("health.buildDetail", { version, revision, when }) };
 }
 
-function memoryItem(memory: FootprintSummary | null): SetupHealthItem {
+function memoryItem(tr: Tr, memory: FootprintSummary | null): SetupHealthItem {
   if (!memory) {
-    return { id: "memory", label: "Memory", status: "unknown", detail: "Could not measure (macOS `footprint` failed)." };
+    return { id: "memory", label: tr("health.memory"), status: "unknown", detail: tr("health.memoryUnmeasured") };
   }
   const perProcess = memory.processes
     .filter((entry) => entry.bytes >= 1024 ** 2)
     .map((entry) => `${entry.name} ${formatMegabytes(entry.bytes)}`)
     .join(", ");
   const model = memory.modelBytes === null
-    ? "Speech model not loaded."
-    : `Speech model loaded: ${formatMegabytes(memory.modelBytes)}, unloads after 10 min idle.`;
+    ? tr("health.modelNotLoaded")
+    : tr("health.modelLoaded", { size: formatMegabytes(memory.modelBytes) });
   return {
     id: "memory",
-    label: "Memory",
+    label: tr("health.memory"),
     status: memory.overBudget ? "warn" : "ok",
-    detail: `Marshal ${formatMegabytes(memory.appBytes)} of ${formatMegabytes(IDLE_BUDGET_BYTES)} budget (${perProcess}). ${model}`
+    detail: tr("health.memoryDetail", {
+      used: formatMegabytes(memory.appBytes),
+      budget: formatMegabytes(IDLE_BUDGET_BYTES),
+      processes: perProcess,
+      model
+    })
   };
 }
 
-function launchAtLoginItem(input: SetupHealthInput): SetupHealthItem {
+function launchAtLoginItem(tr: Tr, input: SetupHealthInput): SetupHealthItem {
+  const label = tr("health.startAtLogin");
   if (input.platform !== "darwin" && input.platform !== "win32") {
     return {
       id: "launch-at-login",
-      label: "Start at Login",
+      label,
       status: "unknown",
-      detail: "Only checked on macOS and Windows."
+      detail: tr("health.loginOsOnly")
     };
   }
 
@@ -199,42 +206,42 @@ function launchAtLoginItem(input: SetupHealthInput): SetupHealthItem {
   if (!input.launchAtLogin) {
     return {
       id: "launch-at-login",
-      label: "Start at Login",
+      label,
       status: lastError ? "warn" : "ok",
       detail: lastError
-        ? `Disabled because the OS rejected the last Login Item update: ${lastError}`
-        : "Disabled by preference."
+        ? tr("health.loginRejected", { error: lastError })
+        : tr("health.loginDisabled")
     };
   }
 
   if (input.launchAtLoginOpenAtLogin) {
     return {
       id: "launch-at-login",
-      label: "Start at Login",
+      label,
       status: "ok",
-      detail: "Enabled. The OS reports Marshal as a Login Item."
+      detail: tr("health.loginEnabled")
     };
   }
 
   return {
     id: "launch-at-login",
-    label: "Start at Login",
+    label,
     status: "warn",
-    detail: lastError || "Requested, but the OS does not report Marshal as a Login Item.",
+    detail: lastError || tr("health.loginNotReported"),
     action: input.platform === "darwin" ? "System Settings -> General -> Login Items" : undefined
   };
 }
 
-function disabledDictationItem(id: string, label: string): SetupHealthItem {
+function disabledDictationItem(tr: Tr, id: string, label: string): SetupHealthItem {
   return {
     id,
     label,
     status: "ok",
-    detail: "Voice dictation is disabled."
+    detail: tr("health.dictationDisabled")
   };
 }
 
-function permissionItem(input: {
+function permissionItem(tr: Tr, input: {
   id: string;
   label: string;
   status?: MediaPermissionStatus;
@@ -254,7 +261,7 @@ function permissionItem(input: {
       id: input.id,
       label: input.label,
       status: "unknown",
-      detail: "Only checked on macOS."
+      detail: tr("health.macOnly")
     };
   }
   if (input.status === "granted") {
@@ -277,7 +284,7 @@ function permissionItem(input: {
     id: input.id,
     label: input.label,
     status: input.status === "denied" || input.status === "restricted" ? "error" : "warn",
-    detail: `${input.missingDetail} Current status: ${input.status}.`,
+    detail: tr("health.currentStatus", { detail: input.missingDetail, status: input.status }),
     action: input.action
   };
 }
@@ -296,29 +303,23 @@ function whisperStatus(
  * out of band: building whisper-cli needs the repo checkout, while the model
  * is a download the installed app can do on its own.
  */
-function whisperAction(binExists: boolean, modelExists: boolean): string | undefined {
+function whisperAction(tr: Tr, binExists: boolean, modelExists: boolean): string | undefined {
   if (binExists && modelExists) return undefined;
-  if (!binExists) return "Run npm run setup:dictation";
-  return "Menu bar -> Download Dictation Model...";
+  if (!binExists) return tr("health.whisperSetup");
+  return tr("health.whisperDownload");
 }
 
-function whisperDetail(backend: DictationBackend, binExists: boolean, modelExists: boolean): string {
-  if (binExists && modelExists) return "whisper.cpp binary and model are present.";
-  const missing = [
-    binExists ? "" : "binary",
-    modelExists ? "" : "model"
-  ].filter(Boolean).join(" and ");
-  if (backend === "groq") {
-    return `Local fallback is missing ${missing}; Groq-only dictation can still run while online.`;
-  }
-  return `Local transcription is missing ${missing}.`;
+function whisperDetail(tr: Tr, backend: DictationBackend, binExists: boolean, modelExists: boolean): string {
+  if (binExists && modelExists) return tr("health.whisperOk");
+  const missing = tr(!binExists && !modelExists
+    ? "health.whisperMissingBoth"
+    : binExists ? "health.whisperMissingModel" : "health.whisperMissingBinary");
+  return tr(backend === "groq" ? "health.whisperGroqFallback" : "health.whisperLocalMissing", { missing });
 }
 
-function apiKeyAction(apiKeyPresent: boolean, envFilePath: string | undefined): string | undefined {
+function apiKeyAction(tr: Tr, apiKeyPresent: boolean, envFilePath: string | undefined): string | undefined {
   if (apiKeyPresent) return undefined;
-  return envFilePath
-    ? `Set MARSHAL_API_KEY in ${envFilePath} (npm run setup:env copies it there)`
-    : "Set MARSHAL_API_KEY in .env";
+  return envFilePath ? tr("health.apiKeyEnvFile", { path: envFilePath }) : tr("health.apiKeyEnv");
 }
 
 function cloudStatus(backend: DictationBackend, apiKeyPresent: boolean): SetupHealthStatus {
@@ -328,11 +329,11 @@ function cloudStatus(backend: DictationBackend, apiKeyPresent: boolean): SetupHe
   return "ok";
 }
 
-function cloudDetail(backend: DictationBackend, apiKeyPresent: boolean): string {
-  if (apiKeyPresent) return "MARSHAL_API_KEY is configured.";
-  if (backend === "groq") return "Groq-only dictation requires MARSHAL_API_KEY.";
-  if (backend === "hybrid") return "Hybrid dictation will use local Whisper until MARSHAL_API_KEY is set.";
-  return "Not required for local-only dictation.";
+function cloudDetail(tr: Tr, backend: DictationBackend, apiKeyPresent: boolean): string {
+  if (apiKeyPresent) return tr("health.apiKeyOk");
+  if (backend === "groq") return tr("health.apiKeyGroq");
+  if (backend === "hybrid") return tr("health.apiKeyHybrid");
+  return tr("health.apiKeyNotNeeded");
 }
 
 function countStatuses(items: SetupHealthItem[]): Record<SetupHealthStatus, number> {

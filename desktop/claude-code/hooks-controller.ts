@@ -7,6 +7,7 @@ import path from "node:path";
 
 import { Notification } from "electron";
 
+import { t, uiLanguage } from "../i18n/ui-language.ts";
 import { loadSettings } from "../settings-store.ts";
 import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
 import { createContextRouter, isUnderRoots, parseRoutingRoots, routedNotice, type ContextRouter } from "./context-router.ts";
@@ -63,6 +64,7 @@ export class ClaudeHooksController {
     this.notifier = new SessionNotifier({
       notify: (title, body, onClick) => this.notify(title, body, onClick),
       speak,
+      language: uiLanguage,
       summarize: (text) => summarizeAnswer(text, loadSettings().claudeCodeSummaryLanguage),
       findSession: (sessionId) => listLiveSessions().find((session) => session.sessionId === sessionId),
       focus: (pid) => {
@@ -158,8 +160,8 @@ export class ClaudeHooksController {
    * a wrong route can be redone from the notification.
    */
   notifyRoutedByContext(session: Pick<ClaudeSession, "name">, command: string, onResend: () => void): void {
-    const { title, body } = routedNotice(session.name, command);
-    this.notify(title, body, onResend, "Send elsewhere");
+    const { title, body } = routedNotice(session.name, command, uiLanguage());
+    this.notify(title, body, onResend, t("claude.sendElsewhere"));
   }
 
   private notify(title: string, body: string, onClick: () => void, actionText?: string): void {

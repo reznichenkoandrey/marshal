@@ -11,6 +11,9 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Localized words for day headings; the renderer passes its own (#330). */
+export const DEFAULT_DAY_LABELS = { today: "Today", yesterday: "Yesterday", locale: undefined };
+
 /** What a tile's badge says, and what the search matches on for `kind`. */
 export function kindLabel(kind) {
   return kind === "image" ? "PNG" : String(kind ?? "").toUpperCase();
@@ -39,11 +42,11 @@ function startOfDay(ms) {
  * string — it is what the search box matches, so the heading and the query
  * that finds it are the same text.
  */
-export function dayLabel(ms, now = Date.now()) {
+export function dayLabel(ms, now = Date.now(), labels = DEFAULT_DAY_LABELS) {
   const days = Math.round((startOfDay(now) - startOfDay(ms)) / DAY_MS);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return new Date(ms).toLocaleDateString(undefined, { weekday: "long" });
+  if (days <= 0) return labels.today;
+  if (days === 1) return labels.yesterday;
+  if (days < 7) return new Date(ms).toLocaleDateString(labels.locale, { weekday: "long" });
   return isoDay(ms);
 }
 
@@ -56,7 +59,7 @@ export function dayLabel(ms, now = Date.now()) {
  * Multiple words all have to match, in any order, so "png yesterday" narrows
  * instead of finding nothing.
  */
-export function matchesQuery(entry, query, now = Date.now()) {
+export function matchesQuery(entry, query, now = Date.now(), labels = DEFAULT_DAY_LABELS) {
   const terms = String(query ?? "")
     .toLowerCase()
     .split(/\s+/u)
@@ -67,7 +70,7 @@ export function matchesQuery(entry, query, now = Date.now()) {
     entry.name,
     kindLabel(entry.kind),
     isoDay(entry.modifiedAt),
-    dayLabel(entry.modifiedAt, now)
+    dayLabel(entry.modifiedAt, now, labels)
   ]
     .join(" ")
     .toLowerCase();
@@ -75,9 +78,9 @@ export function matchesQuery(entry, query, now = Date.now()) {
   return terms.every((term) => haystack.includes(term));
 }
 
-export function filterEntries(entries, query, now = Date.now()) {
+export function filterEntries(entries, query, now = Date.now(), labels = DEFAULT_DAY_LABELS) {
   if (!Array.isArray(entries)) return [];
-  return entries.filter((entry) => matchesQuery(entry, query, now));
+  return entries.filter((entry) => matchesQuery(entry, query, now, labels));
 }
 
 /**
@@ -85,7 +88,7 @@ export function filterEntries(entries, query, now = Date.now()) {
  * inside each day. Empty groups are never produced, so a filtered view shows
  * only the days that still have something in them.
  */
-export function groupByDay(entries, now = Date.now()) {
+export function groupByDay(entries, now = Date.now(), labels = DEFAULT_DAY_LABELS) {
   const buckets = new Map();
   for (const entry of entries) {
     const key = startOfDay(entry.modifiedAt);
@@ -98,7 +101,7 @@ export function groupByDay(entries, now = Date.now()) {
     .sort((a, b) => b[0] - a[0])
     .map(([key, group]) => ({
       key,
-      label: dayLabel(key, now),
+      label: dayLabel(key, now, labels),
       entries: [...group].sort((a, b) => b.modifiedAt - a.modifiedAt)
     }));
 }
