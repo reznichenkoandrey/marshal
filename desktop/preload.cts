@@ -488,14 +488,16 @@ contextBridge.exposeInMainWorld("marshalToolbar", toolbarApi);
 type AssistantPayload = {
   state: string;
   lang: "uk" | "en";
-  line?: string;
+  lines?: string[];
+  sessions?: { project: string; sessions: { pid: number; name: string; status: string | null; waitingFor: string | null }[] }[];
   telemetry?: { label: string; value: string }[];
 };
 const assistantApi = {
   onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>
     registerListener<[AssistantPayload]>("marshal:assistant-state", cb),
   action: (name: string) => ipcRenderer.invoke("marshal:assistant:action", { name }),
-  close: () => ipcRenderer.invoke("marshal:assistant:close")
+  close: () => ipcRenderer.invoke("marshal:assistant:close"),
+  focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid })
 };
 
 contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);

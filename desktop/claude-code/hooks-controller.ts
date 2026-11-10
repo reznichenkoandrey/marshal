@@ -41,7 +41,11 @@ export class ClaudeHooksController {
   /** For #264: the session a command that names none is meant for. */
   readonly contextRouter: ContextRouter;
 
-  constructor(userDataDir: string) {
+  constructor(
+    userDataDir: string,
+    // Every notification text also goes to the assistant home's line (#308).
+    private readonly announce: (text: string) => void = () => {}
+  ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
       complete: (request) => completeOnce(request)
@@ -122,6 +126,7 @@ export class ClaudeHooksController {
   }
 
   private notify(title: string, body: string, onClick: () => void, actionText?: string): void {
+    this.announce(body ? `${title} — ${body}` : title);
     if (!Notification.isSupported()) return;
     const notification = new Notification({
       title,

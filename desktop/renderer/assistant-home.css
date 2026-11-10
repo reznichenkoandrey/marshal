@@ -18,8 +18,10 @@ body {
   box-sizing: border-box;
   height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: var(--space-2);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  container-type: inline-size;
   padding: var(--space-3) var(--space-4) var(--space-4);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
@@ -53,6 +55,7 @@ body {
 :root[data-theme="light"] .scan { opacity: 0.25; }
 
 .bar {
+  grid-column: 1 / -1;
   position: relative;
   display: flex;
   align-items: center;
@@ -209,4 +212,151 @@ body {
   .home,
   .chip,
   .dock button { transition: none; }
+}
+
+.core {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+/* ── Side panel: sessions and what Marshal said last (#308) ── */
+.side {
+  position: relative;
+  width: 280px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+/* Too narrow for two columns: the visual and the dock win. */
+@container (max-width: 760px) {
+  .side { display: none; }
+}
+
+.card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+}
+
+.card h3 {
+  margin: 0 0 var(--space-2);
+  font: var(--fw-semibold) var(--fs-xs) / 1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+.sessions,
+.recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.project {
+  margin: var(--space-2) 0 var(--space-1);
+  font: var(--fs-xs) / 1.2 var(--font-mono);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.project:first-child { margin-top: 0; }
+
+.session {
+  --c: var(--state-idle);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  margin-bottom: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--border-default);
+  border-left: 2px solid var(--c);
+  border-radius: var(--radius-xs);
+  background: var(--bg-muted);
+  color: var(--text-default);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session:hover { border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.session:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.session[data-status="busy"] { --c: var(--state-think); }
+.session[data-status="waiting"] { --c: var(--state-wait); }
+.session[data-status="shell"] { --c: var(--state-listen); }
+
+.session .dot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--c);
+  border-radius: 50%;
+}
+
+.session[data-status="busy"] .dot {
+  border-top-color: transparent;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.session b {
+  display: block;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session small {
+  display: block;
+  overflow: hidden;
+  font: var(--fs-xs) / 1.3 var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session .tag {
+  font: var(--fs-xs) / 1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--c) 75%, var(--text-strong));
+}
+
+.empty {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.empty:empty { display: none; }
+
+.recent li {
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.recent li:first-child {
+  border-top: 0;
+  color: var(--text-default);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session[data-status="busy"] .dot { animation: none; }
 }

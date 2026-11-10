@@ -9,17 +9,19 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, screen } from "electron";
 
 import { pickLanguage } from "../calendar/reminders.ts";
-import type { AssistantState } from "./assistant-state.ts";
+import type { AssistantState, SessionGroup } from "./assistant-state.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const rendererDir = path.join(path.dirname(currentFilePath), "..", "renderer");
 
-const WIDTH = 640;
+const WIDTH = 920;
 const HEIGHT = 600;
 
 export type AssistantView = {
   state: AssistantState;
-  line?: string;
+  // What Marshal last said or notified, newest first (#308).
+  lines?: string[];
+  sessions?: SessionGroup[];
   telemetry?: { label: string; value: string }[];
 };
 
@@ -27,7 +29,11 @@ export class AssistantHomeWindow {
   private window: BrowserWindow | null = null;
   private view: AssistantView = { state: "idle" };
 
-  constructor(private readonly preloadPath: string) {}
+  constructor(
+    private readonly preloadPath: string,
+    // Main keeps watchers (sessions directory) alive only while this is open.
+    private readonly onOpenChange: (open: boolean) => void = () => {}
+  ) {}
 
   isOpen(): boolean {
     return this.window !== null && !this.window.isDestroyed();
@@ -72,8 +78,12 @@ export class AssistantHomeWindow {
       }
     });
 
-    this.window.on("closed", () => {
+    const created = this.window;
+    created.on("closed", () => {
+      // A window reopened before this one finished closing is not ours to clear.
+      if (this.window !== created) return;
       this.window = null;
+      this.onOpenChange(false);
     });
     this.window.webContents.once("did-finish-load", () => {
       this.push();
@@ -82,11 +92,11 @@ export class AssistantHomeWindow {
       this.window?.focus();
     });
     void this.window.loadFile(path.join(rendererDir, "assistant-home.html"));
+    this.onOpenChange(true);
   }
 
   close(): void {
     if (this.window && !this.window.isDestroyed()) this.window.close();
-    this.window = null;
   }
 
   /** Keeps the latest view so a window opened later starts from it. */

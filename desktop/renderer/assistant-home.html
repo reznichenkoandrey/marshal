@@ -21,6 +21,7 @@
       <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
     </header>
 
+    <section class="core">
     <main class="stage">
       <canvas id="visual" class="visual" aria-hidden="true"></canvas>
     </main>
@@ -37,6 +38,19 @@
       <button type="button" data-action="agent" data-icon="message-square"></button>
       <button type="button" data-action="settings" data-icon="settings"></button>
     </nav>
+    </section>
+
+    <aside class="side">
+      <section class="card">
+        <h3 id="sessions-title"></h3>
+        <ul class="sessions" id="sessions" aria-labelledby="sessions-title"></ul>
+        <p class="empty" id="sessions-empty"></p>
+      </section>
+      <section class="card">
+        <h3 id="recent-title"></h3>
+        <ol class="recent" id="recent" aria-labelledby="recent-title"></ol>
+      </section>
+    </aside>
   </div>
 
   <script src="./assistant-home.js" type="module"></script>
