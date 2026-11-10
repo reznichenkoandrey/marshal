@@ -56,40 +56,6 @@ let altSeq = 0;
 const altCache = new Map();
 const MAX_CACHED_ALTERNATIVES = 120;
 
-// ── Appearance sync ──
-// The main window owns the appearance choice (light / dark / system) and
-// stores it in the shared default session's localStorage. The translator just
-// mirrors it — apply on load, on focus (in case we missed a storage event),
-// and whenever the key changes via `storage` / BroadcastChannel.
-
-const APPEARANCE_VALUES = ["light", "dark", "system"];
-
-function currentAppearance() {
-  const raw = localStorage.getItem("marshal-appearance");
-  return APPEARANCE_VALUES.includes(raw) ? raw : "system";
-}
-
-function applyAppearance(value) {
-  const next = APPEARANCE_VALUES.includes(value) ? value : "system";
-  const root = document.documentElement;
-  if (next === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", next);
-}
-
-applyAppearance(currentAppearance());
-
-window.addEventListener("storage", (e) => {
-  if (e.key === "marshal-appearance") applyAppearance(e.newValue);
-});
-window.addEventListener("focus", () => applyAppearance(currentAppearance()));
-
-if (typeof BroadcastChannel !== "undefined") {
-  const channel = new BroadcastChannel("marshal-appearance");
-  channel.addEventListener("message", (event) => {
-    if (event.data?.appearance) applyAppearance(event.data.appearance);
-  });
-}
-
 // Render all [data-icon] placeholders once the script loads.
 window.MarshalIcons?.apply();
 

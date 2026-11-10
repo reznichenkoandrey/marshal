@@ -1,10 +1,11 @@
-// Look + palette of the app (#283). Loaded in <head> of every themed window so
-// the saved look is on <html> before first paint. Light/dark stays with the
-// existing "marshal-appearance" key; this file owns only the look axis.
+// Look, palette and light/dark of the app (#283). Loaded in <head> of every
+// themed window so the saved theme is on <html> before first paint. The main
+// window owns the light/dark choice ("marshal-appearance"); here it is mirrored.
 (() => {
   const LOOKS = ["hud", "classic", "liquid", "signal", "soft"];
   const PALETTES = ["blue", "teal", "green", "amber"];
-  const KEYS = { look: "marshal-look", palette: "marshal-palette" };
+  const APPEARANCES = ["system", "light", "dark"];
+  const KEYS = { look: "marshal-look", palette: "marshal-palette", appearance: "marshal-appearance" };
   const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("marshal-appearance") : null;
 
   function read(key, allowed) {
@@ -39,13 +40,25 @@
     return value;
   }
 
-  apply(current());
+  function applyAppearance(value) {
+    const root = document.documentElement;
+    if (value === "light" || value === "dark") root.setAttribute("data-theme", value);
+    else root.removeAttribute("data-theme");
+  }
+
+  function applyAll() {
+    apply(current());
+    applyAppearance(read(KEYS.appearance, APPEARANCES));
+  }
+
+  applyAll();
   window.addEventListener("storage", (e) => {
-    if (e.key === KEYS.look || e.key === KEYS.palette) apply(current());
+    if (Object.values(KEYS).includes(e.key)) applyAll();
   });
-  window.addEventListener("focus", () => apply(current()));
+  window.addEventListener("focus", applyAll);
   channel?.addEventListener("message", (event) => {
     if (event.data?.look) apply(event.data);
+    if (event.data?.appearance) applyAppearance(event.data.appearance);
   });
 
   window.MarshalTheme = { LOOKS, PALETTES, current, set };
