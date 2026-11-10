@@ -1,6 +1,7 @@
 // Look, palette and light/dark of the app (#283). Loaded in <head> of every
-// themed window so the saved theme is on <html> before first paint. The main
-// window owns the light/dark choice ("marshal-appearance"); here it is mirrored.
+// themed window so the saved theme is on <html> before first paint. Settings in
+// the assistant home (#317) change it through `set` / `setAppearance`; every
+// other open window follows over the BroadcastChannel.
 (() => {
   const LOOKS = ["hud", "classic", "liquid", "signal", "soft"];
   const PALETTES = ["blue", "teal", "green", "amber"];
@@ -61,5 +62,23 @@
     if (event.data?.appearance) applyAppearance(event.data.appearance);
   });
 
-  window.MarshalTheme = { LOOKS, PALETTES, current, set };
+  function setAppearance(value) {
+    const next = APPEARANCES.includes(value) ? value : APPEARANCES[0];
+    try {
+      localStorage.setItem(KEYS.appearance, next);
+    } catch {
+      // Storage unavailable: the choice still applies to this window.
+    }
+    applyAppearance(next);
+    channel?.postMessage({ appearance: next });
+  }
+
+  window.MarshalTheme = {
+    LOOKS,
+    PALETTES,
+    current,
+    set,
+    appearance: () => read(KEYS.appearance, APPEARANCES),
+    setAppearance
+  };
 })();

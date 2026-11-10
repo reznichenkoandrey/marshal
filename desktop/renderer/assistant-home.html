@@ -7,6 +7,7 @@
   <title>Marshal</title>
   <link rel="stylesheet" href="./design-tokens.css" />
   <link rel="stylesheet" href="./assistant-home.css" />
+  <link rel="stylesheet" href="./settings-panel.css" />
   <script src="./theme.js"></script>
   <script src="./icons.js"></script>
 </head>
@@ -56,9 +57,624 @@
       <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="26"></button>
       <button type="button" data-action="recordings" data-icon="history"></button>
       <button type="button" data-action="capture" data-icon="crop"></button>
-      <button type="button" data-action="agent" data-icon="message-square"></button>
       <button type="button" data-action="settings" data-icon="settings"></button>
     </nav>
+    </section>
+
+    <section class="settings" id="settings" aria-labelledby="settings-title" hidden>
+      <header class="settings-head">
+        <h2 id="settings-title">Settings</h2>
+        <button type="button" class="icon-btn" id="settings-back" data-icon="arrow-left" data-icon-size="16" title="Back" aria-label="Back"></button>
+      </header>
+      <div class="settings-body">
+        <nav class="rail" id="settings-rail" aria-label="Settings sections">
+          <button type="button" class="rail-btn" data-section="appearance">Appearance</button>
+          <button type="button" class="rail-btn" data-section="assistant">Assistant &amp; voice</button>
+          <button type="button" class="rail-btn" data-section="dictation">Dictation</button>
+          <button type="button" class="rail-btn" data-section="claude">Claude Code</button>
+          <button type="button" class="rail-btn" data-section="captions">Captions</button>
+          <button type="button" class="rail-btn" data-section="translator">Translator &amp; AI</button>
+          <button type="button" class="rail-btn" data-section="capture">Capture</button>
+          <button type="button" class="rail-btn" data-section="calendar">Calendar</button>
+          <button type="button" class="rail-btn" data-section="system">System</button>
+        </nav>
+        <form id="settings-form" class="settings-scroll" novalidate>
+          <section class="settings-section" id="settings-sec-appearance" data-section="appearance">
+            <h2>Appearance</h2>
+          <div class="field">
+            <label>Appearance</label>
+            <div id="appearance-segmented" class="segmented" role="tablist" aria-label="Appearance">
+              <button type="button" class="segmented-btn" data-appearance="light" role="tab">
+                <span data-icon="sun" data-icon-size="14"></span>
+                <span>Light</span>
+              </button>
+              <button type="button" class="segmented-btn" data-appearance="dark" role="tab">
+                <span data-icon="moon" data-icon-size="14"></span>
+                <span>Dark</span>
+              </button>
+              <button type="button" class="segmented-btn" data-appearance="system" role="tab">
+                <span data-icon="monitor" data-icon-size="14"></span>
+                <span>System</span>
+              </button>
+            </div>
+            <p class="field-hint">System follows macOS appearance. Changes apply instantly.</p>
+          </div>
+
+          <div class="field">
+            <label for="settings-look">Theme</label>
+            <select id="settings-look">
+              <option value="hud">HUD</option>
+              <option value="classic">Classic</option>
+              <option value="liquid">Liquid</option>
+              <option value="signal">Signal</option>
+              <option value="soft">Soft 3D</option>
+            </select>
+          </div>
+
+          <div class="field" id="settings-palette-field">
+            <label for="settings-palette">HUD palette</label>
+            <select id="settings-palette">
+              <option value="blue">Blue</option>
+              <option value="teal">Teal</option>
+              <option value="green">Green</option>
+              <option value="amber">Amber</option>
+            </select>
+            <p class="field-hint">Every theme has a light and a dark variant — Appearance picks which.</p>
+          </div>
+          </section>
+
+          <section class="settings-section" id="settings-sec-assistant" data-section="assistant">
+            <h2>Assistant &amp; voice</h2>
+          <fieldset class="field-group">
+            <legend>Voice assistant</legend>
+
+            <label class="checkbox-row">
+              <input id="settings-assistant-dispatcher" name="assistantDispatcher" type="checkbox" />
+              <span>Talk to Marshal from the assistant mic</span>
+            </label>
+            <p class="field-hint">
+              Runs two Claude Code sessions in minimised Terminal windows: <code>marshal-dispatcher</code> routes
+              every command (to a named session, the one that waits, by context, or to <code>general</code>), and
+              <code>general</code> does the work on this Mac. Installs the Claude Code hooks, so results are read aloud.
+            </p>
+
+            <div class="field">
+              <label for="settings-assistant-general-dir">Folder <code>general</code> works in</label>
+              <input id="settings-assistant-general-dir" name="assistantGeneralDir" type="text"
+                placeholder="(Marshal's own folder)" autocomplete="off" spellcheck="false" />
+            </div>
+
+            <div class="field">
+              <label for="settings-assistant-general-mode">Permissions of <code>general</code></label>
+              <select id="settings-assistant-general-mode" name="assistantGeneralPermissionMode">
+                <option value="auto">Auto — runs commands, asks only for risky ones</option>
+                <option value="default">Ask every time (answer in its Terminal window)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-assistant-model">Dispatcher model</label>
+              <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Spoken updates</legend>
+
+            <label class="checkbox-row">
+              <input id="settings-speech-enabled" name="speechEnabled" type="checkbox" />
+              <span>Read short session updates aloud</span>
+            </label>
+            <p class="field-hint">
+              Native macOS voices, nothing to download. Ukrainian text gets the Ukrainian voice, English the
+              English one. Silent while dictating, recording a meeting or running live captions.
+            </p>
+
+            <div class="field">
+              <label for="settings-speech-voice-uk">Ukrainian voice</label>
+              <select id="settings-speech-voice-uk" name="speechVoiceUk">
+                <option value="">Automatic</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-voice-en">English voice</label>
+              <select id="settings-speech-voice-en" name="speechVoiceEn">
+                <option value="">Automatic</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-rate">Rate (words per minute)</label>
+              <input id="settings-speech-rate" name="speechRate" type="number" min="90" max="360" step="10" />
+            </div>
+
+            <div class="field">
+              <button type="button" id="settings-speech-test" class="btn btn-secondary">Speak test phrase</button>
+              <p id="settings-speech-status" class="field-hint">Uses the saved settings — save first after a change.</p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-dictation" data-section="dictation">
+            <h2>Dictation</h2>
+          <fieldset class="field-group">
+            <legend>Voice dictation</legend>
+            <label class="checkbox-row">
+              <input id="settings-dictation-enabled" name="dictationEnabled" type="checkbox" />
+              <span>Enable push-to-talk dictation</span>
+            </label>
+
+            <div class="field">
+              <label for="settings-dictation-hotkey">Hotkey</label>
+              <input id="settings-dictation-hotkey" name="dictationHotkey" type="text" placeholder="RightCmd" autocomplete="off" />
+              <p class="field-hint">
+                Hold to record, release to transcribe. Default <code>RightCmd</code> (just hold the right Command key).
+                Combos also work, e.g. <code>Cmd+Shift+D</code>.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-hold-delay">Hold delay</label>
+              <input id="settings-dictation-hold-delay" name="dictationHoldDelayMs" type="number"
+                min="0" max="1000" step="50" inputmode="numeric" />
+              <p class="field-hint">
+                Milliseconds before recording starts. <code>200</code> ignores accidental taps;
+                <code>0</code> starts immediately.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-toggle-tap-count">Hands-free toggle</label>
+              <select id="settings-dictation-toggle-tap-count" name="dictationToggleTapCount">
+                <option value="0">Off — hold to record</option>
+                <option value="2">Double tap hotkey to start/stop</option>
+                <option value="3">Triple tap hotkey to start/stop</option>
+              </select>
+              <p class="field-hint">
+                Toggle mode is useful for longer dictation. When enabled, holding is disabled for that hotkey.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-backend">Transcription backend</label>
+              <select id="settings-dictation-backend" name="dictationBackend">
+                <option value="hybrid">Hybrid: Groq large-v3 with local fallback — default (recommended)</option>
+                <option value="groq">Groq whisper-large-v3 only (fast, fails offline; needs MARSHAL_API_KEY)</option>
+                <option value="whisper-cpp">whisper.cpp local-only (offline, free; needs setup:dictation)</option>
+              </select>
+              <p class="field-hint">
+                Hybrid prefers Groq's cloud whisper-large-v3 (free tier: ~4 hrs audio/day) and falls
+                back to local <code>ggml-large-v3-turbo</code> automatically on errors. Run
+                <code>npm run setup:dictation</code> once to provision the local model.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-microphone">Microphone</label>
+              <select id="settings-dictation-microphone" name="dictationMicrophone">
+                <option value="">System default (track macOS Sound &gt; Input)</option>
+              </select>
+              <p class="field-hint">
+                Picks the input device for the next recording. While dictation is active Marshal
+                temporarily sets this as the system default input and restores it on release.
+                <a href="#" id="settings-dictation-microphone-refresh">Refresh list</a> after plugging
+                in a new mic.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-dictation-language">Spoken language</label>
+              <select id="settings-dictation-language" name="dictationLanguage">
+                <option value="auto">Auto-detect (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+              <p class="field-hint">
+                Pin a language if auto-detect misfires on short utterances — e.g. Ukrainian getting
+                recognised as Russian. Auto works well for longer clips.
+              </p>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="settings-dictation-autopaste" name="dictationAutoPaste" type="checkbox" />
+              <span>Auto-paste transcript after dictation</span>
+            </label>
+
+            <div class="field">
+              <label for="settings-dictation-prompt">Initial prompt (glossary)</label>
+              <textarea id="settings-dictation-prompt" name="dictationPrompt" rows="5"
+                placeholder="Seed whisper with your vocabulary, names, and typical code-switching style."></textarea>
+              <p class="field-hint">
+                Huge accuracy win on mixed-language speech (Ukrainian + English tech terms) and rare words.
+                Whisper caps this at ≈1000 characters. Leave blank to disable.
+                <a href="#" id="settings-dictation-prompt-reset">Restore default</a>.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-claude" data-section="claude">
+            <h2>Claude Code</h2>
+          <fieldset class="field-group">
+            <legend>Claude Code integration</legend>
+            <div class="health-header">
+              <span id="settings-claude-hooks-status" class="health-summary">Checking…</span>
+              <button type="button" id="settings-claude-hooks-toggle" class="btn btn-ghost" disabled>Install hooks</button>
+            </div>
+            <p class="field-hint">
+              Adds <code>Stop</code> and <code>Notification</code> hooks to <code>~/.claude/settings.json</code>, next to
+              your own hooks, so Marshal notifies you when a session finishes or needs your confirmation. Remove takes
+              out only Marshal's entries.
+            </p>
+            <div class="field">
+              <label for="settings-claude-summary-language">Summary language</label>
+              <select id="settings-claude-summary-language" name="claudeCodeSummaryLanguage">
+                <option value="auto">Same as the answer (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <label class="checkbox-row">
+              <input id="settings-claude-context-routing" name="claudeCodeContextRouting" type="checkbox" checked />
+              <span>Route a command that names no session by what each session works on</span>
+            </label>
+            <p class="field-hint">
+              Keeps a 3-line summary of each live session (built from its recent turns, at most every 10 minutes) and
+              asks a small model which one a command is about. When it is not sure, you pick.
+            </p>
+            <div class="field">
+              <label for="settings-claude-routing-roots">Folders whose sessions may be read</label>
+              <textarea id="settings-claude-routing-roots" name="claudeCodeRoutingRoots" rows="3" spellcheck="false"
+                placeholder="~/htdocs"></textarea>
+              <p class="field-hint">
+                One folder per line. Only sessions under these folders have their recent turns sent to the summary
+                provider; other sessions are still reachable by name and in the picker. Empty — no session is read.
+                <span id="settings-claude-routing-count"></span>
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-captions" data-section="captions">
+            <h2>Captions</h2>
+          <fieldset class="field-group">
+            <legend>Live captions</legend>
+            <p class="field-hint">
+              Subtitles and a 2–3 bullet AI summary of whatever the Mac is playing, on an overlay that
+              screen sharing cannot see. Toggle with the hotkey below or from the tray.
+            </p>
+
+            <div class="field">
+              <label for="settings-captions-hotkey">Toggle hotkey</label>
+              <input id="settings-captions-hotkey" name="captionsHotkey" type="text"
+                placeholder="CommandOrControl+Alt+Shift+C" autocomplete="off" />
+              <p class="field-hint">
+                Electron accelerator syntax, e.g. <code>CommandOrControl+Alt+Shift+C</code>. Applies on save.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-ocr-hotkey">Read screen region hotkey</label>
+              <input id="settings-captions-ocr-hotkey" name="captionsOcrHotkey" type="text"
+                placeholder="Control+Shift+S" autocomplete="off" />
+              <p class="field-hint">
+                First press picks the region with the crop overlay; later presses OCR it silently into the summary.
+                Tray → Live Captions → Reset OCR Region… to pick again.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-drag-modifier">Move overlay while holding</label>
+              <input id="settings-captions-drag-modifier" name="captionsDragModifier" type="text"
+                placeholder="LeftControl" autocomplete="off" />
+              <p class="field-hint">
+                The overlay is click-through; it accepts the mouse only while this key is held.
+                Modifier names as for dictation (<code>LeftControl</code>, <code>RightOption</code>…);
+                <code>off</code> disables it — the tray toggle still works.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-provider">Summary provider</label>
+              <select id="settings-captions-provider" name="captionsProvider">
+                <option value="auto">Auto — Anthropic key if set, else Groq/OpenAI-compatible key, else captions only</option>
+                <option value="openai-api">OpenAI-compatible API (Groq, OpenRouter, Ollama via MARSHAL_CAPTIONS_API_BASE)</option>
+                <option value="claude-api">Anthropic API (needs ANTHROPIC_API_KEY)</option>
+                <option value="off">Off — raw captions, no summary</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-model">Summary model</label>
+              <input id="settings-captions-model" name="captionsModel" type="text"
+                placeholder="Blank = translator model (qwen/qwen3.8-27b on Groq)" autocomplete="off" />
+              <p class="field-hint">
+                Pick the fastest model the account serves — the first bullet should land within a second.
+                Only used with the OpenAI-compatible provider; the Anthropic one uses
+                <code>MARSHAL_CAPTIONS_CLAUDE_MODEL</code> (default <code>claude-haiku-4-5</code>).
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-output-language">Summary language</label>
+              <input id="settings-captions-output-language" name="captionsOutputLanguage" type="text"
+                placeholder="Blank = same as the transcript" autocomplete="off" />
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-stt-backend">Transcription backend</label>
+              <select id="settings-captions-stt-backend" name="captionsSttBackend">
+                <option value="auto">Auto — local model if installed, else same as dictation (default)</option>
+                <option value="hybrid">Hybrid: Groq large-v3 with local fallback</option>
+                <option value="groq">Groq whisper-large-v3 only (20 requests/min on the free tier)</option>
+                <option value="whisper-cpp">whisper.cpp local-only (~0.7 s per utterance, no rate limit)</option>
+              </select>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="settings-captions-mix-mic" name="captionsMixMicrophone" type="checkbox" />
+              <span>Also caption my microphone (my own answers)</span>
+            </label>
+            <p class="field-hint">
+              Mixes the dictation microphone into the stream, in sync with the system audio. Use
+              headphones: on speakers the mic hears the other side too and everything doubles.
+              Needs macOS 15 and the Microphone permission (asked on first start).
+            </p>
+
+            <div class="field">
+              <label for="settings-captions-vad">Speech detection</label>
+              <select id="settings-captions-vad" name="captionsVad">
+                <option value="silero">Silero VAD (default) — neural model; ignores typing, music beds, notification sounds</option>
+                <option value="energy">Energy gate — loudness against an adaptive noise floor</option>
+              </select>
+              <p class="field-hint">
+                Decides which frames are speech. Energy is the fallback Marshal uses automatically
+                if the Silero model fails to load.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-silence-ms">End of utterance after silence</label>
+              <input id="settings-captions-silence-ms" name="captionsSilenceMs" type="number"
+                min="400" max="2000" step="50" inputmode="numeric" />
+              <p class="field-hint">
+                Milliseconds of silence that close a sentence and trigger the summary. <code>1200</code>
+                is the default; raise towards <code>1500</code> for slow speakers, lower for fast
+                ones. The live line shows speech meanwhile, so this delays the final caption only.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-turn-policy">New speech while a summary is streaming</label>
+              <select id="settings-captions-turn-policy" name="captionsTurnPolicy">
+                <option value="interrupt">Interrupt — restart with the fuller transcript (default, freshest)</option>
+                <option value="queue">Queue — let it finish, then run once more with everything new (steadier)</option>
+              </select>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="settings-captions-speculative-stt" name="captionsSpeculativeStt" type="checkbox" />
+              <span>Transcribe early at a 300 ms pause so the text is ready when the sentence ends</span>
+            </label>
+            <p class="field-hint">
+              Cuts roughly half a second off each turn. Costs extra whisper calls on mid-sentence
+              pauses — fine on Groq, noticeable CPU with local whisper.cpp.
+            </p>
+
+            <div class="field">
+              <label for="settings-captions-language">Spoken language</label>
+              <select id="settings-captions-language" name="captionsLanguage">
+                <option value="auto">Auto-detect (default)</option>
+                <option value="uk">Ukrainian (українська)</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Reference files</label>
+              <div class="folder-picker">
+                <input id="settings-captions-context-dir" type="text" readonly autocomplete="off" />
+                <button type="button" id="settings-captions-context-open" class="btn btn-ghost">Open folder…</button>
+              </div>
+              <p class="field-hint" id="settings-captions-context-info">
+                Drop Markdown or text files here — meeting agenda, project log, glossary. They help the
+                summary spell names and technical terms right; the bullets only ever restate what was
+                said. Up to ~12k characters; picked up automatically when a file changes.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-captions-prompt">Initial prompt (glossary)</label>
+              <textarea id="settings-captions-prompt" name="captionsPrompt" rows="3"
+                placeholder="Vocabulary whisper should expect in the audio."></textarea>
+              <p class="field-hint">
+                Separate from the dictation glossary: that one is Ukrainian-first, this one only primes
+                technical terms so an English call is not steered wrong. Leave blank to disable.
+                <a href="#" id="settings-captions-prompt-reset">Restore default</a>.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-translator" data-section="translator">
+            <h2>Translator &amp; AI</h2>
+          <div class="field">
+            <label for="settings-bridge-mode">Reasoning provider</label>
+            <select id="settings-bridge-mode" name="bridgeMode">
+              <optgroup label="Subscription-based (CLI)">
+                <option value="claude-cli">Claude Code CLI — Claude Pro / Max subscription</option>
+                <option value="codex-cli">Codex CLI — ChatGPT Plus / Pro subscription</option>
+              </optgroup>
+              <optgroup label="API key">
+                <option value="claude">Anthropic API (ANTHROPIC_API_KEY)</option>
+                <option value="api">OpenAI-compatible API (Groq / OpenRouter / OpenAI)</option>
+              </optgroup>
+              <optgroup label="Browser automation (legacy)">
+                <option value="claude-web">claude.ai via Playwright</option>
+                <option value="playwright">chatgpt.com via Playwright</option>
+                <option value="extension">ChatGPT via Chrome extension</option>
+              </optgroup>
+            </select>
+            <p id="settings-provider-hint" class="field-hint"></p>
+          </div>
+
+          <div class="field" data-visible-for="claude-cli">
+            <label for="settings-claude-model">Claude model</label>
+            <input id="settings-claude-model" name="claudeModel" type="text" placeholder="sonnet" autocomplete="off" />
+            <p class="field-hint">Alias (<code>sonnet</code>, <code>opus</code>, <code>haiku</code>) or full ID (e.g. <code>claude-sonnet-4-6</code>).</p>
+          </div>
+
+          <div class="field" data-visible-for="codex-cli">
+            <label for="settings-codex-model">Codex model</label>
+            <input id="settings-codex-model" name="codexModel" type="text" placeholder="(CLI default)" autocomplete="off" />
+            <p class="field-hint">Leave empty to use the Codex CLI default. Overrides with <code>-m</code>.</p>
+          </div>
+
+          <fieldset class="field-group">
+            <legend>Translator</legend>
+            <div class="field">
+              <label for="settings-translator-backend">Translator backend</label>
+              <select id="settings-translator-backend" name="translatorBackend">
+                <option value="auto">Follow main provider — recommended</option>
+                <option value="apple-vision">Apple Vision + Groq — fast, local OCR, no limits (macOS)</option>
+                <option value="claude-cli">Claude CLI (Pro/Max subscription)</option>
+                <option value="codex-cli">Codex CLI (ChatGPT Plus/Pro subscription)</option>
+                <option value="claude-api">Anthropic API (ANTHROPIC_API_KEY)</option>
+                <option value="openai-api">OpenAI-compatible API (Groq / Gemini / OpenRouter / OpenAI)</option>
+              </select>
+              <p class="field-hint">
+                On <strong>Follow main provider</strong> the translator uses the same billing as your main reasoning
+                provider — except that a CLI provider takes about ten seconds per translation, which breaks
+                translate-as-you-type. So when <code>MARSHAL_API_KEY</code> is set, the translator takes the fast API
+                instead (local OCR on macOS) and the chat keeps its own provider. Pin an explicit backend to override
+                that, or to put the translator on a different account than the chat.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-capture" data-section="capture">
+            <h2>Capture</h2>
+          <fieldset class="field-group">
+            <legend>Capture</legend>
+
+            <div class="field">
+              <label for="settings-capture-folder">Save captures to</label>
+              <div class="folder-picker">
+                <input id="settings-capture-folder" name="captureDefaultFolder" type="text"
+                  placeholder="Defaults to ~/Desktop" autocomplete="off" />
+                <button type="button" id="settings-capture-folder-pick" class="btn btn-ghost">Choose…</button>
+              </div>
+              <p class="field-hint">
+                Where screenshots, recordings, GIFs, and full-page Chrome captures land.
+                Leave blank to use ~/Desktop.
+              </p>
+            </div>
+
+            <div class="field">
+              <label>Hotkeys</label>
+              <ul class="hotkey-list">
+                <li><kbd>⌘⇧2</kbd> — area screenshot → translator OCR</li>
+                <li><kbd>⌘⌥3</kbd> — area screenshot → editor</li>
+                <li><kbd>⌘⌥4</kbd> — full screen → editor</li>
+                <li><kbd>⌘⌥6</kbd> — start / stop video recording</li>
+                <li><kbd>⌘⌥L</kbd> — layout swap (Punto-Switcher)</li>
+                <li><kbd>⌘⌥T</kbd> — translator window</li>
+              </ul>
+              <p class="field-hint">
+                Hotkeys are fixed in this build. Custom mappings will land with #72 follow-up.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-calendar" data-section="calendar">
+            <h2>Calendar</h2>
+          <fieldset class="field-group">
+            <legend>Calendar</legend>
+
+            <div class="field">
+              <input id="settings-calendar-enabled" name="calendarEnabled" type="checkbox" />
+              <label for="settings-calendar-enabled">Meeting reminders</label>
+              <p class="field-hint">
+                Reminders 15 and 5 minutes before a meeting, and at the start with Join and Join + Record.
+                The next meeting is shown at the top of the tray menu. Checks the calendar every 5 minutes, only while on.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="settings-calendar-url">Secret address in iCal format</label>
+              <div class="folder-picker">
+                <input id="settings-calendar-url" type="password" autocomplete="off" spellcheck="false"
+                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
+                <button type="button" id="settings-calendar-forget" class="btn btn-ghost">Forget</button>
+              </div>
+              <p class="field-hint" id="settings-calendar-status"></p>
+              <p class="field-hint">
+                Google Calendar → Settings → your calendar → Integrate calendar. Anyone with this address reads
+                the whole calendar: Marshal keeps it in a private file and never shows it again.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+
+          <section class="settings-section" id="settings-sec-system" data-section="system">
+            <h2>System</h2>
+          <fieldset class="field-group">
+            <legend>Setup health</legend>
+            <div class="health-header">
+              <span id="settings-health-summary" class="health-summary">Checking…</span>
+              <button type="button" id="settings-health-refresh" class="btn btn-ghost">Refresh</button>
+            </div>
+            <div id="settings-health-list" class="health-list"></div>
+          </fieldset>
+
+            <div class="field">
+              <input id="settings-launch-at-login" name="launchAtLogin" type="checkbox" />
+              <label for="settings-launch-at-login">Start Marshal at login</label>
+              <p class="field-hint">
+                Registers Marshal as a macOS Login Item. Toggling here matches the same option in the tray menu.
+                If macOS rejects the change, this checkbox returns to off and Setup Health shows the reason.
+              </p>
+            </div>
+
+          <fieldset class="field-group">
+            <legend>Updates</legend>
+
+            <div class="field">
+              <input id="settings-check-updates" name="checkForUpdatesAutomatic" type="checkbox" />
+              <label for="settings-check-updates">Automatically check for updates</label>
+              <p class="field-hint">
+                Polls the GitHub Releases API once on launch and every 6 hours.
+                Notification surfaces new versions; you install the .dmg manually
+                (auto-install is gated on code-signing — see <code>#78</code>).
+              </p>
+            </div>
+
+            <div class="field">
+              <button type="button" id="settings-check-updates-now" class="btn btn-secondary">
+                Check for updates now
+              </button>
+              <div id="settings-update-result" class="update-result hidden"></div>
+              <p class="field-hint">
+                Marshal is signed with a stable self-signed certificate, so
+                from v0.1.3 onwards your Microphone / Accessibility / Screen
+                Recording permissions persist across updates. The first
+                v0.1.3 install will still re-prompt (one-time transition
+                from the old ad-hoc signature); after that, updates are
+                silent. First launch may show "unidentified developer" —
+                right-click the app → Open.
+              </p>
+            </div>
+          </fieldset>
+          </section>
+        </form>
+      </div>
+      <footer class="settings-foot">
+        <div id="settings-status" class="status-banner hidden" role="status"></div>
+        <button type="button" id="settings-save" class="btn btn-primary">Save</button>
+      </footer>
     </section>
 
     <aside class="side">

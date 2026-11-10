@@ -42,6 +42,8 @@ export type AssistantView = {
 export class AssistantHomeWindow {
   private window: BrowserWindow | null = null;
   private view: AssistantView = { state: "idle", lang: "en" };
+  // Settings asked for before the page loaded are shown once it has (#317).
+  private settingsPending = false;
 
   constructor(
     private readonly preloadPath: string,
@@ -101,12 +103,22 @@ export class AssistantHomeWindow {
     });
     this.window.webContents.once("did-finish-load", () => {
       this.push();
+      if (this.settingsPending) created.webContents.send("marshal:assistant-show-settings");
+      this.settingsPending = false;
       app.focus({ steal: true });
       this.window?.show();
       this.window?.focus();
     });
     void this.window.loadFile(path.join(rendererDir, "assistant-home.html"));
     this.onOpenChange(true);
+  }
+
+  /** Opens the window on its settings view; settings have no window of their own (#317). */
+  showSettings(): void {
+    const loading = !this.window || this.window.isDestroyed() || this.window.webContents.isLoading();
+    this.open();
+    if (loading) this.settingsPending = true;
+    else this.window?.webContents.send("marshal:assistant-show-settings");
   }
 
   close(): void {

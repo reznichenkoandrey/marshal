@@ -105,7 +105,6 @@ const projectRootDir = path.resolve(desktopDistDir, "..", "..");
 const envPath = path.join(projectRootDir, ".env");
 loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
-const rendererHtmlPath = path.join(desktopDistDir, "renderer", "index.html");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 const execFileAsync = promisify(execFile);
 
@@ -177,10 +176,6 @@ let captionsAccelerators: { toggle: string; ocr: string } = {
   ocr: DEFAULT_CAPTIONS_OCR_HOTKEY
 };
 
-// `mainWindow` and `tray` are owned directly by the main process. Existing
-// code paths (IPC handlers, capture overlays, recording state fan-out) use
-// these globals to coordinate the app popover and tray status.
-let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
 let assistantDispatcher: AssistantDispatcher | null = null;
@@ -254,7 +249,9 @@ async function bootstrap(): Promise<void> {
     initialSettings = applyLaunchAtLogin(initialSettings);
 
     registerIpcHandlers();
-    createTrayAndWindow();
+    createTray();
+    // Marshal opens no window at start; the smoke test needs one to look at.
+    if (process.env.MARSHAL_E2E_OPEN_HOME === "1") openAssistantHome();
     scheduleTrayRefresh();
 
     // `MARSHAL_HEADLESS=1` disables every subsystem that needs real hardware,
@@ -376,9 +373,10 @@ function registerIpcHandlers(): void {
     }
     return sessionPaths.workspaceDir;
   });
-  handleIpc("marshal:select-directory", async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
+  handleIpc("marshal:select-directory", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    if (!parent) return null;
+    const result = await dialog.showOpenDialog(parent, {
       properties: ["openDirectory"]
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -491,7 +489,10 @@ function registerIpcHandlers(): void {
     const focused = await focusSession(pid);
     return focused ? { ok: true, focused } : { ok: false, error: "Could not bring the session forward." };
   });
+  // What the agent backend reads from the env (applySettingsToEnv).
+  const BACKEND_SETTING_KEYS = ["bridgeMode", "claudeModel", "codexModel"] as const;
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
+    const before = loadSettings();
     let saved = saveSettings(next ?? {});
     applySettingsToEnv(saved);
     saved = applyLaunchAtLogin(saved);
@@ -511,9 +512,9 @@ function registerIpcHandlers(): void {
       saved.translatorTargetLang,
       saved.translatorFormality
     );
-    // Restart the agent backend so the new provider/model values reach the
-    // reasoning bridge.
-    await backendClient.restart();
+    // Only the reasoning bridge reads provider and model; anything else
+    // restarting it would drop a running agent task for nothing (#317).
+    if (BACKEND_SETTING_KEYS.some((key) => saved[key] !== before[key])) await backendClient.restart();
     return saved;
   });
 
@@ -934,8 +935,6 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
 
   // Hide Marshal's own windows so they don't leak into the frame.
   translatorWindow?.hide();
-  const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) hideMainWindow();
   await new Promise<void>((r) => setTimeout(r, 120));
 
   try {
@@ -956,8 +955,6 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
       }).show();
     }
     console.error("[marshal] capture failed:", err);
-  } finally {
-    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -985,9 +982,7 @@ async function runScrollingCapture(): Promise<void> {
     return;
   }
 
-  const mainWasVisible = mainWindow?.isVisible() ?? false;
   translatorWindow?.hide();
-  if (mainWasVisible) hideMainWindow();
 
   try {
     const pick = await pickArea({ preloadPath });
@@ -1046,8 +1041,6 @@ async function runScrollingCapture(): Promise<void> {
       }).show();
     }
     console.error("[marshal] scrolling capture failed:", err);
-  } finally {
-    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -1223,11 +1216,6 @@ async function performTeardown(): Promise<void> {
   recordingIndicator?.hide();
   videoRecorder?.kill();
   gifDialog?.close();
-  if (mainWindow) {
-    mainWindow.removeAllListeners("close");
-    mainWindow.destroy();
-    mainWindow = null;
-  }
   tray?.destroy();
   tray = null;
   // Release every registered accelerator, including any new ones added later.
@@ -1944,18 +1932,13 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
 
   // Hide Marshal's own windows so they don't appear in the recording.
   translatorWindow?.hide();
-  const mainWasVisible = mainWindow?.isVisible() ?? false;
-  if (mainWasVisible) hideMainWindow();
 
   let area: { x: number; y: number; width: number; height: number } | null = null;
 
   try {
     if (kind === "area") {
       const pick = await pickArea({ preloadPath });
-      if (!pick) {
-        if (mainWasVisible) showMainWindow();
-        return;
-      }
+      if (!pick) return;
       area = {
         x: Math.round(pick.region.x),
         y: Math.round(pick.region.y),
@@ -2002,7 +1985,6 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
         silent: true
       }).show();
     }
-    if (mainWasVisible) showMainWindow();
   }
 }
 
@@ -2277,7 +2259,6 @@ function buildTrayMenu(): Electron.Menu {
   return Menu.buildFromTemplate([
     ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
     { label: "Open Marshal", click: () => openAssistantHome() },
-    { label: "Open Agent Chat", click: () => showMainWindow() },
     { label: "Open Translator", click: () => translatorWindow?.show() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
@@ -2635,43 +2616,12 @@ function initTranslator(): void {
   });
 }
 
-function createTrayAndWindow(): void {
+function createTray(): void {
   tray = new Tray(createTrayIcon());
   tray.setToolTip("Marshal");
   tray.on("click", () => toggleAssistantHome());
   tray.on("right-click", () => {
     tray?.popUpContextMenu(buildTrayMenu());
-  });
-
-  mainWindow = new BrowserWindow({
-    width: 380,
-    height: 560,
-    minWidth: 360,
-    minHeight: 480,
-    show: false,
-    backgroundColor: "#ffffff",
-    icon: appIconPath,
-    autoHideMenuBar: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-  mainWindow.loadFile(rendererHtmlPath).catch((err) => {
-    console.error("[marshal] failed to load renderer:", err);
-  });
-  mainWindow.on("blur", () => {
-    if (isQuitting) return;
-    if (mainWindow?.webContents.isDevToolsOpened()) return;
-    hideMainWindow();
-  });
-  mainWindow.on("close", (event) => {
-    if (isQuitting) return;
-    event.preventDefault();
-    hideMainWindow();
   });
 
   void refreshTrayState();
@@ -3013,12 +2963,9 @@ function runAssistantAction(name: string | undefined): void {
       assistantHome?.close();
       void runCapture("area");
       return;
-    case "agent":
-      showMainWindow();
-      return;
     case "settings":
-      showMainWindow();
-      mainWindow?.webContents.send("marshal:open-settings");
+      openAssistantHome();
+      assistantHome?.showSettings();
       return;
     case "toggle-speech":
       saveSettings({ speechEnabled: !loadSettings().speechEnabled });
@@ -3063,42 +3010,6 @@ function runAssistantAction(name: string | undefined): void {
   }
 }
 
-function showMainWindow(): void {
-  if (!mainWindow) return;
-  positionMainWindow();
-  mainWindow.show();
-  mainWindow.focus();
-}
-
-function hideMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.hide();
-}
-
-function positionMainWindow(): void {
-  if (!mainWindow || !tray) return;
-
-  const trayBounds = tray.getBounds();
-  const windowBounds = mainWindow.getBounds();
-  const display = screen.getDisplayNearestPoint({
-    x: Math.round(trayBounds.x + trayBounds.width / 2),
-    y: Math.round(trayBounds.y + trayBounds.height / 2)
-  });
-  const workArea = display.workArea;
-  const gap = 6;
-  const desiredX = Math.round(trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2);
-  const maxX = workArea.x + workArea.width - windowBounds.width;
-  const x = Math.min(Math.max(desiredX, workArea.x), maxX);
-  const opensDownward = trayBounds.y < workArea.y + workArea.height / 2;
-  const desiredY = opensDownward
-    ? trayBounds.y + trayBounds.height + gap
-    : trayBounds.y - windowBounds.height - gap;
-  const maxY = workArea.y + workArea.height - windowBounds.height;
-  const y = Math.min(Math.max(Math.round(desiredY), workArea.y), maxY);
-
-  mainWindow.setPosition(x, y, false);
-}
-
 async function refreshTrayState(): Promise<void> {
   if (!tray) return;
 
@@ -3138,7 +3049,7 @@ async function refreshTrayState(): Promise<void> {
     }
   }
 
-  // Context menu is opened from the tray right-click handler in createTrayAndWindow().
+  // Context menu is opened from the tray right-click handler in createTray().
 }
 
 function scheduleTrayRefresh(): void {

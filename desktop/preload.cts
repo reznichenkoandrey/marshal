@@ -113,8 +113,6 @@ contextBridge.exposeInMainWorld("marshalTranslator", translatorApi);
 
 // ── Desktop API ──
 const desktopApi = {
-  // The assistant home's Settings button opens the modal that lives here.
-  onOpenSettings: (cb: () => void) => registerListener<[]>("marshal:open-settings", () => cb()),
   getHealth: () => ipcRenderer.invoke("marshal:get-health"),
   listProjects: () => ipcRenderer.invoke("marshal:list-projects"),
   createProject: (name: string) => ipcRenderer.invoke("marshal:create-project", name),
@@ -511,6 +509,8 @@ const assistantApi = {
     registerListener<[AssistantPayload]>("marshal:assistant-state", cb),
   action: (name: string) => ipcRenderer.invoke("marshal:assistant:action", { name }),
   close: () => ipcRenderer.invoke("marshal:assistant:close"),
+  // Main asks the home to open its settings view (tray, voice "settings", #317).
+  onShowSettings: (cb: () => void) => registerListener<[]>("marshal:assistant-show-settings", () => cb()),
   focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid }),
   // Mini widget (#285): window position while dragging; `done` on release saves it.
   moveWidget: (x: number, y: number, done: boolean) => ipcRenderer.invoke("marshal:assistant:widget-move", { x, y, done })

@@ -69,6 +69,7 @@ const focused = [];
 let closed = 0;
 contextBridge.exposeInMainWorld("marshalAssistant", {
   onState: (cb) => ipcRenderer.on("marshal:assistant-state", cb),
+  onShowSettings: (cb) => ipcRenderer.on("marshal:assistant-show-settings", () => cb()),
   action: async (name) => { actions.push(name); return { ok: true }; },
   close: async () => { closed += 1; return { ok: true }; },
   focusSession: async (pid) => {
@@ -76,7 +77,33 @@ contextBridge.exposeInMainWorld("marshalAssistant", {
     return pid === 999 ? { ok: false, error: "session is gone" } : { ok: true, focused: "tab" };
   }
 });
+// Settings (#317) read and save through marshalDesktop.
+const saved = [];
+const settings = { bridgeMode: "claude-cli", claudeModel: "", codexModel: "", dictationAutoPaste: false, calendarEnabled: false };
+const none = async () => null;
+contextBridge.exposeInMainWorld("marshalDesktop", {
+  getSettings: async () => ({ ...settings }),
+  updateSettings: async (next) => { saved.push(next); Object.assign(settings, next); return { ...settings }; },
+  getSetupHealth: async () => ({ items: [] }),
+  getClaudeCodeHooks: async () => ({ installed: false }),
+  setClaudeCodeHooks: none,
+  calendarStatus: async () => ({ configured: false }),
+  calendarSetUrl: none,
+  listMicrophones: async () => [],
+  getSpeechVoices: async () => ({ voices: [] }),
+  speakTestPhrase: none,
+  selectDirectory: none,
+  getDictationDefaults: async () => ({}),
+  getCaptionsDefaults: async () => ({}),
+  getCaptionsContextInfo: async () => ({ files: [] }),
+  openCaptionsContextFolder: none,
+  checkForUpdatesSilent: none,
+  startUpdateInstall: none,
+  onUpdateInstallProgress: () => () => {},
+  openExternal: none
+});
 contextBridge.exposeInMainWorld("__homeProbe", {
+  saved: () => saved,
   actions: () => actions,
   focused: () => focused,
   closed: () => closed
@@ -408,13 +435,79 @@ async function main() {
   const dock = await win.webContents.executeJavaScript(
     `[...document.querySelectorAll(".dock [data-action]")].map((b) => ({ action: b.dataset.action, title: b.title, icon: !!b.querySelector("svg") }))`
   );
-  record("every dock button has a title and an icon", dock.length === 8 && dock.every((b) => b.title && b.icon),
+  record("every dock button has a title and an icon", dock.length === 7 && dock.every((b) => b.title && b.icon),
     dock.map((b) => b.action).join(", "));
+  record("the dock has no agent chat (#317)", !dock.some((b) => b.action === "agent"));
   const earlier = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
-  await win.webContents.executeJavaScript(`document.querySelectorAll(".dock [data-action]").forEach((b) => b.click())`);
+  await win.webContents.executeJavaScript(`document.querySelectorAll(".dock [data-action]:not([data-action='settings'])").forEach((b) => b.click())`);
   await sleep(100);
   const sent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(earlier);
-  record("dock clicks reach main by name", JSON.stringify(sent) === JSON.stringify(dock.map((b) => b.action)), sent.join(", "));
+  const toMain = dock.map((b) => b.action).filter((action) => action !== "settings");
+  record("dock clicks reach main by name", JSON.stringify(sent) === JSON.stringify(toMain), sent.join(", "));
+
+  // ── Settings view (#317) ────────────────────────────────────────────────
+  await win.webContents.executeJavaScript(`document.querySelector(".dock [data-action='settings']").click()`);
+  await sleep(300);
+  const opened = await win.webContents.executeJavaScript(`(() => ({
+    view: document.getElementById("home").dataset.view,
+    shown: !document.getElementById("settings").hidden,
+    side: getComputedStyle(document.querySelector(".side")).display,
+    visual: getComputedStyle(document.querySelector(".core")).display,
+    sections: document.querySelectorAll("#settings-form .settings-section").length,
+    rail: document.querySelectorAll("#settings-rail .rail-btn").length,
+    bridge: document.getElementById("settings-bridge-mode").value
+  }))()`);
+  record("Settings in the dock opens settings inside the home, not another window",
+    opened.view === "settings" && opened.shown && opened.side === "none" && opened.visual !== "none",
+    JSON.stringify(opened));
+  record("every section has a rail entry and the form is filled from main",
+    opened.sections === 9 && opened.rail === 9 && opened.bridge === "claude-cli", `${opened.sections}/${opened.rail}, ${opened.bridge}`);
+  record("the settings button stays out of main", (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).every((a) => a !== "settings"));
+
+  await win.webContents.executeJavaScript(`document.querySelector("#settings-rail [data-section='dictation']").click()`);
+  await sleep(300);
+  const jumped = await win.webContents.executeJavaScript(`(() => {
+    const scroll = document.getElementById("settings-form");
+    const section = document.getElementById("settings-sec-dictation");
+    return {
+      offset: Math.round(section.getBoundingClientRect().top - scroll.getBoundingClientRect().top),
+      current: document.querySelector("#settings-rail [aria-current='true']")?.dataset.section
+    };
+  })()`);
+  record("the rail scrolls to its section and marks it", Math.abs(jumped.offset) < 40 && jumped.current === "dictation", JSON.stringify(jumped));
+
+  await win.webContents.executeJavaScript(`document.getElementById("settings-dictation-autopaste").click()`);
+  await win.webContents.executeJavaScript(`document.getElementById("settings-save").click()`);
+  await sleep(300);
+  const savedPayloads = await win.webContents.executeJavaScript(`window.__homeProbe.saved()`);
+  record("Save sends the changed toggle to main",
+    savedPayloads.length === 1 && savedPayloads[0].dictationAutoPaste === true && savedPayloads[0].bridgeMode === "claude-cli",
+    JSON.stringify(savedPayloads[0] ?? null).slice(0, 160));
+  const status = await win.webContents.executeJavaScript(`document.getElementById("settings-status").textContent`);
+  record("Save says it saved", status.length > 0, status);
+  await sleep(1000);
+  record("a successful save returns to the home view",
+    await win.webContents.executeJavaScript(`document.getElementById("home").dataset.view === undefined && document.getElementById("settings").hidden`));
+
+  win.webContents.send("marshal:assistant-show-settings");
+  await sleep(200);
+  record("main can open the settings view",
+    await win.webContents.executeJavaScript(`document.getElementById("home").dataset.view === "settings"`));
+  if (SHOTS) {
+    await fs.mkdir(SHOTS, { recursive: true });
+    for (const width of [460, 760, 920]) {
+      win.setSize(width, 600);
+      await sleep(250);
+      await fs.writeFile(path.join(SHOTS, `home-settings-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    win.setSize(920, 600);
+    await sleep(250);
+  }
+  await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
+  await sleep(50);
+  record("Escape leaves settings before it closes the window",
+    (await win.webContents.executeJavaScript(`window.__homeProbe.closed()`)) === 0 &&
+    (await win.webContents.executeJavaScript(`document.getElementById("settings").hidden`)));
   await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
   await sleep(50);
   record("Escape closes the window", (await win.webContents.executeJavaScript(`window.__homeProbe.closed()`)) === 1);
