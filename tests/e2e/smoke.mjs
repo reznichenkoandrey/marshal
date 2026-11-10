@@ -1,5 +1,6 @@
-// E2E smoke test — boots the built Electron app, asserts the renderer window
-// appears, then tears down. Runs locally only (a CI Linux runner has no
+// E2E smoke test — boots the built Electron app, asserts the assistant home
+// (the only window Marshal has, #317) renders with its settings view, then
+// tears down. Runs locally only (a CI Linux runner has no
 // `dist/desktop/main.js` icon assets and macOS GitHub runners would need
 // Screen Recording / Accessibility prompts approved).
 //
@@ -39,18 +40,20 @@ try {
       // extension-bridge init so the smoke test never hits Screen Recording
       // / Accessibility / Mic prompts that block headless CI runners.
       MARSHAL_HEADLESS: "1",
-      MARSHAL_DICTATION_ENABLED: "0"
+      MARSHAL_DICTATION_ENABLED: "0",
+      MARSHAL_E2E_OPEN_HOME: "1"
     }
   });
 
   const window = await app.firstWindow();
   console.log("[e2e-smoke] firstWindow ready");
 
-  // The main window is the operator panel. We don't assert on copy because
-  // i18n + UI churn would make that brittle; presence of <body> is enough to
-  // know the renderer finished its first paint.
-  await window.waitForSelector("body", { timeout: 10_000 });
-  console.log("[e2e-smoke] renderer body painted");
+  // No copy assertions: i18n and UI churn would make them brittle. The real
+  // preload must fill the settings form from main's settings.
+  await window.waitForSelector("#home", { timeout: 10_000 });
+  await window.click(".dock [data-action='settings']");
+  await window.waitForFunction(() => document.getElementById("settings-dictation-hotkey")?.value !== "", null, { timeout: 10_000 });
+  console.log("[e2e-smoke] home rendered, settings filled from main");
 
   const title = await window.title();
   console.log(`[e2e-smoke] window title: ${JSON.stringify(title)}`);

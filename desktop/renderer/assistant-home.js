@@ -6,6 +6,7 @@
 // keeping an input stream alive the rest of the time (#281).
 
 import { createHudVisual, normalizeState, parseRgb, stateLabel } from "./assistant-visual.js";
+import { initSettings, openSettings } from "./settings-panel.js";
 
 const api = window.marshalAssistant;
 const home = document.getElementById("home");
@@ -99,7 +100,6 @@ const TITLES = {
     "dictate-session": "Говорити з Marshal",
     recordings: "Записи дзвінків",
     capture: "Знімок екрана",
-    agent: "Чат агента",
     settings: "Налаштування",
     close: "Закрити"
   },
@@ -110,7 +110,6 @@ const TITLES = {
     "dictate-session": "Talk to Marshal",
     recordings: "Call recordings",
     capture: "Screen capture",
-    agent: "Agent chat",
     settings: "Settings",
     close: "Close"
   }
@@ -359,12 +358,77 @@ sessionsList.addEventListener("click", async (event) => {
 for (const area of [document.querySelector(".dock"), strip]) {
   area.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
-    if (button) void api?.action(button.dataset.action);
+    if (!button) return;
+    // Settings are a view of this window, not another window (#317).
+    if (button.dataset.action === "settings") toggleSettings();
+    else void api?.action(button.dataset.action);
   });
 }
+
+// ── Settings view (#317) ──
+
+const settingsView = document.getElementById("settings");
+const settingsScroll = document.getElementById("settings-form");
+const rail = document.getElementById("settings-rail");
+
+function settingsOpen() {
+  return home.dataset.view === "settings";
+}
+
+function showSettings() {
+  if (!settingsOpen()) {
+    home.dataset.view = "settings";
+    settingsView.hidden = false;
+    void openSettings();
+  }
+}
+
+function hideSettings() {
+  delete home.dataset.view;
+  settingsView.hidden = true;
+}
+
+function toggleSettings() {
+  if (settingsOpen()) hideSettings();
+  else showSettings();
+}
+
+function markSection(key) {
+  rail.querySelectorAll(".rail-btn").forEach((button) => {
+    button.setAttribute("aria-current", String(button.dataset.section === key));
+  });
+}
+
+rail.addEventListener("click", (event) => {
+  const button = event.target.closest(".rail-btn");
+  if (!button) return;
+  document.getElementById(`settings-sec-${button.dataset.section}`)?.scrollIntoView({ block: "start" });
+  markSection(button.dataset.section);
+});
+
+// The rail follows scrolling: the last section whose top has passed the view's top.
+settingsScroll.addEventListener("scroll", () => {
+  const top = settingsScroll.getBoundingClientRect().top + 24;
+  let current = "appearance";
+  for (const section of settingsScroll.querySelectorAll(".settings-section")) {
+    if (section.getBoundingClientRect().top <= top) current = section.dataset.section;
+  }
+  markSection(current);
+}, { passive: true });
+
+// Enter in a field must not submit the form and reload the window.
+settingsScroll.addEventListener("submit", (event) => event.preventDefault());
+initSettings({ close: hideSettings });
+markSection("appearance");
+document.getElementById("settings-back").addEventListener("click", hideSettings);
+api?.onShowSettings?.(() => showSettings());
+
 document.getElementById("close-btn").addEventListener("click", () => void api?.close());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") void api?.close();
+  if (event.key !== "Escape") return;
+  // Escape leaves settings first; a second one closes the window.
+  if (settingsOpen()) hideSettings();
+  else void api?.close();
 });
 
 // The palette or light/dark can change while the window is open.

@@ -30,7 +30,8 @@
   `npm run test:e2e:alternatives`
   (перекладач: клік по слову → альтернативи), `npm run test:e2e:captions` (живий рядок
   субтитрів), `npm run test:e2e:home` (вікно асистента: кожен стан, dock, тема, пауза
-  прихованого вікна, reduced motion; `MARSHAL_E2E_SHOTS=<тека>` — скріни кожного стану),
+  прихованого вікна, reduced motion, вигляд Settings: rail, перемикач, Save;
+  `MARSHAL_E2E_SHOTS=<тека>` — скріни кожного стану і Settings на трьох ширинах),
   `npm run test:e2e:ambient` (рамка-світіння, індикатор диктовки, міні-віджет: картки, клік /
   подвійний клік / драг, пауза після 30 с idle)
   У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home і ambient: вони працюють через
@@ -360,12 +361,24 @@
   (`say -r`, 90–360 слів/хв) і «Speak test phrase» (говорить і при вимкненому вмикачі).
 
 - **Вікно асистента (home) — `desktop/assistant/`** (#284, #307). Клік по іконці в tray
-  відкриває/закриває його (раніше відкривав чат агента; той тепер — tray → «Open Agent Chat»
-  або кнопка в dock). Вікно — HUD із мокапу #283: голосовий візуал на canvas
+  відкриває/закриває його. **Це єдине вікно Marshal** (#317): окремого вікна налаштувань і
+  старого popover-а з чатом агента більше немає. Вікно — HUD із мокапу #283: голосовий візуал на canvas
   (`desktop/renderer/assistant-visual.js`), чип стану, рядок асистента і dock із діями
   (перекладач, субтитри, запис дзвінка, **мікрофон = «Говорити з Marshal»**, голосовий асистент (#318),
-  записи дзвінків, знімок, чат агента, Settings). Frameless, прозоре, `alwaysOnTop` (LSUIElement,
+  записи дзвінків, знімок, Settings). Frameless, прозоре, `alwaysOnTop` (LSUIElement,
   #168); створюється при відкритті й знищується при закритті.
+  **Settings — вигляд усередині home, не вікно** (#317). Кнопка в dock, tray-пункт і голосова
+  команда «settings» (`AssistantHomeWindow.showSettings()`, IPC `marshal:assistant-show-settings`;
+  поки сторінка вантажиться, запит чекає `did-finish-load`) ставлять `data-view="settings"`:
+  візуал і dock лишаються зліва, права колонка — rail секцій (Appearance, Assistant & voice,
+  Dictation, Claude Code, Captions, Translator & AI, Capture, Calendar, System) і одна прокручувана
+  форма. Вужче за 760 px візуал ховається, а rail стає рядком. Логіка форми —
+  `desktop/renderer/settings-panel.js` (ключі, збереження, health, hooks, календар, тест голосу,
+  оновлення), стилі — `settings-panel.css`, лише токени. Escape спершу повертає з Settings, потім
+  закриває вікно; успішний Save теж повертає. **Backend агента перезапускається лише коли змінився
+  `bridgeMode`, `claudeModel` чи `codexModel`** — решта налаштувань застосовується без нього.
+  Застосунок не відкриває жодного вікна на старті; smoke-тест просить home через
+  `MARSHAL_E2E_OPEN_HOME=1`.
   **Стан вираховує main** — `deriveAssistantState` (`assistant-state.ts`, чиста функція):
   диктовка → `listening`, розпізнавання (`transcribe-start`/`transcribe-end` з
   `DictationService`) → `thinking`, озвучення → `speaking`, сесія чекає → `waiting`, сесії
@@ -479,7 +492,7 @@
   (дзеркало в `chrome-extension/src/sidepanel/` має збігатись байт у байт — це стереже
   `tests/design-tokens.test.ts`) плюс значення в `theme.js`. `theme.js` підключається в `<head>`
   кожного вікна на токенах, щоб тема стояла до першого кадру; він же віддзеркалює light/dark з
-  головного вікна, тож `data-theme` у HTML не хардкодити — інакше вікно не перемикається
+  вікна асистента (там Settings), тож `data-theme` у HTML не хардкодити — інакше вікно не перемикається
   (так було з історіями знімків і записів). Субтитри мають власні локальні
   токени (завжди темні поверх чужого екрана), а полотно редактора захоплення — нейтральне.
   Розширення Chrome показує дефолтний HUD blue: вибору теми там поки немає.
