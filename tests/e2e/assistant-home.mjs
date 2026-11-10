@@ -195,7 +195,14 @@ async function main() {
     if (level >= 3) consoleErrors.push(message);
   });
 
+  // The host's own Reduce motion (GitHub's macOS runner has it on) would leave
+  // one still frame; pin motion explicitly and test reduced motion on purpose below.
+  // The visual follows the media query's change event, so pinning after load is enough.
   await win.loadFile(path.join(RENDERER, "assistant-home.html"));
+  win.webContents.debugger.attach("1.3");
+  await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "no-preference" }]
+  });
   await setAppearance(win, "dark");
   await sleep(300);
 
@@ -203,19 +210,13 @@ async function main() {
   const first = await win.webContents.executeJavaScript(CANVAS_STATS);
   record("the canvas is sized and painted", first.width > 200 && first.painted > first.total * 0.02,
     `${first.width}px, ${first.painted} of ${first.total} pixels`);
-  // A GitHub macOS runner has no live display: Chromium treats the window as
-  // occluded and never fires requestAnimationFrame. Nothing to measure there.
   const rafTicks = await win.webContents.executeJavaScript(RAF_TICKS);
-  if (rafTicks === 0) {
-    console.log("[home-e2e] SKIP the visual animates while visible — no animation frames in this environment");
-  } else {
-    let second = first;
-    for (let waited = 0; waited < 3000 && second.hash === first.hash; waited += 250) {
-      await sleep(250);
-      second = await win.webContents.executeJavaScript(CANVAS_STATS);
-    }
-    record("the visual animates while visible", second.hash !== first.hash, `${rafTicks} frames in 1 s`);
+  let second = first;
+  for (let waited = 0; waited < 3000 && second.hash === first.hash; waited += 250) {
+    await sleep(250);
+    second = await win.webContents.executeJavaScript(CANVAS_STATS);
   }
+  record("the visual animates while visible", second.hash !== first.hash, `${rafTicks} animation frames in 1 s`);
 
   // ── Every state ─────────────────────────────────────────────────────────
   const borders = {};
@@ -305,7 +306,6 @@ async function main() {
   win.show();
 
   // ── Reduced motion leaves a still frame ─────────────────────────────────
-  win.webContents.debugger.attach("1.3");
   await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }]
   });
