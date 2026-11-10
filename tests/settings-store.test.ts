@@ -104,7 +104,11 @@ describe("saveSettings", () => {
       assistantWaitingBadge: false,
       assistantGlow: false,
       assistantWidget: true,
-      assistantWidgetPosition: { x: 1500.4, y: 40 }
+      assistantWidgetPosition: { x: 1500.4, y: 40 },
+      assistantDispatcher: true,
+      assistantDispatcherModel: "  ",
+      assistantGeneralDir: " ~/htdocs ",
+      assistantGeneralPermissionMode: "bypass" as unknown as "auto"
     });
     expect(saved).toEqual({
       bridgeMode: "api",
@@ -157,7 +161,11 @@ describe("saveSettings", () => {
       assistantWaitingBadge: false,
       assistantGlow: false,
       assistantWidget: true,
-      assistantWidgetPosition: { x: 1500, y: 40 }
+      assistantWidgetPosition: { x: 1500, y: 40 },
+      assistantDispatcher: true,
+      assistantDispatcherModel: "haiku",
+      assistantGeneralDir: "~/htdocs",
+      assistantGeneralPermissionMode: "auto"
     });
   });
 

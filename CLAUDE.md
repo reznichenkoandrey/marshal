@@ -363,7 +363,7 @@
   відкриває/закриває його (раніше відкривав чат агента; той тепер — tray → «Open Agent Chat»
   або кнопка в dock). Вікно — HUD із мокапу #283: голосовий візуал на canvas
   (`desktop/renderer/assistant-visual.js`), чип стану, рядок асистента і dock із діями
-  (перекладач, субтитри, запис дзвінка, **мікрофон = диктовка в сесію Claude Code** (#264),
+  (перекладач, субтитри, запис дзвінка, **мікрофон = «Говорити з Marshal»**, голосовий асистент (#318),
   записи дзвінків, знімок, чат агента, Settings). Frameless, прозоре, `alwaysOnTop` (LSUIElement,
   #168); створюється при відкритті й знищується при закритті.
   **Стан вираховує main** — `deriveAssistantState` (`assistant-state.ts`, чиста функція):
@@ -430,6 +430,33 @@
   Картки нагадувань (#270) з'являться разом із самими нагадуваннями.
   **Індикатор диктовки** перемальовано на токени (колір `--state-listen`, `--font-label` поточного
   look, тема через `theme.js`); поведінка й позиція — без змін.
+- **Голосовий асистент — диспетчер як у Jarvis.app (`desktop/assistant/dispatcher*.ts`, #318).**
+  Мікрофон у dock home (не правий ⌥ — той і далі диктує в сесію, #264) шле розпізнану команду не в
+  буфер, а **окремій сесії Claude Code** `marshal-dispatcher`, що живе в мінімізованому вікні
+  Terminal. Вона лише маршрутизує: фічі Marshal (`./marshal do translator|captions|record-call|…`),
+  названа сесія, сесія, що чекає, контекст (dossiers #286 через `./marshal context`), інакше —
+  сесія `general`, яка **виконує роботу на цьому Mac** (`open`, `osascript`, shell; перед
+  деструктивним — питає). Доставка — Claude Code-івський `SendMessage` на `uds:<socketPath>` із
+  registry: це доходить і до сесій у Claude desktop / IDE, куди #264 міг дати лише буфер (#300).
+  Результат звучить уголос через Stop hook: `SessionNotifier` віддає `speak` → `SpeechService`
+  (`general` без префікса імені). Відповідь — мовою команди (uk/en), не завжди англійською, як у Jarvis.
+  Файли — `<userData>/assistant/`: `dispatcher/CLAUDE.md` (правила маршрутизації), `.claude/settings.json`
+  (allow лише `./marshal`, `SendMessage`, `Monitor`; deny Edit/Write/Web/Agent), helper `marshal`
+  (sh + curl, 0700) і `general-prompt.md`. Диспетчер стартує з `--setting-sources project`: hooks
+  власника не оголошують кожен його хід. Теки диспетчера й `general` позначаються trusted у
+  `~/.claude.json` (атомарний replace, лише якщо прапорця нема; файл, що не парситься, не чіпаємо),
+  інакше Claude Code став би на trust dialog у вікні, якого ніхто не бачить.
+  **Зв'язок — той самий loopback-сервер hooks** (`/assistant/*`, той самий per-run токен і перевірки
+  Origin/Host): `watch` тримає відкритий ndjson-стрім (Monitor диспетчера), і **відкритий стрім — єдиний
+  сигнал «диспетчер слухає»**: ні heartbeat, ні поллера (#281). Команда без слухача чекає в черзі
+  (`command-queue.ts`, 20 штук, 10 хв) і йде, щойно стрім під'єднається; helper сам перепідключається
+  після рестарту Marshal. Опитування є лише під час `./marshal spawn` (45 с, раз на секунду), поки
+  нова сесія не з'явиться в registry.
+  **Перше натискання мікрофона вмикає асистента** (`assistantDispatcher`, `speechEnabled`) і ставить
+  hooks — це явна дія власника. Settings → Voice assistant: вмикач, тека `general` (порожньо = тека в
+  userData), дозволи `general` (`auto` — `--permission-mode auto`, або питати щоразу у вікні), модель
+  диспетчера (`haiku`). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
+  Terminal без дозволу Automation → асистент каже, куди в System Settings.
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1.6 ГБ, вантажиться на

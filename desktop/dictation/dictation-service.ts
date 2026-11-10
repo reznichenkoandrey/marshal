@@ -55,12 +55,18 @@ function debug(...args: unknown[]): void {
   }
 }
 
+// paste = into the frontmost app; session = straight into a Claude Code
+// session (#264); assistant = a command for the voice dispatcher (#318).
+export type DictationMode = "paste" | "session" | "assistant";
+
 export type DictationEvents = {
   "recording-start": [];
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
   // Transcript recorded with the session hotkey: routed by main, never pasted.
   "session-command": [string];
+  // Recorded from the assistant home's mic: a command for the dispatcher.
+  "assistant-command": [string];
   // Bracket the whisper call so a UI can show "thinking" and always clear it,
   // whatever the outcome (text, session command, error or nothing at all).
   "transcribe-start": [];
@@ -125,7 +131,7 @@ export class DictationService extends EventEmitter {
   private readonly hotkey: PushToTalkBackend;
   private readonly sessionHotkey: PushToTalkBackend | null;
   // Which hotkey started the current recording; the other one's events are ignored.
-  private mode: "paste" | "session" = "paste";
+  private mode: DictationMode = "paste";
   private readonly backend: WhisperBackend;
   private readonly recorderBin: string;
   // language / prompt deliberately NOT cached — they're re-read from
@@ -216,7 +222,7 @@ export class DictationService extends EventEmitter {
    * tray menu's "Start Dictation" when the push-to-talk listener cannot fire
    * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
    */
-  startRecording(mode: "paste" | "session" = "paste"): void {
+  startRecording(mode: DictationMode = "paste"): void {
     this.handleHoldStart(mode);
   }
 
@@ -248,7 +254,7 @@ export class DictationService extends EventEmitter {
    * Tray menu path — start if idle, stop if already recording. A menu click
    * is a single event, so push-to-talk can't be modelled with it.
    */
-  toggleRecording(mode: "paste" | "session" = "paste"): void {
+  toggleRecording(mode: DictationMode = "paste"): void {
     if (this.isCurrentlyRecording()) {
       this.stopRecording();
     } else {
@@ -256,7 +262,7 @@ export class DictationService extends EventEmitter {
     }
   }
 
-  private handleHoldStart(mode: "paste" | "session"): void {
+  private handleHoldStart(mode: DictationMode): void {
     debug("hold-start", mode);
     if (this.recorderProcess || this.isTranscribing) {
       debug("  skip — already recording or transcribing");
@@ -282,7 +288,9 @@ export class DictationService extends EventEmitter {
     // event is ever lost by the OS (#49).
     this.safetyTimer = setTimeout(() => {
       debug("safety timeout — forcing hold-end after", MAX_RECORDING_MS, "ms");
-      (mode === "session" ? this.sessionHotkey : this.hotkey)?.forceEnd();
+      // The assistant mic is a toggle, not a held key: no hotkey to end.
+      if (mode === "assistant") this.stopRecording();
+      else (mode === "session" ? this.sessionHotkey : this.hotkey)?.forceEnd();
     }, MAX_RECORDING_MS);
 
     child.stdout?.once("data", () => {
@@ -327,7 +335,7 @@ export class DictationService extends EventEmitter {
     });
   }
 
-  private handleHoldEnd(mode: "paste" | "session"): void {
+  private handleHoldEnd(mode: DictationMode): void {
     debug("hold-end", mode);
     if (mode !== this.mode) return;
     this.clearSafetyTimer();
@@ -347,7 +355,7 @@ export class DictationService extends EventEmitter {
 
   // Push-to-talk key was part of a shortcut (#239): discard the audio
   // instead of transcribing, copying or pasting it.
-  private handleHoldCancel(mode: "paste" | "session"): void {
+  private handleHoldCancel(mode: DictationMode): void {
     debug("hold-cancel", mode);
     const child = this.recorderProcess;
     const wavPath = this.currentWavPath;
@@ -471,6 +479,8 @@ export class DictationService extends EventEmitter {
       const cleanText = transcriptToDeliver(result.text);
       if (cleanText.length > 0 && this.mode === "session") {
         this.emit("session-command", cleanText.trim());
+      } else if (cleanText.length > 0 && this.mode === "assistant") {
+        this.emit("assistant-command", cleanText.trim());
       } else if (cleanText.length > 0) {
         // The clipboard is both what deliverText() pastes and the manual
         // fallback when delivery fails (#102, #244).

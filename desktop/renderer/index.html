@@ -545,6 +545,39 @@
           </fieldset>
 
           <fieldset class="field-group">
+            <legend>Voice assistant</legend>
+
+            <label class="checkbox-row">
+              <input id="settings-assistant-dispatcher" name="assistantDispatcher" type="checkbox" />
+              <span>Talk to Marshal from the assistant mic</span>
+            </label>
+            <p class="field-hint">
+              Runs two Claude Code sessions in minimised Terminal windows: <code>marshal-dispatcher</code> routes
+              every command (to a named session, the one that waits, by context, or to <code>general</code>), and
+              <code>general</code> does the work on this Mac. Installs the Claude Code hooks, so results are read aloud.
+            </p>
+
+            <div class="field">
+              <label for="settings-assistant-general-dir">Folder <code>general</code> works in</label>
+              <input id="settings-assistant-general-dir" name="assistantGeneralDir" type="text"
+                placeholder="(Marshal's own folder)" autocomplete="off" spellcheck="false" />
+            </div>
+
+            <div class="field">
+              <label for="settings-assistant-general-mode">Permissions of <code>general</code></label>
+              <select id="settings-assistant-general-mode" name="assistantGeneralPermissionMode">
+                <option value="auto">Auto — runs commands, asks only for risky ones</option>
+                <option value="default">Ask every time (answer in its Terminal window)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="settings-assistant-model">Dispatcher model</label>
+              <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
             <legend>Spoken updates</legend>
 
             <label class="checkbox-row">
