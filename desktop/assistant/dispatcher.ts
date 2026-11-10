@@ -31,6 +31,7 @@ import {
   sessionsForDispatcher,
   spawnProjects,
   terminalScript,
+  unminimiseTerminalScript,
   withTrustedFolder,
   type GeneralPermissionMode
 } from "./dispatcher-files.ts";
@@ -121,6 +122,27 @@ export class AssistantDispatcher implements AssistantRoutes {
       await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
     }
     if (!live.some((session) => session.name === GENERAL_NAME)) await this.openGeneral();
+  }
+
+  /**
+   * The dock's "assistant terminal" (#340): the running dispatcher's Terminal
+   * tab comes forward un-minimised; a missing one is opened in plain sight.
+   */
+  async reveal(): Promise<void> {
+    const dispatcher = this.deps.liveSessions().find((session) => this.isDispatcher(session));
+    if (dispatcher) {
+      this.deps.focus(dispatcher.pid);
+      return;
+    }
+    if (Date.now() - (this.launchedAt.get(DISPATCHER_NAME) ?? 0) < STARTING_MS) {
+      // Opened minimised a moment ago and not registered yet: its tab still carries the title.
+      await this.runAppleScript(unminimiseTerminalScript(DISPATCHER_NAME));
+      return;
+    }
+    this.writeFiles();
+    this.trust(this.dispatcherDir);
+    const { model, generalMode } = this.deps.settings();
+    await this.open(this.dispatcherDir, dispatcherCommandLine(model, generalMode), DISPATCHER_NAME, false);
   }
 
   /** The owner turned the assistant off: the dispatcher goes, `general` may hold work and stays. */
@@ -260,12 +282,12 @@ export class AssistantDispatcher implements AssistantRoutes {
     await this.open(dir, generalCommandLine(this.generalPromptPath, this.deps.settings().generalMode), GENERAL_NAME);
   }
 
-  private async open(cwd: string, commandLine: string, title: string): Promise<void> {
+  private async open(cwd: string, commandLine: string, title: string, minimised = true): Promise<void> {
     // A second window for the same session while the first is still starting.
     if (Date.now() - (this.launchedAt.get(title) ?? 0) < STARTING_MS) return;
     this.launchedAt.set(title, Date.now());
     try {
-      await this.runAppleScript(terminalScript(cwd, commandLine, title));
+      await this.runAppleScript(terminalScript(cwd, commandLine, title, minimised));
     } catch (err) {
       this.launchedAt.delete(title);
       throw err;

@@ -29,8 +29,11 @@ const DOCK_TITLES = {
   "dictate-session": "home.dock.dictateSession",
   recordings: "home.dock.recordings",
   capture: "home.dock.capture",
+  "dispatcher-terminal": "home.dock.dispatcherTerminal",
   settings: "home.dock.settings"
 };
+// Dock buttons light while their feature runs (#341); the mic follows the state colour.
+const DOCK_ACTIVE = { translator: "translator", captions: "captions", "record-call": "recording" };
 
 let state = "idle";
 let lines = [];
@@ -103,7 +106,8 @@ const visual = createHudVisual(canvas, {
 function applyTitles() {
   document.querySelectorAll(".dock [data-action]").forEach((button) => {
     const key = DOCK_TITLES[button.dataset.action];
-    const title = key ? t(key) : "";
+    const on = button.classList.contains("on");
+    const title = key ? (on ? `${t(key)} · ${t("home.on")}` : t(key)) : "";
     button.title = title;
     button.setAttribute("aria-label", title);
   });
@@ -169,25 +173,14 @@ function renderStrip() {
   const view = stripView;
   strip.hidden = !view;
   if (!view) return;
-  strip.querySelectorAll("[data-key]").forEach((key) => {
-    const on = Boolean(view.active?.[key.dataset.key]);
-    key.classList.toggle("on", on);
-    key.title = `${t(`home.key.${key.dataset.key}`)}: ${t(on ? "home.on" : "home.off")}`;
-  });
-  const toggles = {
-    "toggle-speech": [view.speech, t("home.speechTitle")],
-    "toggle-badge": [view.badge, t("home.badgeTitle")],
-    "toggle-glow": [view.glow, t("home.glowTitle")],
-    "toggle-widget": [view.widget, t("home.widgetTitle")]
-  };
-  for (const [action, [pressed, title]] of Object.entries(toggles)) {
-    const button = strip.querySelector(`[data-action="${action}"]`);
-    button.setAttribute("aria-pressed", String(Boolean(pressed)));
-    button.title = title;
+  for (const [action, key] of Object.entries(DOCK_ACTIVE)) {
+    document.querySelector(`.dock [data-action="${action}"]`)?.classList.toggle("on", Boolean(view.active?.[key]));
   }
-  for (const label of ["speech", "badge", "glow", "widget"]) {
-    strip.querySelector(`[data-label="${label}"]`).textContent = t(`home.${label}`);
-  }
+  applyTitles();
+  const speech = strip.querySelector('[data-action="toggle-speech"]');
+  speech.setAttribute("aria-pressed", String(Boolean(view.speech)));
+  speech.title = t("home.speechTitle");
+  strip.querySelector('[data-label="speech"]').textContent = t("home.speech");
   const language = strip.querySelector('[data-action="toggle-language"]');
   language.textContent = lang().toUpperCase();
   language.title = t("home.langTitle");
@@ -254,9 +247,11 @@ api?.onState((_event, payload) => {
 sessionsList.addEventListener("click", async (event) => {
   const button = event.target.closest(".session");
   if (!button) return;
-  const result = await api?.focusSession(Number(button.dataset.pid));
-  if (result && !result.ok) {
-    lines = [`${t("home.focusFailed")}: ${result.error}`, ...lines].slice(0, 5);
+  const result = await api?.focusSession(Number(button.dataset.pid)).catch((err) => ({ ok: false, error: String(err) }));
+  // "app": only the host app came forward (Claude desktop, an IDE), showing whatever it had open (#337).
+  const note = !result ? "" : !result.ok ? `${t("home.focusFailed")}: ${result.error}` : result.focused === "app" ? t("home.focusedApp") : "";
+  if (note) {
+    lines = [note, ...lines].slice(0, 5);
     render();
     renderSide();
   }

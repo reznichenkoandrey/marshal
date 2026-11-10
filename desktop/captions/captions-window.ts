@@ -29,6 +29,7 @@ import {
   OVERLAY_MIN_HEIGHT,
   OVERLAY_MIN_WIDTH,
   resolveOverlayBounds,
+  upgradeSavedSize,
   type OverlayBoundsState,
   type OverlayUpdate
 } from "./overlay-layout.ts";
@@ -232,8 +233,10 @@ export class CaptionsWindow {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.statePath, "utf8")) as Partial<CaptionsWindowState>;
       return {
-        width: clampSize(parsed.width, OVERLAY_DEFAULT_WIDTH, OVERLAY_MIN_WIDTH),
-        height: clampSize(parsed.height, OVERLAY_DEFAULT_HEIGHT, OVERLAY_MIN_HEIGHT),
+        ...upgradeSavedSize({
+          width: clampSize(parsed.width, OVERLAY_DEFAULT_WIDTH, OVERLAY_MIN_WIDTH),
+          height: clampSize(parsed.height, OVERLAY_DEFAULT_HEIGHT, OVERLAY_MIN_HEIGHT)
+        }),
         x: typeof parsed.x === "number" && Number.isFinite(parsed.x) ? parsed.x : null,
         y: typeof parsed.y === "number" && Number.isFinite(parsed.y) ? parsed.y : null,
         ocrRegion: isRegion(parsed.ocrRegion) ? parsed.ocrRegion : null

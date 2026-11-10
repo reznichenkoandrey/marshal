@@ -16,12 +16,12 @@
   --captions-keyword: #ffb547;
   --captions-danger: #ff4d6a;
   --captions-radius: 8px;
-  --captions-fs-summary: 15px;
-  --captions-fs-caption: 13px;
-  --captions-fs-meta: 11px;
+  --captions-fs-summary: 18px;
+  --captions-fs-caption: 17px;
+  --captions-fs-meta: 12px;
   --captions-partial-fade: 24px;
-  --captions-pad-x: 14px;
-  --captions-pad-y: 10px;
+  --captions-pad-x: 18px;
+  --captions-pad-y: 14px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

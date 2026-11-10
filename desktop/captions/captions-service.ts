@@ -224,7 +224,10 @@ export class LiveCaptionsService extends EventEmitter {
         partialBackend === "whisper-cpp" && !(partialWhisper instanceof ResidentWhisperBackend) ? null : partialWhisper;
       this.partialGate.setBudget(partialBackend === "groq" ? resolveSttRpm(process.env.MARSHAL_CAPTIONS_STT_RPM) : null);
     }
-    this.partialIntervalMs = resolvePartialIntervalMs(process.env.MARSHAL_CAPTIONS_PARTIAL_MS);
+    this.partialIntervalMs = resolvePartialIntervalMs(
+      process.env.MARSHAL_CAPTIONS_PARTIAL_MS,
+      resolvePartialBackend(process.env.MARSHAL_CAPTIONS_PARTIALS, sttBackend)
+    );
     const target = resolveTranslationTarget(process.env.MARSHAL_CAPTIONS_TRANSLATE, resolveLangCode);
     this.translator =
       this.translate && target

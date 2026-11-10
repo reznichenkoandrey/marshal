@@ -111,7 +111,7 @@ async function mouse(win, type, x, y, clickCount = 1) {
 }
 
 async function checkWidget(preloadPath, errors) {
-  const win = makeWindow(preloadPath, 220, 112 + 2 * 46);
+  const win = makeWindow(preloadPath, 168, 72 + 2 * 40);
   win.webContents.on("console-message", (_event, level, message) => {
     if (level >= 3) errors.push(`widget: ${message}`);
   });
