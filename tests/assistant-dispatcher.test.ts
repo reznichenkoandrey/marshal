@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AssistantCommandQueue, MAX_QUEUED_COMMANDS, QUEUED_COMMAND_TTL_MS } from "../desktop/assistant/command-queue.ts";
-import { AssistantDispatcher, type DispatcherDeps } from "../desktop/assistant/dispatcher.ts";
+import { AssistantDispatcher, formatRecentTurns, type DispatcherDeps } from "../desktop/assistant/dispatcher.ts";
 import {
   buildHelperScript,
   dispatcherCommandLine,
@@ -132,7 +132,7 @@ describe("dispatcher files", () => {
     const script = terminalScript("/Users/me/it's \"here\"", "claude --name 'x'", "it's");
     expect(script).toContain("do script \"printf '\\\\033]0;%s\\\\007' 'it'\\\\''s'; cd '/Users/me/it'\\\\''s \\\"here\\\"' && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL claude --name 'x'\"");
     expect(script).toContain("set miniaturized of front window to true");
-    expect(dispatcherCommandLine("")).toBe("claude --name marshal-dispatcher --no-chrome --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
+    expect(dispatcherCommandLine("", "bypass")).toBe("claude --name marshal-dispatcher --no-chrome --permission-mode bypassPermissions --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
     expect(generalCommandLine("/a b/p.md", "auto")).toBe("claude --name general --no-chrome --permission-mode auto --append-system-prompt \"$(cat '/a b/p.md')\"");
     expect(generalCommandLine("/p.md", "default")).not.toContain("--permission-mode");
   });
@@ -260,5 +260,16 @@ describe("spoken session events", () => {
       { kind: "finished", sessionId: "s1", name: "marshal", summary: "Тести пройшли." },
       { kind: "waiting", sessionId: "s1", name: "marshal", confirmation: true }
     ]);
+  });
+});
+
+describe("formatRecentTurns", () => {
+  it("gives the dispatcher the last turns to retell, not the whole transcript", () => {
+    const turns = Array.from({ length: 8 }, (_, index) => ({ role: index % 2 ? "assistant" as const : "user" as const, text: `t${index}` }));
+    expect(formatRecentTurns({ branch: "main", turns })).toBe(
+      ["Branch: main", "Owner: t2", "Claude: t3", "Owner: t4", "Claude: t5", "Owner: t6", "Claude: t7"].join("\n"),
+    );
+    expect(formatRecentTurns(null)).toBe("No conversation yet.");
+    expect(formatRecentTurns({ branch: null, turns: [] })).toBe("No conversation yet.");
   });
 });

@@ -15,7 +15,14 @@ export const GENERAL_NAME = "general";
 export const HELPER_NAME = "marshal";
 const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]{1,40}$/u;
 
-export type GeneralPermissionMode = "auto" | "default";
+export type GeneralPermissionMode = "bypass" | "auto" | "default";
+
+// Claude Code holds a cross-session message whose sender runs in another
+// permission mode, so the assistant's sessions run in the owner's mode (#322).
+function permissionArgs(mode: GeneralPermissionMode): string[] {
+  if (mode === "bypass") return ["--permission-mode", "bypassPermissions"];
+  return mode === "auto" ? ["--permission-mode", "auto"] : [];
+}
 
 const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
 
@@ -31,7 +38,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
 
 ## Speaking
 
-\`./marshal say "<sentence>"\` speaks through Marshal. One short sentence (two for a status answer), in the language of the command: Ukrainian for Ukrainian (and for Russian), English for English. Never read the owner's command back.
+\`./marshal say "<sentence>"\` speaks through Marshal. One short sentence, at most twelve words (two sentences for a status answer), in the language of the command: Ukrainian for Ukrainian (and for Russian), English for English. Talk like a person: no ids, paths, sockets, permission modes, tool names or reasons. Never read the owner's command back. When in doubt, say less.
 
 ## On each command
 
@@ -49,7 +56,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
 2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
    - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"
    - What is going on overall ("що відбувається", "хто працює", "status"): run \`./marshal sessions\` and \`./marshal context\`, then say in one or two plain sentences what matters: who waits for the owner and for what, and what the busy sessions are working on, from their \`dossier\`. Skip idle sessions, ids, paths and statuses as words.
-   - How a particular project or session is doing ("на якій стадії marshal", "що там у funky-rabbit"): answer from its \`dossier\` in one or two plain sentences. No dossier: send it "Коротко, одним-двома реченнями людською мовою: на якій ти стадії і що далі?" as in step 5.
+   - How a particular project or session is doing, or whether something there is done ("на якій стадії marshal", "що там у funky-rabbit", "подивись, чи закінчився деплой у Snoriq"): run \`./marshal sessions\`, pick the session, run \`./marshal peek <name>\` and retell its last turns in one or two plain sentences: done or not, what is next. Do not message the session for this.
    Never speak about sessions unless the owner asked.
 3. Otherwise run \`./marshal sessions\`. It prints every live session as JSON, newest first: \`name\`, \`folder\`, \`status\`, \`waitingFor\`, \`address\`. Never use \`ListAgents\`: it does not see all of them.
 4. Choose the target:
@@ -64,11 +71,11 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    Голосова команда власника, розпізнана з мовлення, можливі помилки. Власник почує твою останню відповідь уголос, тож закінчи одним-двома короткими реченнями без markdown: <text>
    \`\`\`
 
-   Then run \`./marshal sent <name>\` with the session's \`name\` exactly as printed: only the answers of sessions marked this way are spoken. Then say "Передав <name>." or "Sent to <name>." — except for \`${GENERAL_NAME}\`: its answer is spoken, so say nothing. If \`SendMessage\` fails, say so in one short sentence.
+   Then run \`./marshal sent <name>\` with the session's \`name\` exactly as printed: only the answers of sessions marked this way are spoken. Say nothing yourself: the answer comes aloud. If \`SendMessage\` fails or the message is held, say only "<name> зараз не приймає команди." or "<name> is not taking commands right now."
 
 ## Events with \`target\`
 
-The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, run \`./marshal sent <target>\` and say "Передав <target>." or "Sent to <target>."
+The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, and run \`./marshal sent <target>\`. Say nothing yourself.
 
 ## A new session
 
@@ -121,12 +128,12 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
-    "  say|do|spawn|sent)",
+    "  say|do|spawn|sent|peek)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | spawn [project] [name] | sent <session>'",
+    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | spawn [project] [name] | sent <session> | peek <session>'",
     "    exit 1 ;;",
     "esac",
     ""
@@ -142,12 +149,13 @@ export function isValidSessionName(name: string): boolean {
   return SESSION_NAME_PATTERN.test(name);
 }
 
-export function dispatcherCommandLine(model: string): string {
+export function dispatcherCommandLine(model: string, mode: GeneralPermissionMode): string {
   return [
     "claude",
     "--name", DISPATCHER_NAME,
     // A first-run browser question would stop it in a window nobody looks at (#322).
     "--no-chrome",
+    ...permissionArgs(mode),
     "--model", shellQuote(model || "haiku"),
     // Only the folder's own settings: the owner's hooks would announce every
     // routing turn, and their permissions are not the dispatcher's.
@@ -161,7 +169,7 @@ export function generalCommandLine(promptFile: string, mode: GeneralPermissionMo
     "claude",
     "--name", GENERAL_NAME,
     "--no-chrome",
-    ...(mode === "auto" ? ["--permission-mode", "auto"] : []),
+    ...permissionArgs(mode),
     "--append-system-prompt", `"$(cat ${shellQuote(promptFile)})"`
   ].join(" ");
 }

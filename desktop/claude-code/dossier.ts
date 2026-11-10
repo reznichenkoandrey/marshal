@@ -148,6 +148,14 @@ export function locateTranscript(projectsDir: string, cwd: string, sessionId: st
   return null;
 }
 
+/** The recent conversation of a live session, or null before its transcript exists. */
+export function readRecentTurns(session: Pick<ClaudeSession, "cwd" | "sessionId">, projectsDir = defaultProjectsDir()): TranscriptTail | null {
+  const file = locateTranscript(projectsDir, session.cwd, session.sessionId);
+  if (!file) return null;
+  const { text, partial } = readTail(file);
+  return parseTranscriptTail(text, partial);
+}
+
 function readTail(filePath: string): { text: string; partial: boolean } {
   const fd = fs.openSync(filePath, "r");
   try {

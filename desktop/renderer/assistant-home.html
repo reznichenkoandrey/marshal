@@ -145,11 +145,13 @@
             </div>
 
             <div class="field">
-              <label for="settings-assistant-general-mode">Permissions of <code>general</code></label>
+              <label for="settings-assistant-general-mode">Permission mode of the assistant's sessions</label>
               <select id="settings-assistant-general-mode" name="assistantGeneralPermissionMode">
+                <option value="bypass">Bypass — the Claude desktop default</option>
                 <option value="auto">Auto — runs commands, asks only for risky ones</option>
                 <option value="default">Ask every time (answer in its Terminal window)</option>
               </select>
+              <p class="field-hint">Use the mode your Claude Code sessions run in: a command sent from another mode is held and expires undelivered.</p>
             </div>
 
             <div class="field">

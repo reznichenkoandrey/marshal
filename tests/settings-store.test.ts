@@ -108,7 +108,7 @@ describe("saveSettings", () => {
       assistantDispatcher: true,
       assistantDispatcherModel: "  ",
       assistantGeneralDir: " ~/htdocs ",
-      assistantGeneralPermissionMode: "bypass" as unknown as "auto"
+      assistantGeneralPermissionMode: "nonsense" as unknown as "auto"
     });
     expect(saved).toEqual({
       bridgeMode: "api",
@@ -165,7 +165,7 @@ describe("saveSettings", () => {
       assistantDispatcher: true,
       assistantDispatcherModel: "haiku",
       assistantGeneralDir: "~/htdocs",
-      assistantGeneralPermissionMode: "auto"
+      assistantGeneralPermissionMode: "bypass"
     });
   });
 

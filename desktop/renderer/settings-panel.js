@@ -296,7 +296,7 @@ async function openSettings() {
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
-    if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "auto";
+    if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
@@ -489,7 +489,7 @@ async function saveSettingsFromForm() {
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
-    assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "auto",
+    assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
