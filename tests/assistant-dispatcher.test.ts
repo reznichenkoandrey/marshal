@@ -133,8 +133,8 @@ describe("dispatcher files", () => {
     const script = terminalScript("/Users/me/it's \"here\"", "claude --name 'x'", "it's");
     expect(script).toContain("do script \"printf '\\\\033]0;%s\\\\007' 'it'\\\\''s'; cd '/Users/me/it'\\\\''s \\\"here\\\"' && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL claude --name 'x'\"");
     expect(script).toContain("set miniaturized of front window to true");
-    expect(dispatcherCommandLine("")).toBe("claude --name marshal-dispatcher --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
-    expect(generalCommandLine("/a b/p.md", "auto")).toBe("claude --name general --permission-mode auto --append-system-prompt \"$(cat '/a b/p.md')\"");
+    expect(dispatcherCommandLine("")).toBe("claude --name marshal-dispatcher --no-chrome --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
+    expect(generalCommandLine("/a b/p.md", "auto")).toBe("claude --name general --no-chrome --permission-mode auto --append-system-prompt \"$(cat '/a b/p.md')\"");
     expect(generalCommandLine("/p.md", "default")).not.toContain("--permission-mode");
   });
 

@@ -142,6 +142,8 @@ export function dispatcherCommandLine(model: string): string {
   return [
     "claude",
     "--name", DISPATCHER_NAME,
+    // A first-run browser question would stop it in a window nobody looks at (#322).
+    "--no-chrome",
     "--model", shellQuote(model || "haiku"),
     // Only the folder's own settings: the owner's hooks would announce every
     // routing turn, and their permissions are not the dispatcher's.
@@ -154,13 +156,14 @@ export function generalCommandLine(promptFile: string, mode: GeneralPermissionMo
   return [
     "claude",
     "--name", GENERAL_NAME,
+    "--no-chrome",
     ...(mode === "auto" ? ["--permission-mode", "auto"] : []),
     "--append-system-prompt", `"$(cat ${shellQuote(promptFile)})"`
   ].join(" ");
 }
 
 export function sessionCommandLine(name: string | null): string {
-  return name ? `claude --name ${shellQuote(name)}` : "claude";
+  return name ? `claude --no-chrome --name ${shellQuote(name)}` : "claude --no-chrome";
 }
 
 /** `do terminal script` for a new Terminal window, minimised so it stays out of the way. */
