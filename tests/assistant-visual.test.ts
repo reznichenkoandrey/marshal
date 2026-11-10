@@ -1,7 +1,8 @@
 // tests/assistant-visual.test.ts
 import { describe, expect, it } from "vitest";
 
-import { deriveAssistantState, IDLE_INPUTS } from "../desktop/assistant/assistant-state.ts";
+import { deriveAssistantState, groupSessions, IDLE_INPUTS, projectOf, pushLine, sessionCounts } from "../desktop/assistant/assistant-state.ts";
+import type { ClaudeSession } from "../desktop/claude-code/registry.ts";
 import {
   ambientLevel,
   frameIntervalMs,
@@ -131,5 +132,40 @@ describe("frameIntervalMs", () => {
   it("caps at 30 fps on power and 20 on battery", () => {
     expect(frameIntervalMs(false)).toBeCloseTo(33.3, 1);
     expect(frameIntervalMs(true)).toBe(50);
+  });
+});
+
+describe("assistant sessions panel (#308)", () => {
+  const session = (pid: number, name: string, cwd: string, status: ClaudeSession["status"], waitingFor: string | null = null): ClaudeSession => ({
+    pid, sessionId: `s${pid}`, name, cwd, status, waitingFor,
+    entrypoint: "cli", socketPath: "", startedAt: 0, statusUpdatedAt: null
+  });
+
+  it("names a worktree session after the repository, not the worktree", () => {
+    expect(projectOf("/Users/me/htdocs/marshal/.claude/worktrees/dictate-7fa531")).toBe("marshal");
+    expect(projectOf("/Users/me/htdocs/marshal")).toBe("marshal");
+  });
+
+  it("puts projects with a waiting session first and orders sessions by status", () => {
+    const groups = groupSessions([
+      session(1, "docs", "/w/alpha", "idle"),
+      session(2, "api", "/w/beta", "busy"),
+      session(3, "fix", "/w/alpha/.claude/worktrees/fix-1", "waiting", "permission prompt"),
+      session(4, "build", "/w/alpha", "busy")
+    ]);
+    expect(groups.map((group) => group.project)).toEqual(["alpha", "beta"]);
+    expect(groups[0].sessions.map((view) => view.name)).toEqual(["fix", "build", "docs"]);
+    expect(groups[0].sessions[0]).toEqual({ pid: 3, name: "fix", status: "waiting", waitingFor: "permission prompt" });
+  });
+
+  it("counts busy and waiting sessions for the state hub", () => {
+    expect(sessionCounts([{ status: "busy" }, { status: "waiting" }, { status: "busy" }, { status: null }]))
+      .toEqual({ busySessions: 2, waitingSessions: 1 });
+  });
+
+  it("keeps the last five lines, newest first, without stacking a repeat", () => {
+    let lines: string[] = [];
+    for (const text of ["a", "b", "b", "  c \n d ", "", "e", "f", "g"]) lines = pushLine(lines, text);
+    expect(lines).toEqual(["g", "f", "e", "c d", "b"]);
   });
 });

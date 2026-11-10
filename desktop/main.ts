@@ -33,7 +33,7 @@ import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
-import { describeStatus, listLiveSessions } from "./claude-code/registry.ts";
+import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
 import { SessionDictation } from "./claude-code/session-dictation.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
@@ -47,7 +47,15 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
-import { deriveAssistantState, IDLE_INPUTS, type AssistantInputs } from "./assistant/assistant-state.ts";
+import {
+  deriveAssistantState,
+  groupSessions,
+  IDLE_INPUTS,
+  pushLine,
+  sessionCounts,
+  type AssistantInputs
+} from "./assistant/assistant-state.ts";
+import { pickLanguage, reminderText } from "./calendar/reminders.ts";
 import { AssistantHomeWindow } from "./assistant/home-window.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
@@ -139,8 +147,12 @@ let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
 let assistantHome: AssistantHomeWindow | null = null;
 let assistantInputs: AssistantInputs = { ...IDLE_INPUTS };
+let assistantLines: string[] = [];
+let sessionsWatcher: fs.FSWatcher | null = null;
+let sessionsRefresh: NodeJS.Timeout | null = null;
 let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
+const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
 let speechService: SpeechService | null = null;
@@ -264,7 +276,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"));
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant);
       void claudeHooks.startIfInstalled();
       initCalendar();
       initSpeech();
@@ -446,6 +458,15 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:assistant:close", () => {
     assistantHome?.close();
     return { ok: true };
+  });
+  handleIpc("marshal:assistant:focus-session", async (_event, input: { pid?: unknown } | undefined) => {
+    const pid = input?.pid;
+    // Only a pid the registry lists right now: the renderer must not pick arbitrary processes.
+    if (typeof pid !== "number" || !listLiveSessions().some((session) => session.pid === pid)) {
+      return { ok: false, error: "Session is no longer running." };
+    }
+    const focused = await focusSession(pid);
+    return focused ? { ok: true, focused } : { ok: false, error: "Could not bring the session forward." };
   });
   handleIpc("marshal:update-settings", async (_event, next: Partial<MarshalSettings>) => {
     let saved = saveSettings(next ?? {});
@@ -1682,7 +1703,8 @@ function initSpeech(): void {
       };
     },
     // No call-presence signal exists yet; a running recording or captions session is the proxy.
-    () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null)
+    () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null),
+    (speaking) => setAssistantInputs({ speaking })
   );
   handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
   handleIpc("marshal:speech-test", async () => [
@@ -1739,6 +1761,10 @@ function initCalendar(): void {
   calendarService = createCalendarService({
     dataDir: app.getPath("userData"),
     joinAndRecord: () => void startMeetingRecording("audio")
+  });
+  calendarService.on("reminder", (reminder) => {
+    const { title, body } = reminderText(reminder, pickLanguage(app.getPreferredSystemLanguages()), new Date());
+    announceToAssistant(`${title} — ${body}`);
   });
   syncCalendar();
 }
@@ -2625,7 +2651,7 @@ function createTrayAndWindow(): void {
 }
 
 function openAssistantHome(): void {
-  assistantHome ??= new AssistantHomeWindow(preloadPath);
+  assistantHome ??= new AssistantHomeWindow(preloadPath, (open) => watchAssistantSessions(open));
   setAssistantInputs({ offline: dictationService === null });
   assistantHome.open();
 }
@@ -2638,6 +2664,47 @@ function toggleAssistantHome(): void {
 function setAssistantInputs(next: Partial<AssistantInputs>): void {
   assistantInputs = { ...assistantInputs, ...next };
   assistantHome?.update({ state: deriveAssistantState(assistantInputs) });
+}
+
+/** What Marshal notifies or says also lands in the home window's line (#308). */
+function announceToAssistant(text: string): void {
+  assistantLines = pushLine(assistantLines, text);
+  assistantHome?.update({ lines: assistantLines });
+}
+
+function refreshAssistantSessions(): void {
+  const live = listLiveSessions();
+  setAssistantInputs(sessionCounts(live));
+  assistantHome?.update({ sessions: groupSessions(live) });
+}
+
+// Claude Code rewrites ~/.claude/sessions/<pid>.json on every status change.
+// Watched only while the home window is open: nothing runs in idle (#281).
+function watchAssistantSessions(open: boolean): void {
+  if (sessionsRefresh) clearTimeout(sessionsRefresh);
+  sessionsRefresh = null;
+  sessionsWatcher?.close();
+  sessionsWatcher = null;
+  if (!open) return;
+  refreshAssistantSessions();
+  try {
+    sessionsWatcher = fs.watch(defaultSessionsDir(), () => {
+      // One status change rewrites the file a few times; read once after the burst.
+      if (sessionsRefresh) clearTimeout(sessionsRefresh);
+      sessionsRefresh = setTimeout(() => {
+        sessionsRefresh = null;
+        refreshAssistantSessions();
+      }, SESSIONS_REFRESH_DEBOUNCE_MS);
+    });
+    sessionsWatcher.on("error", (err) => {
+      console.warn("[assistant] sessions watcher stopped:", err.message);
+      sessionsWatcher?.close();
+      sessionsWatcher = null;
+    });
+  } catch (err) {
+    // No Claude Code on this Mac yet: the panel stays empty.
+    console.warn("[assistant] cannot watch sessions:", err instanceof Error ? err.message : err);
+  }
 }
 
 // Dock of the assistant home: every button reuses what the tray already does.

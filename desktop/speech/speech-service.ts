@@ -62,7 +62,9 @@ export class SpeechService {
 
   constructor(
     private readonly settings: () => SpeechSettings,
-    private readonly blockedReason: () => string | null
+    private readonly blockedReason: () => string | null,
+    // The assistant home shows "speaking" from this (#308).
+    private readonly onSpeakingChange: (speaking: boolean) => void = () => {}
   ) {}
 
   isAvailable(): boolean {
@@ -144,6 +146,7 @@ export class SpeechService {
     const child = spawn(SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], { stdio: ["pipe", "ignore", "pipe"] });
     const entry = { phrase, child, requeue: false };
     this.current = entry;
+    this.onSpeakingChange(true);
     let stderr = "";
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
@@ -157,6 +160,8 @@ export class SpeechService {
       if (error) console.warn("[speech] say failed:", error);
       if (entry.requeue) this.queue.requeue(phrase);
       this.pump();
+      // After pump: the next queued phrase keeps "speaking" without a flicker to idle.
+      if (!this.current) this.onSpeakingChange(false);
     };
     child.on("error", (err) => finish(err.message));
     child.on("exit", (code, signal) => finish(code === 0 || signal ? undefined : stderr.trim() || `exit ${code}`));

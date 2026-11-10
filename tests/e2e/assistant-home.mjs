@@ -5,7 +5,9 @@
 // the state colour on the panel and in the canvas core, the hint or the
 // assistant's own line, and which action each dock button sends. Also checks
 // that the frame loop stops when the window is hidden and that
-// prefers-reduced-motion leaves a still frame (#281).
+// prefers-reduced-motion leaves a still frame (#281). The side panel (#308):
+// sessions grouped by project and coloured by status, a click focuses the
+// session by pid, and the last lines Marshal said.
 //
 // Microphone permission is denied on purpose: the spectrum then runs on its
 // ambient level, which keeps the run deterministic and prompt-free.
@@ -63,14 +65,20 @@ function preloadSource() {
   return `
 const { contextBridge, ipcRenderer } = require("electron");
 const actions = [];
+const focused = [];
 let closed = 0;
 contextBridge.exposeInMainWorld("marshalAssistant", {
   onState: (cb) => ipcRenderer.on("marshal:assistant-state", cb),
   action: async (name) => { actions.push(name); return { ok: true }; },
-  close: async () => { closed += 1; return { ok: true }; }
+  close: async () => { closed += 1; return { ok: true }; },
+  focusSession: async (pid) => {
+    focused.push(pid);
+    return pid === 999 ? { ok: false, error: "session is gone" } : { ok: true, focused: "tab" };
+  }
 });
 contextBridge.exposeInMainWorld("__homeProbe", {
   actions: () => actions,
+  focused: () => focused,
   closed: () => closed
 });
 `;
@@ -178,7 +186,7 @@ async function main() {
   await fs.writeFile(preloadPath, preloadSource(), "utf8");
 
   const win = new BrowserWindow({
-    width: 640,
+    width: 920,
     height: 600,
     show: true,
     // Like the real window: an occluded one gets no animation frames.
@@ -254,14 +262,71 @@ async function main() {
   await sleep(100);
   const hint = (await win.webContents.executeJavaScript(VIEW)).line;
   record("idle shows a hint in Ukrainian", hint.includes("мікрофон"), hint);
-  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk", line: "Сесія marshal завершила: тести зелені" });
+  const lines = ["Сесія marshal завершила: тести зелені", "Зустріч «Daily» за 5 хв", "Сесія api чекає на дозвіл"];
+  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk", lines });
   await sleep(100);
   const said = (await win.webContents.executeJavaScript(VIEW)).line;
-  record("a line from main replaces the hint", said === "Сесія marshal завершила: тести зелені", said);
-  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "en" });
+  record("the newest line from main replaces the hint", said === lines[0], said);
+  win.webContents.send("marshal:assistant-state", { state: "listening", lang: "uk" });
+  await sleep(100);
+  const guidance = (await win.webContents.executeJavaScript(VIEW)).line;
+  record("listening shows its guidance over the last line", guidance !== lines[0] && guidance.length > 0, guidance);
+  const recent = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#recent li")].map((li) => li.textContent)`);
+  record("recent lists what Marshal said, newest first", JSON.stringify(recent) === JSON.stringify(lines), recent.join(" | "));
+
+  // ── Sessions panel (#308) ───────────────────────────────────────────────
+  const empty = await win.webContents.executeJavaScript(`document.getElementById("sessions-empty").textContent`);
+  record("no sessions shows an empty note", empty === "Немає живих сесій", empty);
+  win.webContents.send("marshal:assistant-state", {
+    state: "waiting",
+    lang: "uk",
+    sessions: [
+      { project: "marshal", sessions: [
+        { pid: 101, name: "assistant-sessions", status: "waiting", waitingFor: "permission prompt" },
+        { pid: 102, name: "release", status: "busy", waitingFor: null }
+      ] },
+      { project: "snoriq", sessions: [{ pid: 999, name: "docs", status: "idle", waitingFor: null }] }
+    ]
+  });
+  await sleep(150);
+  const panel = await win.webContents.executeJavaScript(`(() => {
+    const items = [...document.querySelectorAll("#sessions > li")];
+    return {
+      rows: items.map((li) => li.classList.contains("project") ? "#" + li.textContent : li.querySelector(".session").dataset.status),
+      title: document.querySelector('.session[data-pid="101"]').title,
+      tag: document.querySelector('.session[data-pid="102"] .tag').textContent,
+      empty: document.getElementById("sessions-empty").textContent,
+      border: getComputedStyle(document.querySelector('.session[data-pid="101"]')).borderLeftColor
+    };
+  })()`);
+  record("sessions are grouped by project in the order main sent",
+    JSON.stringify(panel.rows) === JSON.stringify(["#marshal", "waiting", "busy", "#snoriq", "idle"]) && panel.empty === "",
+    panel.rows.join(" "));
+  record("hover names the session and what it waits for", panel.title === "assistant-sessions — permission prompt", panel.title);
+  record("a busy session is tagged in Ukrainian", panel.tag === "працює", panel.tag);
+  const waitToken = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB("--state-wait")));
+  const waitBorder = parseColor(panel.border);
+  record("a waiting session takes the waiting colour", waitToken && waitBorder && distance(waitToken, waitBorder) < 4, panel.border);
+  await shoot(win, "home-dark-sessions");
+  await win.webContents.executeJavaScript(`document.querySelector('.session[data-pid="102"]').click()`);
+  await sleep(100);
+  record("a click focuses that session by pid", JSON.stringify(await win.webContents.executeJavaScript(`window.__homeProbe.focused()`)) === "[102]");
+  await win.webContents.executeJavaScript(`document.querySelector('.session[data-pid="999"]').click()`);
+  await sleep(100);
+  const failedLine = (await win.webContents.executeJavaScript(VIEW)).line;
+  record("a failed focus is said, not swallowed", failedLine.includes("session is gone"), failedLine);
+  win.setSize(640, 600);
+  await sleep(300);
+  const narrow = await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector(".side")).display`);
+  record("a narrow window drops the side panel, not the visual", narrow === "none", narrow);
+  win.setSize(920, 600);
+  await sleep(300);
+  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "en", lines: [], sessions: [] });
   await sleep(100);
   const english = await win.webContents.executeJavaScript(VIEW);
-  record("English follows the system language", english.chip === "Ready" && english.line.includes("mic"), english.chip);
+  const sideTitle = await win.webContents.executeJavaScript(`document.getElementById("sessions-title").textContent`);
+  record("English follows the system language",
+    english.chip === "Ready" && english.line.includes("mic") && sideTitle === "Claude Code sessions", `${english.chip} / ${sideTitle}`);
 
   // ── Dock ────────────────────────────────────────────────────────────────
   const dock = await win.webContents.executeJavaScript(

@@ -13,6 +13,9 @@ const chip = document.getElementById("state-chip");
 const line = document.getElementById("assistant-line");
 const telemetry = document.getElementById("telemetry");
 const canvas = document.getElementById("visual");
+const sessionsList = document.getElementById("sessions");
+const sessionsEmpty = document.getElementById("sessions-empty");
+const recentList = document.getElementById("recent");
 
 const HINTS = {
   uk: {
@@ -32,6 +35,23 @@ const HINTS = {
     working: "Sessions are working",
     waiting: "A session needs you",
     offline: "Speech recognition is unavailable — check Settings → Dictation"
+  }
+};
+
+const TEXT = {
+  uk: {
+    sessions: "Сесії Claude Code",
+    recent: "Останнє",
+    noSessions: "Немає живих сесій",
+    status: { busy: "працює", waiting: "чекає", shell: "shell", idle: "вільна" },
+    focusFailed: "Не вдалося відкрити сесію"
+  },
+  en: {
+    sessions: "Claude Code sessions",
+    recent: "Recent",
+    noSessions: "No live sessions",
+    status: { busy: "working", waiting: "waiting", shell: "shell", idle: "idle" },
+    focusFailed: "Could not open the session"
   }
 };
 
@@ -62,7 +82,10 @@ const TITLES = {
 
 let lang = "en";
 let state = "idle";
-let assistantLine = "";
+let lines = [];
+let groups = [];
+// The user's own speech gets its guidance; otherwise the last thing Marshal said.
+const HINT_FIRST = new Set(["listening", "thinking", "offline"]);
 
 // ── Colour tokens → rgb for the canvas ──
 const probe = document.createElement("span");
@@ -137,10 +160,45 @@ function applyTitles() {
 function render() {
   home.dataset.state = state;
   chip.textContent = stateLabel(state, lang);
-  line.textContent = assistantLine || (HINTS[lang] ?? HINTS.en)[state] || "";
+  const hint = (HINTS[lang] ?? HINTS.en)[state] || "";
+  line.textContent = HINT_FIRST.has(state) ? hint || lines[0] || "" : lines[0] || hint;
   visual.setState(state);
   if (state === "listening") void openMic();
   else closeMic();
+}
+
+function text() {
+  return TEXT[lang] ?? TEXT.en;
+}
+
+function renderSide() {
+  const t = text();
+  document.getElementById("sessions-title").textContent = t.sessions;
+  document.getElementById("recent-title").textContent = t.recent;
+  sessionsEmpty.textContent = groups.length ? "" : t.noSessions;
+  sessionsList.replaceChildren(
+    ...groups.flatMap(({ project, sessions }) => [
+      Object.assign(document.createElement("li"), { className: "project", textContent: project }),
+      ...sessions.map((session) => {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "session";
+        button.dataset.pid = String(session.pid);
+        button.dataset.status = session.status ?? "idle";
+        const tag = t.status[session.status] ?? t.status.idle;
+        button.title = session.waitingFor ? `${session.name} — ${session.waitingFor}` : session.name;
+        const dot = Object.assign(document.createElement("span"), { className: "dot" });
+        const label = document.createElement("span");
+        label.append(Object.assign(document.createElement("b"), { textContent: session.name }));
+        if (session.waitingFor) label.append(Object.assign(document.createElement("small"), { textContent: session.waitingFor }));
+        button.append(dot, label, Object.assign(document.createElement("span"), { className: "tag", textContent: tag }));
+        item.append(button);
+        return item;
+      })
+    ])
+  );
+  recentList.replaceChildren(...lines.map((value) => Object.assign(document.createElement("li"), { textContent: value })));
 }
 
 function renderTelemetry(items) {
@@ -164,10 +222,23 @@ api?.onState((_event, payload) => {
       applyTitles();
     }
   }
+  if (Array.isArray(payload.lines)) lines = payload.lines.filter((value) => typeof value === "string");
+  if (Array.isArray(payload.sessions)) groups = payload.sessions;
   state = normalizeState(payload.state);
-  assistantLine = typeof payload.line === "string" ? payload.line : "";
   if (payload.telemetry) renderTelemetry(payload.telemetry);
   render();
+  renderSide();
+});
+
+sessionsList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".session");
+  if (!button) return;
+  const result = await api?.focusSession(Number(button.dataset.pid));
+  if (result && !result.ok) {
+    lines = [`${text().focusFailed}: ${result.error}`, ...lines].slice(0, 5);
+    render();
+    renderSide();
+  }
 });
 
 document.querySelector(".dock").addEventListener("click", (event) => {
@@ -189,4 +260,5 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => visu
 window.MarshalIcons?.apply();
 applyTitles();
 render();
+renderSide();
 visual.start();
