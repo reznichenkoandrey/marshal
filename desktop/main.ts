@@ -55,18 +55,19 @@ import {
   sessionCounts,
   type AssistantInputs
 } from "./assistant/assistant-state.ts";
-import { pickLanguage, reminderText } from "./calendar/reminders.ts";
-import { AssistantHomeWindow } from "./assistant/home-window.ts";
+import { reminderText } from "./calendar/reminders.ts";
+import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-window.ts";
+import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
-import { calendarTrayItem, createCalendarService } from "./calendar/calendar-ui.ts";
+import { calendarTrayItem, createCalendarService, language as assistantLanguage } from "./calendar/calendar-ui.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
 import { buildSetupHealth, type BuildInfo, type SetupHealthSummary } from "./setup-health.ts";
-import { measureFootprint } from "./perf/footprint.ts";
-import { ClipboardMonitor } from "./translator/clipboard-monitor.ts";
+import { IDLE_BUDGET_BYTES, measureFootprint } from "./perf/footprint.ts";
+import { ClipboardMonitor, DEDICATED_HOTKEY as TRANSLATOR_HOTKEY } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import {
   TranslatorGlossaryStore,
@@ -77,7 +78,7 @@ import { insertTranslation } from "./translator/insert-service.ts";
 import { MAX_SENTENCE_CHARS } from "./translator/backends/alternatives.ts";
 import { LANGUAGES, resolveLangCode, resolveSourceLang } from "./translator/languages.ts";
 import type { LangCode, SourceLang } from "./translator/languages.ts";
-import { LayoutSwitcher } from "./translator/layout-switcher.ts";
+import { DEFAULT_LAYOUT_SWITCH_HOTKEY, LayoutSwitcher } from "./translator/layout-switcher.ts";
 import {
   TranslatorService,
   type Formality,
@@ -153,6 +154,11 @@ let sessionsRefresh: NodeJS.Timeout | null = null;
 let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
+// Counted on hook events and while the home window is open, never polled (#281).
+let waitingSessionCount = 0;
+// One footprint measurement per opening of the home window (#309).
+let assistantMemory: AssistantStrip["memory"] = null;
+let assistantHotkey: string | null = null;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
 let speechService: SpeechService | null = null;
@@ -276,10 +282,11 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant);
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions());
       void claudeHooks.startIfInstalled();
       initCalendar();
       initSpeech();
+      registerAssistantHotkey();
       void initExtensionBridge();
       initUpdater();
     }
@@ -1763,7 +1770,7 @@ function initCalendar(): void {
     joinAndRecord: () => void startMeetingRecording("audio")
   });
   calendarService.on("reminder", (reminder) => {
-    const { title, body } = reminderText(reminder, pickLanguage(app.getPreferredSystemLanguages()), new Date());
+    const { title, body } = reminderText(reminder, assistantLanguage(), new Date());
     announceToAssistant(`${title} — ${body}`);
   });
   syncCalendar();
@@ -2651,9 +2658,84 @@ function createTrayAndWindow(): void {
 }
 
 function openAssistantHome(): void {
-  assistantHome ??= new AssistantHomeWindow(preloadPath, (open) => watchAssistantSessions(open));
+  assistantHome ??= new AssistantHomeWindow(preloadPath, (open) => {
+    watchAssistantSessions(open);
+    if (open) void measureAssistantMemory();
+  });
   setAssistantInputs({ offline: dictationService === null });
   assistantHome.open();
+  pushAssistantStrip();
+}
+
+function assistantStrip(): AssistantStrip {
+  const settings = loadSettings();
+  const meeting = calendarService?.nextMeeting() ?? null;
+  return {
+    active: {
+      dictation: isDictating,
+      captions: captionsService?.isRunning() ?? false,
+      translator: translatorWindow?.isVisible() ?? false,
+      recording: isMeetingRecording || isRecording
+    },
+    speech: settings.speechEnabled,
+    badge: settings.assistantWaitingBadge,
+    memory: assistantMemory,
+    meeting: meeting ? { title: meeting.title, start: meeting.start.toISOString(), joinable: meeting.link !== null } : null,
+    hotkey: assistantHotkey
+  };
+}
+
+function pushAssistantStrip(): void {
+  if (!assistantHome?.isOpen()) return;
+  assistantHome.update({ lang: assistantLanguage(), strip: assistantStrip() });
+}
+
+async function measureAssistantMemory(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const summary = await measureFootprint(process.pid).catch(() => null);
+  assistantMemory = summary
+    ? { usedMb: Math.round(summary.appBytes / 1024 ** 2), budgetMb: Math.round(IDLE_BUDGET_BYTES / 1024 ** 2) }
+    : null;
+  pushAssistantStrip();
+}
+
+function countWaitingSessions(): void {
+  const count = loadSettings().assistantWaitingBadge
+    ? listLiveSessions().filter((session) => session.status === "waiting").length
+    : 0;
+  if (count === waitingSessionCount) return;
+  waitingSessionCount = count;
+  void refreshTrayState();
+}
+
+function registerAssistantHotkey(): void {
+  const accelerator = assistantHotkeyFromEnv(process.env.MARSHAL_ASSISTANT_HOTKEY);
+  if (!accelerator) return;
+  const taken = [
+    MEETING_TOGGLE_ACCELERATOR,
+    captionsAccelerators.toggle,
+    captionsAccelerators.ocr,
+    "CommandOrControl+Alt+3",
+    "CommandOrControl+Alt+4",
+    "CommandOrControl+Alt+6",
+    "CommandOrControl+Shift+2",
+    TRANSLATOR_HOTKEY,
+    process.env.MARSHAL_LAYOUT_SWITCH_HOTKEY ?? DEFAULT_LAYOUT_SWITCH_HOTKEY
+  ];
+  const conflict = findAcceleratorConflict(accelerator, taken);
+  if (conflict) {
+    console.warn(`[assistant] hotkey ${accelerator} collides with Marshal's own ${conflict}; not registered`);
+    return;
+  }
+  let registered = false;
+  try {
+    registered = globalShortcut.register(accelerator, toggleAssistantHome);
+  } catch (err) {
+    console.warn(`[assistant] hotkey "${accelerator}" is invalid:`, err instanceof Error ? err.message : err);
+    return;
+  }
+  if (registered) assistantHotkey = accelerator;
+  console.log(`[assistant] hotkey ${accelerator} ${registered ? "registered" : "could not register — another app owns it"}`);
 }
 
 function toggleAssistantHome(): void {
@@ -2675,6 +2757,7 @@ function announceToAssistant(text: string): void {
 function refreshAssistantSessions(): void {
   const live = listLiveSessions();
   setAssistantInputs(sessionCounts(live));
+  countWaitingSessions();
   assistantHome?.update({ sessions: groupSessions(live) });
 }
 
@@ -2737,6 +2820,25 @@ function runAssistantAction(name: string | undefined): void {
       showMainWindow();
       mainWindow?.webContents.send("marshal:open-settings");
       return;
+    case "toggle-speech":
+      saveSettings({ speechEnabled: !loadSettings().speechEnabled });
+      pushAssistantStrip();
+      return;
+    case "toggle-language":
+      saveSettings({ assistantLanguage: assistantLanguage() === "uk" ? "en" : "uk" });
+      pushAssistantStrip();
+      return;
+    case "toggle-badge":
+      saveSettings({ assistantWaitingBadge: !loadSettings().assistantWaitingBadge });
+      countWaitingSessions();
+      pushAssistantStrip();
+      return;
+    case "join-meeting": {
+      const link = calendarService?.nextMeeting()?.link;
+      // classifyMeetingUrl lets only https links to known meeting hosts through.
+      if (link) void shell.openExternal(link.url);
+      return;
+    }
     default:
       console.warn("[assistant] unknown action:", name);
   }
@@ -2803,7 +2905,9 @@ async function refreshTrayState(): Promise<void> {
   if (!trayIconIdle) trayIconIdle = createTrayIcon();
   if (!trayIconRecording) trayIconRecording = createRecordingTrayIcon();
   tray.setImage(isDictating || isRecording || isMeetingRecording ? trayIconRecording : trayIconIdle);
-  tray.setTitle("");
+  // Text next to the icon: the count of sessions waiting for an answer (#309).
+  tray.setTitle(waitingSessionCount > 0 ? String(waitingSessionCount) : "");
+  pushAssistantStrip();
 
   // Mirror recording state into every Electron BrowserWindow that subscribed
   // (currently the floating toolbar). Cheap fan-out; no-op if no listeners.

@@ -315,6 +315,75 @@ async function main() {
   await sleep(100);
   const failedLine = (await win.webContents.executeJavaScript(VIEW)).line;
   record("a failed focus is said, not swallowed", failedLine.includes("session is gone"), failedLine);
+  // ── Status strip (#309) ─────────────────────────────────────────────────
+  const hidden = await win.webContents.executeJavaScript(`document.getElementById("strip").hidden`);
+  record("no strip until main sends one", hidden === true);
+  const inTwelve = new Date(Date.now() + 12 * 60_000 - 5_000).toISOString();
+  win.webContents.send("marshal:assistant-state", {
+    state: "waiting",
+    lang: "uk",
+    strip: {
+      active: { dictation: true, captions: false, translator: true, recording: false },
+      speech: true,
+      badge: false,
+      memory: { usedMb: 262, budgetMb: 300 },
+      meeting: { title: "Daily", start: inTwelve, joinable: true },
+      hotkey: "CommandOrControl+Alt+A"
+    }
+  });
+  await sleep(150);
+  const stripView = await win.webContents.executeJavaScript(`(() => {
+    const strip = document.getElementById("strip");
+    return {
+      visible: !strip.hidden && getComputedStyle(strip).display !== "none",
+      lit: [...strip.querySelectorAll(".key.on")].map((key) => key.dataset.key),
+      speech: strip.querySelector('[data-action="toggle-speech"]').getAttribute("aria-pressed"),
+      badge: strip.querySelector('[data-action="toggle-badge"]').getAttribute("aria-pressed"),
+      lang: strip.querySelector('[data-action="toggle-language"]').textContent,
+      mem: document.getElementById("mem-text").textContent,
+      cells: strip.querySelectorAll(".batt i.on").length,
+      meeting: document.getElementById("meeting-title").textContent + " " + document.getElementById("meeting-when").textContent,
+      join: !document.getElementById("join").hidden,
+      hotkey: document.getElementById("hotkey").textContent
+    };
+  })()`);
+  record("the strip lights what runs", stripView.visible && stripView.lit.join() === "dictation,translator", stripView.lit.join());
+  record("toggles show their state", stripView.speech === "true" && stripView.badge === "false" && stripView.lang === "UK",
+    `${stripView.speech} / ${stripView.badge} / ${stripView.lang}`);
+  record("memory reads against the idle budget", stripView.mem === "mem 262/300" && stripView.cells === 9,
+    `${stripView.mem}, ${stripView.cells} cells`);
+  record("the next meeting counts down with Join", stripView.meeting === "Daily за 12 хв" && stripView.join, stripView.meeting);
+  record("the hotkey is shown as keys", stripView.hotkey === "⌘⌥A", stripView.hotkey);
+  await shoot(win, "home-dark-strip");
+  const before = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
+  await win.webContents.executeJavaScript(
+    `["toggle-speech", "toggle-badge", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
+  );
+  await sleep(100);
+  const stripSent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(before);
+  record("strip clicks reach main by name", stripSent.join() === "toggle-speech,toggle-badge,toggle-language,join-meeting", stripSent.join());
+  win.webContents.send("marshal:assistant-state", {
+    state: "waiting",
+    lang: "uk",
+    strip: {
+      active: { dictation: false, captions: false, translator: false, recording: true },
+      speech: false,
+      badge: true,
+      memory: { usedMb: 340, budgetMb: 300 },
+      meeting: { title: "Retro", start: new Date(Date.now() - 60_000).toISOString(), joinable: false },
+      hotkey: null
+    }
+  });
+  await sleep(150);
+  const over = await win.webContents.executeJavaScript(`({
+    over: document.getElementById("mem").classList.contains("over"),
+    when: document.getElementById("meeting-when").textContent,
+    join: document.getElementById("join").hidden,
+    hotkey: document.getElementById("hotkey").hidden
+  })`);
+  record("over budget, a started meeting without a link and no hotkey read as such",
+    over.over && over.when === "триває" && over.join && over.hotkey, JSON.stringify(over));
+
   win.setSize(640, 600);
   await sleep(300);
   const narrow = await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector(".side")).display`);
@@ -334,9 +403,10 @@ async function main() {
   );
   record("every dock button has a title and an icon", dock.length === 8 && dock.every((b) => b.title && b.icon),
     dock.map((b) => b.action).join(", "));
+  const earlier = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
   await win.webContents.executeJavaScript(`document.querySelectorAll(".dock [data-action]").forEach((b) => b.click())`);
   await sleep(100);
-  const sent = await win.webContents.executeJavaScript(`window.__homeProbe.actions()`);
+  const sent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(earlier);
   record("dock clicks reach main by name", JSON.stringify(sent) === JSON.stringify(dock.map((b) => b.action)), sent.join(", "));
   await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
   await sleep(50);

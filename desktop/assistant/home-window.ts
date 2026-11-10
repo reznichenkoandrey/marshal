@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, screen } from "electron";
 
-import { pickLanguage } from "../calendar/reminders.ts";
+import type { ReminderLanguage } from "../calendar/reminders.ts";
 import type { AssistantState, SessionGroup } from "./assistant-state.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -17,17 +17,28 @@ const rendererDir = path.join(path.dirname(currentFilePath), "..", "renderer");
 const WIDTH = 920;
 const HEIGHT = 600;
 
+export type AssistantStrip = {
+  active: { dictation: boolean; captions: boolean; translator: boolean; recording: boolean };
+  speech: boolean;
+  badge: boolean;
+  /** null until the one measurement taken on open finishes, or when it failed. */
+  memory: { usedMb: number; budgetMb: number } | null;
+  meeting: { title: string; start: string; joinable: boolean } | null;
+  hotkey: string | null;
+};
+
 export type AssistantView = {
   state: AssistantState;
+  lang: ReminderLanguage;
+  strip?: AssistantStrip;
   // What Marshal last said or notified, newest first (#308).
   lines?: string[];
   sessions?: SessionGroup[];
-  telemetry?: { label: string; value: string }[];
 };
 
 export class AssistantHomeWindow {
   private window: BrowserWindow | null = null;
-  private view: AssistantView = { state: "idle" };
+  private view: AssistantView = { state: "idle", lang: "en" };
 
   constructor(
     private readonly preloadPath: string,
@@ -107,9 +118,6 @@ export class AssistantHomeWindow {
 
   private push(): void {
     if (!this.window || this.window.isDestroyed()) return;
-    this.window.webContents.send("marshal:assistant-state", {
-      ...this.view,
-      lang: pickLanguage(app.getPreferredSystemLanguages())
-    });
+    this.window.webContents.send("marshal:assistant-state", this.view);
   }
 }

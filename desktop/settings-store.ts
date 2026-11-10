@@ -8,6 +8,7 @@ import {
   DEFAULT_TOGGLE_TAP_COUNT,
   normalizeToggleTapCount
 } from "./dictation/gesture-options.ts";
+import type { AssistantLanguageSetting } from "./assistant/strip.ts";
 import { DEFAULT_DICTATION_PROMPT, PREVIOUS_DEFAULT_DICTATION_PROMPTS } from "./dictation/whisper-backend.ts";
 import {
   DEFAULT_CAPTIONS_DRAG_MODIFIER,
@@ -196,6 +197,10 @@ export type MarshalSettings = {
   /** Voice names as `say -v '?'` prints them; empty = pick automatically. */
   speechVoiceUk: string;
   speechVoiceEn: string;
+  /** Language of the assistant window and calendar reminders; auto = the system's (#309). */
+  assistantLanguage: AssistantLanguageSetting;
+  /** Tray title shows how many Claude Code sessions wait for an answer (#309). */
+  assistantWaitingBadge: boolean;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -250,7 +255,9 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   speechEnabled: false,
   speechRate: DEFAULT_SPEECH_RATE,
   speechVoiceUk: "",
-  speechVoiceEn: ""
+  speechVoiceEn: "",
+  assistantLanguage: "auto",
+  assistantWaitingBadge: true
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -565,7 +572,11 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     speechEnabled: typeof input.speechEnabled === "boolean" ? input.speechEnabled : DEFAULT_SETTINGS.speechEnabled,
     speechRate: normalizeSpeechRate(input.speechRate),
     speechVoiceUk: typeof input.speechVoiceUk === "string" ? input.speechVoiceUk.trim() : DEFAULT_SETTINGS.speechVoiceUk,
-    speechVoiceEn: typeof input.speechVoiceEn === "string" ? input.speechVoiceEn.trim() : DEFAULT_SETTINGS.speechVoiceEn
+    speechVoiceEn: typeof input.speechVoiceEn === "string" ? input.speechVoiceEn.trim() : DEFAULT_SETTINGS.speechVoiceEn,
+    assistantLanguage: input.assistantLanguage === "uk" || input.assistantLanguage === "en" ? input.assistantLanguage : "auto",
+    assistantWaitingBadge: typeof input.assistantWaitingBadge === "boolean"
+      ? input.assistantWaitingBadge
+      : DEFAULT_SETTINGS.assistantWaitingBadge
   };
 }
 

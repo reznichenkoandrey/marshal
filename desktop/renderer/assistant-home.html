@@ -17,9 +17,28 @@
       <span class="brand">Marshal</span>
       <span class="chip" id="state-chip" role="status" aria-live="polite"></span>
       <span class="spacer"></span>
-      <span class="telemetry" id="telemetry"></span>
+      <kbd class="hotkey" id="hotkey" hidden></kbd>
       <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
     </header>
+
+    <div class="strip" id="strip">
+      <div class="keys">
+        <span class="key" data-key="dictation">dict</span>
+        <span class="key" data-key="captions">capt</span>
+        <span class="key" data-key="translator">trns</span>
+        <span class="key" data-key="recording">rec</span>
+      </div>
+      <div class="toggles">
+        <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
+        <button type="button" class="tog" data-action="toggle-badge"><span class="sw" aria-hidden="true"></span><span data-label="badge"></span></button>
+        <button type="button" class="tog lang" data-action="toggle-language"></button>
+      </div>
+      <div class="mem" id="mem" hidden><span class="batt" id="batt" aria-hidden="true"></span><span id="mem-text"></span></div>
+      <div class="meeting" id="meeting" hidden>
+        <span class="meeting-text"><b id="meeting-title"></b> <span id="meeting-when"></span></span>
+        <button type="button" class="join" id="join" data-action="join-meeting"></button>
+      </div>
+    </div>
 
     <section class="core">
     <main class="stage">

@@ -7,13 +7,15 @@ import { app, Notification, powerMonitor, shell, type MenuItemConstructorOptions
 import { CalendarService } from "./calendar-service.ts";
 import type { CalendarEvent } from "./ical-events.ts";
 import type { MeetingLink } from "./meeting-links.ts";
-import { actionLabels, pickLanguage, reminderText, trayLabel, type Reminder } from "./reminders.ts";
+import { resolveAssistantLanguage } from "../assistant/strip.ts";
+import { loadSettings } from "../settings-store.ts";
+import { actionLabels, reminderText, trayLabel, type Reminder } from "./reminders.ts";
 
 // A Notification that is garbage-collected stops delivering its actions.
 const liveNotifications = new Set<Notification>();
 
-function language() {
-  return pickLanguage(app.getPreferredSystemLanguages());
+export function language() {
+  return resolveAssistantLanguage(loadSettings().assistantLanguage, app.getPreferredSystemLanguages());
 }
 
 function openMeetingLink(link: MeetingLink): void {
