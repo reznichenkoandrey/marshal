@@ -52,6 +52,10 @@ const TEXT = {
     speechTitle: "Озвучувати оновлення сесій",
     badge: "бейдж",
     badgeTitle: "Кількість сесій, що чекають, біля іконки в menu bar",
+    glow: "рамка",
+    glowTitle: "Світіння по краях екрана, поки слухаю або говорю",
+    widget: "віджет",
+    widgetTitle: "Міні-асистент біля краю екрана",
     langTitle: "Мова асистента — натисни, щоб змінити",
     memTitle: (used, budget) => `${used} з ${budget} МБ бюджету idle, заміряно при відкритті вікна, без моделі мовлення`,
     join: "Join",
@@ -73,6 +77,10 @@ const TEXT = {
     speechTitle: "Speak session updates aloud",
     badge: "badge",
     badgeTitle: "Count of waiting sessions next to the menu bar icon",
+    glow: "glow",
+    glowTitle: "Glow along the screen edges while listening or speaking",
+    widget: "widget",
+    widgetTitle: "Mini assistant at the screen edge",
     langTitle: "Assistant language — click to switch",
     memTitle: (used, budget) => `${used} of the ${budget} MB idle budget, measured when this window opened, without the speech model`,
     join: "Join",
@@ -255,7 +263,12 @@ function renderStrip() {
     key.classList.toggle("on", on);
     key.title = `${t.keys[key.dataset.key]}: ${on ? t.on : t.off}`;
   });
-  const toggles = { "toggle-speech": [view.speech, t.speechTitle], "toggle-badge": [view.badge, t.badgeTitle] };
+  const toggles = {
+    "toggle-speech": [view.speech, t.speechTitle],
+    "toggle-badge": [view.badge, t.badgeTitle],
+    "toggle-glow": [view.glow, t.glowTitle],
+    "toggle-widget": [view.widget, t.widgetTitle]
+  };
   for (const [action, [pressed, title]] of Object.entries(toggles)) {
     const button = strip.querySelector(`[data-action="${action}"]`);
     button.setAttribute("aria-pressed", String(Boolean(pressed)));
@@ -263,6 +276,8 @@ function renderStrip() {
   }
   strip.querySelector('[data-label="speech"]').textContent = t.speech;
   strip.querySelector('[data-label="badge"]').textContent = t.badge;
+  strip.querySelector('[data-label="glow"]').textContent = t.glow;
+  strip.querySelector('[data-label="widget"]').textContent = t.widget;
   const language = strip.querySelector('[data-action="toggle-language"]');
   language.textContent = lang.toUpperCase();
   language.title = t.langTitle;

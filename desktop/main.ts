@@ -57,6 +57,8 @@ import {
 } from "./assistant/assistant-state.ts";
 import { reminderText } from "./calendar/reminders.ts";
 import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-window.ts";
+import { glowFor, widgetCards } from "./assistant/ambient.ts";
+import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
@@ -147,6 +149,8 @@ let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
 let assistantHome: AssistantHomeWindow | null = null;
+let glowFrame: GlowFrame | null = null;
+let miniWidget: MiniWidget | null = null;
 let assistantInputs: AssistantInputs = { ...IDLE_INPUTS };
 let assistantLines: string[] = [];
 let sessionsWatcher: fs.FSWatcher | null = null;
@@ -287,6 +291,7 @@ async function bootstrap(): Promise<void> {
       initCalendar();
       initSpeech();
       registerAssistantHotkey();
+      initAmbient();
       void initExtensionBridge();
       initUpdater();
     }
@@ -460,6 +465,11 @@ function registerIpcHandlers(): void {
   });
   handleIpc("marshal:assistant:action", (_event, input: { name: string }) => {
     runAssistantAction(input?.name);
+    return { ok: true };
+  });
+  handleIpc("marshal:assistant:widget-move", (_event, input: { x?: unknown; y?: unknown; done?: unknown } | undefined) => {
+    if (typeof input?.x !== "number" || typeof input.y !== "number") return { ok: false };
+    miniWidget?.moveTo({ x: input.x, y: input.y }, input.done === true);
     return { ok: true };
   });
   handleIpc("marshal:assistant:close", () => {
@@ -2659,7 +2669,7 @@ function createTrayAndWindow(): void {
 
 function openAssistantHome(): void {
   assistantHome ??= new AssistantHomeWindow(preloadPath, (open) => {
-    watchAssistantSessions(open);
+    watchAssistantSessions(sessionsShown());
     if (open) void measureAssistantMemory();
   });
   setAssistantInputs({ offline: dictationService === null });
@@ -2681,7 +2691,9 @@ function assistantStrip(): AssistantStrip {
     badge: settings.assistantWaitingBadge,
     memory: assistantMemory,
     meeting: meeting ? { title: meeting.title, start: meeting.start.toISOString(), joinable: meeting.link !== null } : null,
-    hotkey: assistantHotkey
+    hotkey: assistantHotkey,
+    glow: settings.assistantGlow,
+    widget: settings.assistantWidget
   };
 }
 
@@ -2746,6 +2758,34 @@ function toggleAssistantHome(): void {
 function setAssistantInputs(next: Partial<AssistantInputs>): void {
   assistantInputs = { ...assistantInputs, ...next };
   assistantHome?.update({ state: deriveAssistantState(assistantInputs) });
+  updateAmbient();
+}
+
+// ── Ambient indicators (#285) ──
+function initAmbient(): void {
+  glowFrame = new GlowFrame(preloadPath);
+  miniWidget = new MiniWidget(
+    preloadPath,
+    {
+      load: () => loadSettings().assistantWidgetPosition,
+      save: (point) => saveSettings({ assistantWidgetPosition: point })
+    },
+    () => watchAssistantSessions(sessionsShown())
+  );
+  if (loadSettings().assistantWidget) miniWidget.open();
+  updateAmbient();
+}
+
+function updateAmbient(): void {
+  const state = deriveAssistantState(assistantInputs);
+  const inCall = isMeetingRecording || (captionsService?.isRunning() ?? false);
+  glowFrame?.set(glowFor(state, inCall, loadSettings().assistantGlow));
+  miniWidget?.update({ state, lang: assistantLanguage() });
+}
+
+/** The sessions watcher runs only while a window that lists sessions is open (#281). */
+function sessionsShown(): boolean {
+  return (assistantHome?.isOpen() ?? false) || (miniWidget?.isOpen() ?? false);
 }
 
 /** What Marshal notifies or says also lands in the home window's line (#308). */
@@ -2758,7 +2798,9 @@ function refreshAssistantSessions(): void {
   const live = listLiveSessions();
   setAssistantInputs(sessionCounts(live));
   countWaitingSessions();
-  assistantHome?.update({ sessions: groupSessions(live) });
+  const groups = groupSessions(live);
+  assistantHome?.update({ sessions: groups });
+  miniWidget?.update({ cards: widgetCards(groups) });
 }
 
 // Claude Code rewrites ~/.claude/sessions/<pid>.json on every status change.
@@ -2827,6 +2869,25 @@ function runAssistantAction(name: string | undefined): void {
     case "toggle-language":
       saveSettings({ assistantLanguage: assistantLanguage() === "uk" ? "en" : "uk" });
       pushAssistantStrip();
+      return;
+    case "toggle-glow":
+      saveSettings({ assistantGlow: !loadSettings().assistantGlow });
+      updateAmbient();
+      pushAssistantStrip();
+      return;
+    case "toggle-widget": {
+      const widget = !loadSettings().assistantWidget;
+      saveSettings({ assistantWidget: widget });
+      if (widget) miniWidget?.open();
+      else miniWidget?.close();
+      pushAssistantStrip();
+      return;
+    }
+    case "skip-speech":
+      speechService?.skip();
+      return;
+    case "open-home":
+      openAssistantHome();
       return;
     case "toggle-badge":
       saveSettings({ assistantWaitingBadge: !loadSettings().assistantWaitingBadge });
@@ -2908,6 +2969,8 @@ async function refreshTrayState(): Promise<void> {
   // Text next to the icon: the count of sessions waiting for an answer (#309).
   tray.setTitle(waitingSessionCount > 0 ? String(waitingSessionCount) : "");
   pushAssistantStrip();
+  // Meeting recording and captions are the "in a call" signal for the glow.
+  updateAmbient();
 
   // Mirror recording state into every Electron BrowserWindow that subscribed
   // (currently the floating toolbar). Cheap fan-out; no-op if no listeners.

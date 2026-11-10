@@ -25,6 +25,9 @@ export type AssistantStrip = {
   memory: { usedMb: number; budgetMb: number } | null;
   meeting: { title: string; start: string; joinable: boolean } | null;
   hotkey: string | null;
+  // Ambient indicators (#285).
+  glow: boolean;
+  widget: boolean;
 };
 
 export type AssistantView = {

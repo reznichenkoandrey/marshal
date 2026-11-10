@@ -123,3 +123,9 @@ jobs:
         # spectrum runs on its ambient level.
         run: npx electron tests/e2e/assistant-home.mjs
         timeout-minutes: 5
+
+      - name: assistant ambient indicators
+        # Glow frame colours, the dictation indicator on tokens, and the mini
+        # widget: cards, click / double-click / drag, the 30 s idle pause (#285).
+        run: npx electron tests/e2e/assistant-ambient.mjs
+        timeout-minutes: 5

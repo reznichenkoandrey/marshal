@@ -328,7 +328,9 @@ async function main() {
       badge: false,
       memory: { usedMb: 262, budgetMb: 300 },
       meeting: { title: "Daily", start: inTwelve, joinable: true },
-      hotkey: "CommandOrControl+Alt+A"
+      hotkey: "CommandOrControl+Alt+A",
+      glow: true,
+      widget: false
     }
   });
   await sleep(150);
@@ -339,6 +341,8 @@ async function main() {
       lit: [...strip.querySelectorAll(".key.on")].map((key) => key.dataset.key),
       speech: strip.querySelector('[data-action="toggle-speech"]').getAttribute("aria-pressed"),
       badge: strip.querySelector('[data-action="toggle-badge"]').getAttribute("aria-pressed"),
+      glow: strip.querySelector('[data-action="toggle-glow"]').getAttribute("aria-pressed"),
+      widget: strip.querySelector('[data-action="toggle-widget"]').getAttribute("aria-pressed"),
       lang: strip.querySelector('[data-action="toggle-language"]').textContent,
       mem: document.getElementById("mem-text").textContent,
       cells: strip.querySelectorAll(".batt i.on").length,
@@ -348,8 +352,9 @@ async function main() {
     };
   })()`);
   record("the strip lights what runs", stripView.visible && stripView.lit.join() === "dictation,translator", stripView.lit.join());
-  record("toggles show their state", stripView.speech === "true" && stripView.badge === "false" && stripView.lang === "UK",
-    `${stripView.speech} / ${stripView.badge} / ${stripView.lang}`);
+  record("toggles show their state",
+    stripView.speech === "true" && stripView.badge === "false" && stripView.glow === "true" && stripView.widget === "false" && stripView.lang === "UK",
+    `${stripView.speech} / ${stripView.badge} / ${stripView.glow} / ${stripView.widget} / ${stripView.lang}`);
   record("memory reads against the idle budget", stripView.mem === "mem 262/300" && stripView.cells === 9,
     `${stripView.mem}, ${stripView.cells} cells`);
   record("the next meeting counts down with Join", stripView.meeting === "Daily за 12 хв" && stripView.join, stripView.meeting);
@@ -357,11 +362,11 @@ async function main() {
   await shoot(win, "home-dark-strip");
   const before = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
   await win.webContents.executeJavaScript(
-    `["toggle-speech", "toggle-badge", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
+    `["toggle-speech", "toggle-badge", "toggle-glow", "toggle-widget", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
   );
   await sleep(100);
   const stripSent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(before);
-  record("strip clicks reach main by name", stripSent.join() === "toggle-speech,toggle-badge,toggle-language,join-meeting", stripSent.join());
+  record("strip clicks reach main by name", stripSent.join() === "toggle-speech,toggle-badge,toggle-glow,toggle-widget,toggle-language,join-meeting", stripSent.join());
   win.webContents.send("marshal:assistant-state", {
     state: "waiting",
     lang: "uk",
@@ -371,7 +376,9 @@ async function main() {
       badge: true,
       memory: { usedMb: 340, budgetMb: 300 },
       meeting: { title: "Retro", start: new Date(Date.now() - 60_000).toISOString(), joinable: false },
-      hotkey: null
+      hotkey: null,
+      glow: false,
+      widget: true
     }
   });
   await sleep(150);

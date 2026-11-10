@@ -497,14 +497,19 @@ type AssistantPayload = {
     memory: { usedMb: number; budgetMb: number } | null;
     meeting: { title: string; start: string; joinable: boolean } | null;
     hotkey: string | null;
+    glow: boolean;
+    widget: boolean;
   };
+  cards?: { pid: number; name: string; waitingFor: string | null }[];
 };
 const assistantApi = {
   onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>
     registerListener<[AssistantPayload]>("marshal:assistant-state", cb),
   action: (name: string) => ipcRenderer.invoke("marshal:assistant:action", { name }),
   close: () => ipcRenderer.invoke("marshal:assistant:close"),
-  focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid })
+  focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid }),
+  // Mini widget (#285): window position while dragging; `done` on release saves it.
+  moveWidget: (x: number, y: number, done: boolean) => ipcRenderer.invoke("marshal:assistant:widget-move", { x, y, done })
 };
 
 contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);

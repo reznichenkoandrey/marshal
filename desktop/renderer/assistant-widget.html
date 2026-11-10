@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'" />
+  <title>Marshal widget</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./assistant-widget.css" />
+  <script src="./theme.js"></script>
+</head>
+<body>
+  <div class="widget" id="widget" data-state="idle">
+    <canvas class="visual" id="visual" role="img"></canvas>
+    <ul class="cards" id="cards"></ul>
+  </div>
+  <script type="module" src="./assistant-widget.js"></script>
+</body>
+</html>
