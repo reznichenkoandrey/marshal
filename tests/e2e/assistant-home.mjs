@@ -196,8 +196,12 @@ async function main() {
   const first = await win.webContents.executeJavaScript(CANVAS_STATS);
   record("the canvas is sized and painted", first.width > 200 && first.painted > first.total * 0.02,
     `${first.width}px, ${first.painted} of ${first.total} pixels`);
-  await sleep(250);
-  const second = await win.webContents.executeJavaScript(CANVAS_STATS);
+  // A slow CI runner may hand out few frames: wait for a change instead of a fixed beat.
+  let second = first;
+  for (let waited = 0; waited < 3000 && second.hash === first.hash; waited += 250) {
+    await sleep(250);
+    second = await win.webContents.executeJavaScript(CANVAS_STATS);
+  }
   record("the visual animates while visible", second.hash !== first.hash);
 
   // ── Every state ─────────────────────────────────────────────────────────
