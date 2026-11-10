@@ -534,6 +534,7 @@ export const uk: Record<MessageKey, string> = {
   "translator.captureTitle": "Зняти область екрана (⌘⇧2)",
   "translator.uploadTitle": "Завантажити зображення",
   "translator.closeTitle": "Закрити (Esc)",
+  "translator.expandTitle": "Відкрити повний перекладач",
   "translator.detectLanguage": "Визначити мову",
   "translator.swapTitle": "Поміняти мови місцями (⌘⇧S)",
   "translator.formalityTitle": "Регістр перекладу",

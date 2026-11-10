@@ -53,9 +53,12 @@ export interface TranslatorAutoContext {
   platform?: NodeJS.Platform;
 }
 
-/** CLI backends spawn a process per call; measured ~10 s per sentence. */
+/**
+ * Codex CLI spawns a process per call; measured ~10 s per sentence. Claude CLI
+ * keeps a warm process and answers in ~1 s, so `auto` leaves it alone (#344).
+ */
 function isSlowBackend(id: TranslatorBackendId): boolean {
-  return id === "claude-cli" || id === "codex-cli";
+  return id === "codex-cli";
 }
 
 /**
@@ -95,11 +98,12 @@ function bridgeBackend(mode: TranslatorBridgeMode): TranslatorBackendId {
  * translator follows whichever provider the user configured — with one
  * exception.
  *
- * The translator translates while the user types (650 ms debounce). A CLI
- * backend answers in about ten seconds, which turns that into a lag rather
- * than a feature. So when the provider would resolve to a CLI backend AND an
- * API key is configured, the translator takes the API instead: same
- * translation, sub-second, and the agent keeps its own provider untouched.
+ * The translator translates while the user types (650 ms debounce). The Codex
+ * CLI answers in about ten seconds, which turns that into a lag rather than a
+ * feature. So when the provider would resolve to Codex CLI AND an API key is
+ * configured, the translator takes the API instead: sub-second, and the agent
+ * keeps its own provider untouched. Claude CLI used to be in this bucket too;
+ * since #344 it answers in about a second and stays on the subscription.
  *
  * Providers that are already API-based are left alone — they are fast enough,
  * and silently moving them to another vendor would move the billing too.

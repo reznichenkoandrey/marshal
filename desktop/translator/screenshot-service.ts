@@ -37,8 +37,8 @@ export class ScreenshotService {
    */
   async captureWithCrop(): Promise<string | null> {
     this.assertScreenRecordingGranted();
-    const display = screen.getPrimaryDisplay();
-    const { image: thumbnail, scaleFactor } = await captureDisplay(display);
+    // The display under the cursor: text to translate is where the user looks (#344).
+    const { image: thumbnail, scaleFactor, display } = await captureDisplay();
 
     // Open crop overlay and wait for region selection
     const region = await this.openCropOverlay(thumbnail.toDataURL(), display);
