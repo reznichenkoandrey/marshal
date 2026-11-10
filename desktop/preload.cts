@@ -96,12 +96,14 @@ const translatorApi = {
   onCropInit: (
     cb: (
       event: IpcRendererEvent,
-      payload: { dataUrl?: string; channels?: { select: string; cancel: string } } | string
+      payload: { dataUrl?: string; channels?: { select: string; cancel: string; ready?: string } } | string
     ) => void
   ) =>
     registerListener<[
-      { dataUrl?: string; channels?: { select: string; cancel: string } } | string
+      { dataUrl?: string; channels?: { select: string; cancel: string; ready?: string } } | string
     ]>("crop-init", cb),
+  // The frozen screenshot is painted; main shows the overlay only now (#342).
+  readyCrop: (channel: string) => ipcRenderer.send(channel),
   selectCrop: (
     region: { x: number; y: number; width: number; height: number },
     channel = "marshal:crop-selected"
