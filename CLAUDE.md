@@ -470,6 +470,11 @@
   userData), дозволи `general` (`auto` — `--permission-mode auto`, або питати щоразу у вікні), модель
   диспетчера (`haiku`). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
   Terminal без дозволу Automation → асистент каже, куди в System Settings.
+  **Terminal не отримує ключі Marshal** (#322): `osascript` запускається з env, з яким стартував
+  сам Marshal (знімок до `.env`), бо LaunchServices віддає його Terminal, а з ним і кожній вкладці.
+  Сесії асистента стартують через `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL`:
+  з ключем у середовищі Claude Code питає «use this API key?» у вікні, якого ніхто не бачить, і
+  диспетчер стоїть мовчки.
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1.6 ГБ, вантажиться на

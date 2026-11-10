@@ -103,6 +103,8 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 const projectRootDir = path.resolve(desktopDistDir, "..", "..");
 const envPath = path.join(projectRootDir, ".env");
+// What Marshal was started with, before its .env: apps it launches (Terminal) inherit this, not its keys (#322).
+const launchEnv: NodeJS.ProcessEnv = { ...process.env };
 loadDotenv({ path: envPath, override: false });
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
@@ -2780,6 +2782,9 @@ function initAssistantDispatcher(): void {
     announce: announceToAssistant,
     focus: (pid) => {
       void focusSession(pid).catch(() => undefined);
+    },
+    runAppleScript: async (script) => {
+      await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     }
   });
   hooks.setAssistantRoutes(assistantDispatcher);

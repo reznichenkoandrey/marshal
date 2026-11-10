@@ -164,8 +164,12 @@ export function sessionCommandLine(name: string | null): string {
 }
 
 /** `do terminal script` for a new Terminal window, minimised so it stays out of the way. */
+// An API key in the environment stops Claude Code at a first-run question in a
+// window nobody looks at (#322); the assistant's sessions use the owner's login.
+const CLAUDE_ENV_RESET = "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL";
+
 export function terminalScript(cwd: string, commandLine: string, title: string): string {
-  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${commandLine}`;
+  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}`;
   const appleString = `"${command.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
   return [
     "tell application \"Terminal\"",
