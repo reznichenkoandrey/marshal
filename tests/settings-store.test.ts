@@ -155,6 +155,7 @@ describe("saveSettings", () => {
       lastSeenVersion: "",
       speechEnabled: false,
       speechEngine: "macos",
+      speechHolosVoice: "",
       speechRate: 190,
       speechVoiceUk: "",
       speechVoiceEn: "",

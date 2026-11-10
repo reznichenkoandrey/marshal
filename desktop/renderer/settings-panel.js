@@ -60,6 +60,10 @@ const dom = {
   settingsSpeechEngine: document.getElementById("settings-speech-engine"),
   settingsSpeechPiperStatus: document.getElementById("settings-speech-piper-status"),
   settingsSpeechPiperInstall: document.getElementById("settings-speech-piper-install"),
+  settingsSpeechHolosVoice: document.getElementById("settings-speech-holos-voice"),
+  settingsSpeechHolosStatus: document.getElementById("settings-speech-holos-status"),
+  settingsSpeechHolosInstall: document.getElementById("settings-speech-holos-install"),
+  settingsSpeechHolosClone: document.getElementById("settings-speech-holos-clone"),
   settingsSpeechVoiceUk: document.getElementById("settings-speech-voice-uk"),
   settingsSpeechVoiceEn: document.getElementById("settings-speech-voice-en"),
   settingsSpeechRate: document.getElementById("settings-speech-rate"),
@@ -118,7 +122,7 @@ async function populateMicrophoneDropdown(preferredValue) {
 }
 
 
-async function populateSpeechVoices(voiceUk, voiceEn) {
+async function populateSpeechVoices(voiceUk, voiceEn, holosVoice) {
   if (!api?.getSpeechVoices) return;
   let report;
   try {
@@ -144,6 +148,8 @@ async function populateSpeechVoices(voiceUk, voiceEn) {
   fill(dom.settingsSpeechVoiceUk, report?.uk ?? [], voiceUk);
   fill(dom.settingsSpeechVoiceEn, report?.en ?? [], voiceEn);
   showPiperState(report?.piperInstalled === true);
+  fillHolosVoices(report?.holosVoices ?? { presets: [], custom: [] }, holosVoice);
+  showHolosState(report?.holosInstalled === true);
   if (!dom.settingsSpeechStatus) return;
   dom.settingsSpeechStatus.textContent = !report?.available
     ? t("settings.speechUnavailable")
@@ -170,6 +176,73 @@ async function installPiperVoice() {
     if (dom.settingsSpeechPiperStatus) dom.settingsSpeechPiperStatus.textContent = t("settings.piperDownloadFailed", { error: err?.message ?? String(err) });
   } finally {
     dom.settingsSpeechPiperInstall.disabled = false;
+  }
+}
+
+function fillHolosVoices(voices, preferred) {
+  const select = dom.settingsSpeechHolosVoice;
+  if (!select) return;
+  const fallback = select.firstElementChild;
+  select.innerHTML = "";
+  if (fallback) select.appendChild(fallback);
+  const group = (labelKey, names) => {
+    if (names.length === 0) return;
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = t(labelKey);
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      optgroup.appendChild(option);
+    }
+    select.appendChild(optgroup);
+  };
+  group("settings.holosCustomVoices", voices.custom);
+  group("settings.holosPresetVoices", voices.presets);
+  const all = [...voices.custom, ...voices.presets];
+  select.value = all.includes(preferred) ? preferred : "";
+}
+
+function showHolosState(installed) {
+  if (dom.settingsSpeechHolosInstall) dom.settingsSpeechHolosInstall.hidden = installed;
+  if (dom.settingsSpeechHolosClone) dom.settingsSpeechHolosClone.hidden = !installed;
+  if (dom.settingsSpeechHolosVoice) dom.settingsSpeechHolosVoice.disabled = !installed;
+  if (dom.settingsSpeechHolosStatus) {
+    dom.settingsSpeechHolosStatus.textContent = t(installed ? "settings.holosInstalled" : "settings.holosNotInstalled");
+  }
+}
+
+async function installHolosVoice() {
+  if (!api?.installHolosVoice || !dom.settingsSpeechHolosInstall) return;
+  dom.settingsSpeechHolosInstall.disabled = true;
+  if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.holosDownloading");
+  try {
+    const result = await api.installHolosVoice();
+    if (result.ok) await populateSpeechVoices(dom.settingsSpeechVoiceUk?.value ?? "", dom.settingsSpeechVoiceEn?.value ?? "", dom.settingsSpeechHolosVoice?.value ?? "");
+    else if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.piperDownloadFailed", { error: result.error });
+  } catch (err) {
+    if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.piperDownloadFailed", { error: err?.message ?? String(err) });
+  } finally {
+    dom.settingsSpeechHolosInstall.disabled = false;
+  }
+}
+
+async function cloneHolosVoice() {
+  if (!api?.cloneHolosVoice || !dom.settingsSpeechHolosClone) return;
+  dom.settingsSpeechHolosClone.disabled = true;
+  if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.holosCloning");
+  try {
+    const result = await api.cloneHolosVoice();
+    if (result.ok) {
+      await populateSpeechVoices(dom.settingsSpeechVoiceUk?.value ?? "", dom.settingsSpeechVoiceEn?.value ?? "", result.name);
+      if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.holosCloned", { name: result.name });
+    } else if (dom.settingsSpeechHolosStatus) {
+      dom.settingsSpeechHolosStatus.textContent = result.canceled ? t("settings.holosInstalled") : t("settings.holosCloneFailed", { error: result.error });
+    }
+  } catch (err) {
+    if (dom.settingsSpeechHolosStatus) dom.settingsSpeechHolosStatus.textContent = t("settings.holosCloneFailed", { error: err?.message ?? String(err) });
+  } finally {
+    dom.settingsSpeechHolosClone.disabled = false;
   }
 }
 
@@ -315,8 +388,10 @@ async function openSettings() {
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
-    if (dom.settingsSpeechEngine) dom.settingsSpeechEngine.value = current.speechEngine === "piper" ? "piper" : "macos";
-    void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "");
+    if (dom.settingsSpeechEngine) {
+      dom.settingsSpeechEngine.value = ["piper", "holos"].includes(current.speechEngine) ? current.speechEngine : "macos";
+    }
+    void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "", current.speechHolosVoice ?? "");
     refreshSettingsVisibility();
     refreshAppearanceSegmented();
     refreshLookFields();
@@ -518,7 +593,8 @@ async function saveSettingsFromForm() {
     speechEngine: dom.settingsSpeechEngine?.value ?? "macos",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
-    speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? ""
+    speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? "",
+    speechHolosVoice: dom.settingsSpeechHolosVoice?.value ?? ""
   };
   dom.settingsSave.disabled = true;
   showSettingsStatus(t("settings.saving"), null);
@@ -799,6 +875,8 @@ function bindEvents() {
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
   dom.settingsSpeechPiperInstall?.addEventListener("click", installPiperVoice);
+  dom.settingsSpeechHolosInstall?.addEventListener("click", installHolosVoice);
+  dom.settingsSpeechHolosClone?.addEventListener("click", cloneHolosVoice);
   dom.appearanceSegmented?.addEventListener("click", (e) => {
     const btn = e.target.closest(".segmented-btn");
     if (!btn?.dataset.appearance) return;

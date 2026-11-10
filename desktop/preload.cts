@@ -191,6 +191,7 @@ const desktopApi = {
     speechRate?: number;
     speechVoiceUk?: string;
     speechVoiceEn?: string;
+    speechHolosVoice?: string;
     launchAtLoginLastError?: string;
   }) => ipcRenderer.invoke("marshal:update-settings", settings),
   // The iCal address goes in only; main never sends it back (#269).
@@ -208,9 +209,17 @@ const desktopApi = {
     uk: Array<{ name: string; locale: string }>;
     en: Array<{ name: string; locale: string }>;
     piperInstalled: boolean;
+    holosInstalled: boolean;
+    holosVoices: { presets: string[]; custom: string[] };
   }>,
   installPiperVoice: () => ipcRenderer.invoke("marshal:speech-install-piper") as Promise<
     { ok: true } | { ok: false; error: string }
+  >,
+  installHolosVoice: () => ipcRenderer.invoke("marshal:speech-install-holos") as Promise<
+    { ok: true } | { ok: false; error: string }
+  >,
+  cloneHolosVoice: () => ipcRenderer.invoke("marshal:speech-clone-holos") as Promise<
+    { ok: true; name: string } | { ok: false; canceled: boolean; error: string }
   >,
   speakTestPhrase: () => ipcRenderer.invoke("marshal:speech-test") as Promise<
     Array<{ ok: true; lang: string; voice: string } | { ok: false; lang?: string; error: string }>

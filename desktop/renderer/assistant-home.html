@@ -189,12 +189,29 @@
               <select id="settings-speech-engine" name="speechEngine">
                 <option value="macos" data-i18n="settings.engineMacos">macOS</option>
                 <option value="piper" data-i18n="settings.enginePiper">Piper (local)</option>
+                <option value="holos" data-i18n="settings.engineHolos">Holos (local, best quality)</option>
               </select>
               <p id="settings-speech-piper-status" class="field-hint">
                 Piper is a local neural voice (Lada), Ukrainian only. Not downloaded yet — macOS speaks until it is.
               </p>
               <button type="button" id="settings-speech-piper-install" class="btn btn-secondary" hidden data-i18n="settings.downloadPiper">
                 Download Piper voice (32 MB)
+              </button>
+            </div>
+
+            <div class="field">
+              <label for="settings-speech-holos-voice" data-i18n="settings.holosVoice">Holos voice</label>
+              <select id="settings-speech-holos-voice" name="speechHolosVoice">
+                <option value="" data-i18n="settings.holosDefaultVoice">Default</option>
+              </select>
+              <p id="settings-speech-holos-status" class="field-hint">
+                Holos is the most natural local Ukrainian voice. Not downloaded yet.
+              </p>
+              <button type="button" id="settings-speech-holos-install" class="btn btn-secondary" hidden data-i18n="settings.downloadHolos">
+                Download Holos voice (≈2 GB)
+              </button>
+              <button type="button" id="settings-speech-holos-clone" class="btn btn-secondary" hidden data-i18n="settings.addHolosVoice">
+                Add voice from recording…
               </button>
             </div>
 
