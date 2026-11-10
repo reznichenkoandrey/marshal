@@ -552,12 +552,8 @@ function registerIpcHandlers(): void {
     async (_event, payload: TranslateImageRequest) => {
       const { service } = ensureTranslator();
       const { targetLang, options } = normalizeTranslateRequest(payload);
-      const result = await service.translateImage(
-        payload.base64,
-        payload.mimeType || "image/png",
-        targetLang,
-        options
-      );
+      const image = prepareTranslatorImage(payload.base64, payload.mimeType || "image/png");
+      const result = await service.translateImage(image.base64, image.mimeType, targetLang, options);
       pushHistory({
         text: "",
         translation: result.translation,
@@ -731,7 +727,16 @@ function registerIpcHandlers(): void {
     if (!translatorWindow) {
       throw new Error("Translator window is not initialized.");
     }
-    translatorWindow.show();
+    openTranslator();
+  });
+
+  handleIpc("marshal:translator-expand", () => {
+    translatorWindow?.expand();
+  });
+
+  handleIpc("marshal:translator-fit", (_event, height: unknown) => {
+    const value = Number(height);
+    if (Number.isFinite(value)) translatorWindow?.fitCompact(value);
   });
 
   // ── Capture IPC ─────────────────────────────────────────────────────────
@@ -1141,6 +1146,29 @@ function openPinnedWindow(base64Png: string): void {
 function handleIpc(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
   ipcMain.removeHandler(channel);
   ipcMain.handle(channel, listener);
+}
+
+/** Opening the translator starts a Claude CLI process ahead of the first keystroke (#344). */
+function openTranslator(): void {
+  translatorService?.warmUp();
+  translatorWindow?.show();
+}
+
+// Claude downsizes anything past 1568 px on the long side anyway; sending a
+// full Retina crop only costs upload time. Formats it cannot read go as PNG.
+const MAX_TRANSLATOR_IMAGE_EDGE = 1568;
+const CLAUDE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+function prepareTranslatorImage(base64: string, mimeType: string): { base64: string; mimeType: string } {
+  const image = nativeImage.createFromBuffer(Buffer.from(base64, "base64"));
+  if (image.isEmpty()) return { base64, mimeType };
+  const { width, height } = image.getSize();
+  const scale = MAX_TRANSLATOR_IMAGE_EDGE / Math.max(width, height);
+  if (scale >= 1 && CLAUDE_IMAGE_TYPES.has(mimeType)) return { base64, mimeType };
+  const sized = scale < 1
+    ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: "best" })
+    : image;
+  return { base64: sized.toPNG().toString("base64"), mimeType: "image/png" };
 }
 
 function ensureTranslator(): { service: TranslatorService; window: TranslatorWindow } {
@@ -2299,7 +2327,7 @@ function buildTrayMenu(): Electron.Menu {
   return Menu.buildFromTemplate([
     ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
     { label: t("tray.openMarshal"), click: () => openAssistantHome() },
-    { label: t("tray.openTranslator"), click: () => translatorWindow?.show() },
+    { label: t("tray.openTranslator"), click: () => openTranslator() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
     // listener is dead (#84). No global accelerator: Cmd+Alt+M sat next to the
@@ -2556,7 +2584,7 @@ function initTranslator(): void {
       return;
     }
     if (action === "show") {
-      translatorWindow.show();
+      openTranslator();
       return;
     }
     clipboardMonitor?.emitTranslate(clipboardText.trim());
@@ -2625,6 +2653,8 @@ function initTranslator(): void {
     void (async () => {
       if (!screenshotService || !translatorService || !translatorWindow) return;
 
+      // The process starts while the user drags the region.
+      translatorService.warmUp();
       translatorWindow.hide();
       // Brief pause to let the window actually disappear before capturing
       await new Promise<void>((r) => setTimeout(r, 120));
@@ -2635,8 +2665,9 @@ function initTranslator(): void {
 
         translatorWindow.showLoading("image");
         const { targetLang } = translatorService.languagePair;
-        const result = await translatorService.translateImage(base64, "image/png", targetLang);
-        translatorWindow.showImageResult(result.translation, result.targetLang);
+        const image = prepareTranslatorImage(base64, "image/png");
+        const result = await translatorService.translateImage(image.base64, image.mimeType, targetLang);
+        translatorWindow.showImageResult(result);
         pushHistory({
           text: "",
           translation: result.translation,
@@ -2646,8 +2677,7 @@ function initTranslator(): void {
           timestamp: Date.now()
         });
       } catch (err) {
-        // Ensure the translator window is visible so the user sees the error
-        translatorWindow.show();
+        // showError opens the popup when nothing is on screen.
         translatorWindow.showError(err instanceof Error ? err.message : String(err));
       }
     })();
@@ -3009,7 +3039,7 @@ function runAssistantAction(name: string | undefined): void {
       void talkToAssistant();
       return;
     case "translator":
-      translatorWindow?.show();
+      openTranslator();
       return;
     case "captions":
       void toggleLiveCaptions();

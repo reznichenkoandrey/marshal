@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { asarUnpacked } from "../../utils/asar-paths.ts";
 import { OpenAiApiTranslatorBackend } from "./openai-api-backend.ts";
-import { mimeExtension, ocrSourceLang, resolveSourceLang } from "./shared.ts";
+import { mimeExtension, ocrSourceLang, resolveSourceLang, unwrapOcrLines } from "./shared.ts";
 import type {
   TargetLang,
   TranslateOptions,
@@ -63,7 +63,7 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
     await fs.writeFile(file, Buffer.from(base64, "base64"));
 
     try {
-      const recognized = (await this.runOcr(file)).trim();
+      const recognized = unwrapOcrLines((await this.runOcr(file)).trim());
       if (!recognized) {
         return { translation: "", sourceLang: ocrSourceLang(options), targetLang };
       }
@@ -71,7 +71,8 @@ export class AppleVisionTranslatorBackend implements TranslatorBackend {
       return {
         translation: result.translation,
         sourceLang: resolveSourceLang(recognized, result.sourceLang, options),
-        targetLang
+        targetLang,
+        sourceText: recognized
       };
     } finally {
       await fs.unlink(file).catch(() => {});

@@ -58,6 +58,8 @@ export interface TranslationResult {
   translation: string;
   sourceLang: string;
   targetLang: TargetLang;
+  /** Image path: the text that was recognized, when the backend reports it. */
+  sourceText?: string;
 }
 
 /**
@@ -109,4 +111,8 @@ export interface TranslatorBackend {
    * its absence into a message naming the provider instead of a crash.
    */
   suggestAlternatives?(request: AlternativesRequest): Promise<AlternativesResult>;
+  /** Optional: start whatever makes the next call fast (a CLI process). */
+  warmUp?(): void;
+  /** Optional: release what warmUp started; called when the backend is replaced. */
+  dispose?(): void;
 }

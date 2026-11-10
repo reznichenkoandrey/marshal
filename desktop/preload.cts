@@ -67,6 +67,9 @@ const translatorApi = {
     ipcRenderer.invoke("marshal:translator-content", hasContent),
   // Pinned windows survive blur so the user can type in another app.
   setPinned: (pinned: boolean) => ipcRenderer.invoke("marshal:translator-pin", pinned),
+  // Compact popup (#344): grow it to the full window, or fit it to its text.
+  expand: () => ipcRenderer.invoke("marshal:translator-expand"),
+  fitCompact: (height: number) => ipcRenderer.invoke("marshal:translator-fit", height),
   // Paste the translation into the app behind the translator.
   insertTranslation: (text: string) => ipcRenderer.invoke("marshal:translator-insert", text),
   // Glossary — fixed terms the translator must not rewrite
@@ -90,6 +93,8 @@ const translatorApi = {
     registerListener<[{ message: string }]>("translator-error", cb),
   onNotice: (cb: (event: IpcRendererEvent, data: { message: string }) => void) =>
     registerListener<[{ message: string }]>("translator-notice", cb),
+  onView: (cb: (event: IpcRendererEvent, data: { view: "full" | "compact" }) => void) =>
+    registerListener<[{ view: "full" | "compact" }]>("translator-view", cb),
   // Crop overlay. Each overlay gets a unique pair of channels (see
   // desktop/translator/screenshot-service.ts) — renderer receives them via
   // `onCropInit` and echoes them back in `selectCrop` / `cancelCrop`.

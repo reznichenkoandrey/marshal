@@ -19,19 +19,22 @@
       </span>
 
       <div class="header-right">
-        <button class="icon-btn" id="btn-pin" title="Keep window open (⌘P)" aria-pressed="false">
+        <button class="icon-btn" id="btn-expand" title="Open the full translator" data-i18n-title="translator.expandTitle">
+          <span data-icon="maximize-2" data-icon-size="14"></span>
+        </button>
+        <button class="icon-btn full-only" id="btn-pin" title="Keep window open (⌘P)" aria-pressed="false">
           <span data-icon="pin" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-glossary" title="Glossary — terms the translator must not rewrite" data-i18n-title="translator.glossaryTitle">
+        <button class="icon-btn full-only" id="btn-glossary" title="Glossary — terms the translator must not rewrite" data-i18n-title="translator.glossaryTitle">
           <span data-icon="book" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-history" title="History (↑/↓ in empty input)" data-i18n-title="translator.historyTitle">
+        <button class="icon-btn full-only" id="btn-history" title="History (↑/↓ in empty input)" data-i18n-title="translator.historyTitle">
           <span data-icon="rotate-ccw" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-capture" title="Capture screen region (⌘⇧2)" data-i18n-title="translator.captureTitle">
+        <button class="icon-btn full-only" id="btn-capture" title="Capture screen region (⌘⇧2)" data-i18n-title="translator.captureTitle">
           <span data-icon="crop" data-icon-size="14"></span>
         </button>
-        <button class="icon-btn" id="btn-upload" title="Upload image" data-i18n-title="translator.uploadTitle">
+        <button class="icon-btn full-only" id="btn-upload" title="Upload image" data-i18n-title="translator.uploadTitle">
           <span data-icon="folder-open" data-icon-size="14"></span>
         </button>
         <input type="file" id="file-input" accept="image/*" hidden />
