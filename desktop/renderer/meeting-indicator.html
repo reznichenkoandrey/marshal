@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body {
@@ -73,9 +75,9 @@
       <svg class="wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M2 12h3l2.5-7 5 14 3-7H22" />
       </svg>
-      <span id="label">Meeting…</span>
+      <span id="label" data-i18n="indicator.meeting">Meeting…</span>
       <span id="time">00:00</span>
-      <button class="stop" id="stop" title="Stop meeting recording"><span class="square"></span></button>
+      <button class="stop" id="stop" title="Stop meeting recording" aria-label="Stop meeting recording" data-i18n-title="indicator.stopMeeting" data-i18n-aria-label="indicator.stopMeeting"><span class="square"></span></button>
     </div>
     <script type="module">
       const api = window.marshalMeeting;

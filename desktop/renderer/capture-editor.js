@@ -29,6 +29,7 @@ import {
 } from "./capture-shapes.js";
 
 const api = window.marshalCapture;
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
 
 // Native pixel size of the captured image. Set on image-loaded and after crop.
 const state = {
@@ -489,9 +490,9 @@ async function doSaveAs() {
   try {
     const b64 = composeForExport();
     const result = await api.saveAs(b64);
-    if (result && result.path) toast(`Saved to ${result.path}`);
+    if (result && result.path) toast(t("capture.savedTo", { path: result.path }));
   } catch (err) {
-    toast(`Save failed: ${err.message || err}`);
+    toast(t("capture.saveFailed", { error: err.message || err }));
   }
 }
 
@@ -499,9 +500,9 @@ async function doSaveQuick() {
   try {
     const b64 = composeForExport();
     const result = await api.saveQuick(b64);
-    if (result && result.path) toast(`Saved: ${result.path.split("/").pop()}`);
+    if (result && result.path) toast(t("capture.savedFile", { name: result.path.split("/").pop() }));
   } catch (err) {
-    toast(`Save failed: ${err.message || err}`);
+    toast(t("capture.saveFailed", { error: err.message || err }));
   }
 }
 
@@ -513,7 +514,7 @@ async function doCopy() {
     // would die with the window before it could be read.
     await api.copy(b64);
   } catch (err) {
-    toast(`Copy failed: ${err.message || err}`);
+    toast(t("capture.copyFailed", { error: err.message || err }));
   }
 }
 
@@ -535,10 +536,12 @@ const stayOnTopBtn = document.getElementById("stay-on-top");
 
 function renderStayOnTop(enabled) {
   stayOnTopBtn.setAttribute("aria-pressed", enabled ? "true" : "false");
-  stayOnTopBtn.title = enabled
-    ? "Keep above other windows — on"
-    : "Keep above other windows — off (use the menu bar to bring it back)";
+  stayOnTopBtn.title = t(enabled ? "capture.stayOnTopOn" : "capture.stayOnTopOff");
 }
+
+window.addEventListener("marshal:language", () => {
+  renderStayOnTop(stayOnTopBtn.getAttribute("aria-pressed") === "true");
+});
 
 stayOnTopBtn.addEventListener("click", async () => {
   const next = stayOnTopBtn.getAttribute("aria-pressed") !== "true";
@@ -625,8 +628,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape")                                 { api.close(); return; }
 
   if (!els.textInput.matches(":focus")) {
-    const t = TOOL_KEYS[e.key.toLowerCase()];
-    if (t) setTool(t);
+    const tool = TOOL_KEYS[e.key.toLowerCase()];
+    if (tool) setTool(tool);
   }
 });
 

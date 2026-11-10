@@ -3,7 +3,8 @@
 // hands over the language main resolved; main pushes a change, so an open
 // window switches without a reload.
 //
-// Markup: data-i18n (text), data-i18n-title, data-i18n-placeholder,
+// Markup: data-i18n (text), data-i18n-html (catalog markup such as <code>,
+// never user data), data-i18n-title, data-i18n-placeholder,
 // data-i18n-aria-label. Code that builds text itself reads MarshalI18n.t and
 // re-renders on the "marshal:language" window event.
 (() => {
@@ -26,6 +27,7 @@
     document.documentElement.lang = lang;
     if (!Object.keys(catalogs).length) return;
     for (const node of root.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+    for (const node of root.querySelectorAll("[data-i18n-html]")) node.innerHTML = t(node.dataset.i18nHtml);
     for (const [data, attribute, selector] of ATTRIBUTES) {
       for (const node of root.querySelectorAll(selector)) node.setAttribute(attribute, t(node.dataset[data]));
     }

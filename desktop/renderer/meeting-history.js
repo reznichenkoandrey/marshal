@@ -7,6 +7,8 @@ const list = document.getElementById("list");
 const empty = document.getElementById("empty");
 const folderLabel = document.getElementById("folder-path");
 const api = window.marshalMeetingHistory;
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
+const uiLocale = () => (window.MarshalI18n?.language() === "uk" ? "uk-UA" : "en-GB");
 
 let entries = [];
 let openId = null;
@@ -25,7 +27,7 @@ const LANGUAGE_KEY = "marshal.meetingNotesLanguage";
 
 if (!api) {
   empty.classList.remove("hidden");
-  empty.textContent = "Recordings API unavailable — preload script failed to load.";
+  empty.textContent = t("meetings.apiUnavailable");
 } else {
   api.onLoaded((_event, payload) => {
     entries = Array.isArray(payload?.entries) ? payload.entries : [];
@@ -53,11 +55,12 @@ if (!api) {
       // Not remembered across sessions; the current choice still applies.
     }
   });
+  window.addEventListener("marshal:language", render);
 }
 
 async function summarize(entry) {
   const result = await api.summarize(entry.id, languageSelect.value);
-  if (!result?.ok && result?.error !== "Cancelled.") alert(result?.error ?? "Could not make notes for the recording.");
+  if (!result?.ok && !result?.cancelled) alert(result?.error ?? t("meetings.notesFailed"));
 }
 
 function render() {
@@ -73,7 +76,7 @@ function renderEntry(entry) {
   const row = el("div", "meeting-row");
   const media = entry.videoPath ?? entry.audioPath;
 
-  row.append(el("span", "meeting-kind", entry.mode === "screen" ? "Screen" : "Audio"));
+  row.append(el("span", "meeting-kind", entry.mode === "screen" ? t("meetings.kindScreen") : t("meetings.kindAudio")));
   const title = el("div", "meeting-title");
   title.append(el("span", "meeting-date", formatDate(entry.startedAt)));
   const unfinished = entry.state === "error" || entry.state === "interrupted";
@@ -87,34 +90,34 @@ function renderEntry(entry) {
 
   const actions = el("div", "meeting-actions");
   if (unfinished) {
-    const finish = button(busy ? "Finishing…" : "Finish", async () => {
+    const finish = button(busy ? t("meetings.finishing") : t("meetings.finish"), async () => {
       finishing.add(entry.id);
       render();
       const result = await api.finish(entry.id);
       finishing.delete(entry.id);
       render();
-      if (!result?.ok) alert(result?.error ?? "Could not finish the recording.");
+      if (!result?.ok) alert(result?.error ?? t("meetings.finishFailed"));
     });
     finish.disabled = busy;
-    finish.title = "Build the audio file from the raw chunks left in the folder";
+    finish.title = t("meetings.finishTitle");
     actions.append(finish);
   }
   if (entry.state === "done" && entry.audioPath) {
     if (transcribing) {
-      actions.append(button("Cancel", () => void api.cancelNotes(entry.id)));
+      actions.append(button(t("meetings.cancel"), () => void api.cancelNotes(entry.id)));
     } else if (!entry.notesPath) {
-      const make = button("Transcribe & summarize", () => void summarize(entry));
+      const make = button(t("meetings.summarize"), () => void summarize(entry));
       make.disabled = notesJob !== null;
-      make.title = notesJob ? "Another recording is being transcribed" : "Transcribe this call locally and write notes with action items";
+      make.title = notesJob ? t("meetings.summarizeBusyTitle") : t("meetings.summarizeTitle");
       actions.append(make);
     }
   }
-  actions.append(button("Show in Finder", () => void api.reveal(media ?? `${entry.folder}/manifest.json`)));
+  actions.append(button(t("meetings.showInFinder"), () => void api.reveal(media ?? `${entry.folder}/manifest.json`)));
   if (entry.state !== "recording" && entry.state !== "finalizing" && !busy && !transcribing) {
-    actions.append(button("Delete", async () => {
-      if (!confirm(`Move the recording from ${formatDate(entry.startedAt)} to the Trash?`)) return;
+    actions.append(button(t("meetings.delete"), async () => {
+      if (!confirm(t("meetings.deleteConfirm", { date: formatDate(entry.startedAt) }))) return;
       const result = await api.trash(entry.id);
-      if (!result?.ok) alert(result?.error ?? "Could not delete the recording.");
+      if (!result?.ok) alert(result?.error ?? t("meetings.deleteFailed"));
     }));
   }
   row.append(actions);
@@ -147,7 +150,7 @@ function renderEntry(entry) {
 function renderNotes(entry) {
   const box = el("div", "meeting-notes");
   if (!notesCache.has(entry.id)) {
-    box.append(el("p", "notes-empty", "Loading notes…"));
+    box.append(el("p", "notes-empty", t("meetings.loadingNotes")));
     notesCache.set(entry.id, null);
     void api.readNotes(entry.id).then((notes) => {
       notesCache.set(entry.id, notes ?? { error: true });
@@ -157,28 +160,28 @@ function renderNotes(entry) {
   }
   const notes = notesCache.get(entry.id);
   if (!notes) {
-    box.append(el("p", "notes-empty", "Loading notes…"));
+    box.append(el("p", "notes-empty", t("meetings.loadingNotes")));
     return box;
   }
   if (notes.error) {
-    box.append(el("p", "notes-empty", "notes.json could not be read."));
+    box.append(el("p", "notes-empty", t("meetings.notesUnreadable")));
   } else {
-    box.append(el("h3", "notes-title", notes.title || "Call"));
-    appendList(box, "Summary", notes.summary);
-    appendList(box, "Decisions", notes.decisions);
+    box.append(el("h3", "notes-title", notes.title || t("meetings.notesFallbackTitle")));
+    appendList(box, t("meetings.notesSummary"), notes.summary);
+    appendList(box, t("meetings.notesDecisions"), notes.decisions);
     const tasks = Array.isArray(notes.tasks) ? notes.tasks : [];
     if (tasks.length > 0) {
-      box.append(el("h4", "notes-heading", "Action items"));
+      box.append(el("h4", "notes-heading", t("meetings.notesTasks")));
       const list = el("ul", "notes-tasks");
       for (const task of tasks) {
         const row = el("li", "notes-task");
         row.append(el("span", "notes-task-text", task.task));
         if (task.owner) row.append(el("span", "notes-task-owner", task.owner));
-        if (task.mine) row.append(el("span", "notes-task-mine", "me"));
-        const copy = button("Copy", async () => {
+        if (task.mine) row.append(el("span", "notes-task-mine", t("meetings.notesMine")));
+        const copy = button(t("meetings.copy"), async () => {
           await navigator.clipboard.writeText(task.task);
-          copy.textContent = "Copied";
-          setTimeout(() => (copy.textContent = "Copy"), 1200);
+          copy.textContent = t("meetings.copied");
+          setTimeout(() => (copy.textContent = t("meetings.copy")), 1200);
         });
         row.append(copy);
         list.append(row);
@@ -187,11 +190,11 @@ function renderNotes(entry) {
     }
   }
   const actions = el("div", "notes-actions");
-  actions.append(button("Open notes.md", () => void api.openNotesFile(entry.id, "notes")));
-  actions.append(button("Open transcript", () => void api.openNotesFile(entry.id, "transcript")));
-  const again = button(notesJob?.id === entry.id ? "Regenerating…" : "Regenerate", () => void summarize(entry));
+  actions.append(button(t("meetings.openNotes"), () => void api.openNotesFile(entry.id, "notes")));
+  actions.append(button(t("meetings.openTranscript"), () => void api.openNotesFile(entry.id, "transcript")));
+  const again = button(notesJob?.id === entry.id ? t("meetings.regenerating") : t("meetings.regenerate"), () => void summarize(entry));
   again.disabled = notesJob !== null;
-  again.title = "Write the notes again from the saved transcript";
+  again.title = t("meetings.regenerateTitle");
   actions.append(again);
   box.append(actions);
   return box;
@@ -206,28 +209,28 @@ function appendList(box, heading, items) {
 }
 
 function describe(entry) {
-  if (entry.state === "recording") return "Recording…";
-  if (entry.state === "finalizing") return "Saving…";
-  if (finishing.has(entry.id)) return "Building the audio file…";
+  if (entry.state === "recording") return t("meetings.stateRecording");
+  if (entry.state === "finalizing") return t("meetings.stateSaving");
+  if (finishing.has(entry.id)) return t("meetings.stateFinishing");
   if (notesJob?.id === entry.id) return describeNotesJob(notesJob);
-  if (entry.state === "interrupted") return "Interrupted — raw chunks are in the folder";
-  if (entry.state === "error") return `Failed: ${entry.error ?? "unknown error"}`;
+  if (entry.state === "interrupted") return t("meetings.stateInterrupted");
+  if (entry.state === "error") return t("meetings.stateFailed", { error: entry.error ?? t("meetings.unknownError") });
   const parts = [];
   if (entry.durationMs !== null) parts.push(formatDuration(entry.durationMs));
   parts.push(formatBytes(entry.bytes));
-  if (entry.warnings.length > 0) parts.push(`${entry.warnings.length} warning(s)`);
-  if (entry.notesPath) parts.push("notes");
+  if (entry.warnings.length > 0) parts.push(t("meetings.warnings", { count: entry.warnings.length }));
+  if (entry.notesPath) parts.push(t("meetings.hasNotes"));
   return parts.join(" · ");
 }
 
 function describeNotesJob(job) {
-  if (job.phase === "transcribing") return `Transcribing… ${job.done}/${job.total}`;
-  if (job.phase === "summarizing") return "Writing notes…";
-  return "Preparing the transcription…";
+  if (job.phase === "transcribing") return t("meetings.transcribing", { done: job.done, total: job.total });
+  if (job.phase === "summarizing") return t("meetings.writingNotes");
+  return t("meetings.preparing");
 }
 
 function formatDate(iso) {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString(uiLocale(), {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -246,8 +249,8 @@ function formatDuration(ms) {
 }
 
 function formatBytes(bytes) {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+  if (bytes >= 1024 ** 3) return t("meetings.sizeGb", { size: (bytes / 1024 ** 3).toFixed(1) });
+  return t("meetings.sizeMb", { size: Math.max(1, Math.round(bytes / 1024 ** 2)) });
 }
 
 function el(tag, className, text) {

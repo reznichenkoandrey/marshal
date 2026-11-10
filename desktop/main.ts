@@ -517,9 +517,9 @@ function registerIpcHandlers(): void {
       saved.translatorTargetLang,
       saved.translatorFormality
     );
+    broadcastUiLanguage();
     // Only the reasoning bridge reads provider and model; anything else
     // restarting it would drop a running agent task for nothing (#317).
-    broadcastUiLanguage();
     if (BACKEND_SETTING_KEYS.some((key) => saved[key] !== before[key])) await backendClient.restart();
     return saved;
   });

@@ -33,6 +33,7 @@ import { PushToTalkHotkey, type PushToTalkBackend } from "../dictation/hotkey-ma
 import { isSwiftPttCandidate, SwiftPushToTalkHotkey } from "../dictation/swift-ptt-monitor.ts";
 import { CaptionsWindow, type OcrRegion } from "./captions-window.ts";
 import { systemPreferences } from "electron";
+import { t } from "../i18n/ui-language.ts";
 
 import { assertScreenRecordingGranted, readRegionText } from "./ocr-context.ts";
 import { shouldAcceptMouse, type OverlayStatus, type OverlayUpdate } from "./overlay-layout.ts";
@@ -192,7 +193,7 @@ export class LiveCaptionsService extends EventEmitter {
     });
     this.tap.on("exit", (code: number | null) => {
       if (this.state === "running") {
-        this.setStatus("error", `audio tap exited (${code ?? "signal"}) — stop and start captions again`);
+        this.setStatus("error", t("captions.status.tapExited", { code: code ?? "signal" }));
       }
     });
   }
@@ -322,7 +323,7 @@ export class LiveCaptionsService extends EventEmitter {
       this.summaryText = "";
       this.transcribeQueue = [];
       this.window.show();
-      this.setStatus("starting", "starting audio tap…");
+      this.setStatus("starting", t("captions.status.starting"));
 
       this.segmenter = await this.createSegmenter();
       const onPcm = (chunk: Buffer): void => {
@@ -386,7 +387,7 @@ export class LiveCaptionsService extends EventEmitter {
 
   resetOcrRegion(): void {
     this.window.setOcrRegion(null);
-    this.setStatus(this.status, "OCR region cleared — next Ctrl+Shift+S picks a new one");
+    this.setStatus(this.status, t("captions.status.ocrCleared"));
   }
 
   /**
@@ -405,15 +406,15 @@ export class LiveCaptionsService extends EventEmitter {
       }
       const text = await this.window.withHidden(() => readRegionText(region!));
       if (!this.buffer.pushOcr(text)) {
-        this.setStatus(this.status, "OCR found no text in the region");
+        this.setStatus(this.status, t("captions.status.ocrEmpty"));
         return;
       }
-      this.setStatus(this.status, `screen context added (${text.length} chars)`);
+      this.setStatus(this.status, t("captions.status.ocrAdded", { count: text.length }));
       this.scheduleSummary(0);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[captions] OCR failed:", message);
-      this.setStatus(this.status, `OCR failed: ${message.split("\n")[0]}`);
+      this.setStatus(this.status, t("captions.status.ocrFailed", { error: message.split("\n")[0] }));
     } finally {
       this.ocrBusy = false;
     }
@@ -501,7 +502,7 @@ export class LiveCaptionsService extends EventEmitter {
       const message = err instanceof Error ? err.message : String(err);
       if (segment.reason !== "provisional") this.dropPartial(segment.utteranceId);
       console.warn("[captions] transcription failed:", message);
-      this.setStatus("listening", `transcription failed: ${message.split("\n")[0].slice(0, 120)}`);
+      this.setStatus("listening", t("captions.status.sttFailed", { error: message.split("\n")[0].slice(0, 120) }));
     } finally {
       await fs.unlink(wavPath).catch(() => undefined);
     }
@@ -671,7 +672,7 @@ export class LiveCaptionsService extends EventEmitter {
       this.summaryStreaming = false;
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[captions] summary failed:", message);
-      this.setStatus("listening", `summary failed: ${message.split("\n")[0].slice(0, 120)}`);
+      this.setStatus("listening", t("captions.status.summaryFailed", { error: message.split("\n")[0].slice(0, 120) }));
     } finally {
       if (this.summaryAbort === controller) this.summaryAbort = null;
       // `queue` policy: transcript that arrived during this request gets its

@@ -342,7 +342,7 @@ describe.skipIf(!MeetingAudioMixer.getBinaryPath())("MeetingNotesService", () =>
       ok: false,
       error: "Another recording is being transcribed."
     });
-    expect(await running).toEqual({ ok: false, error: "Cancelled." });
+    expect(await running).toEqual({ ok: false, cancelled: true, error: "Cancelled." });
     expect(whisper.clips).toHaveLength(1);
     expect(existsSync(meetingNotesFiles(dir).transcript)).toBe(false);
   });
