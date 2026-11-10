@@ -7,6 +7,7 @@ import path from "node:path";
 
 import { shortAnswer, WAITING_REMINDER_MS, type HookEvent } from "./hook-events.ts";
 import type { ClaudeSession } from "./registry.ts";
+import { translate, type UiLanguage } from "../i18n/catalog.ts";
 
 /** What the owner hears (#318): a finished turn's summary, or that a session waits. */
 export type SpokenSessionEvent =
@@ -21,9 +22,9 @@ export type NotifierDeps = {
   focus: (pid: number) => void;
   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimer?: (timer: NodeJS.Timeout) => void;
+  /** UI language of the notification text; English when not given. */
+  language?: () => UiLanguage;
 };
-
-const FINISHED_FALLBACK = "Finished, check the session.";
 
 export class SessionNotifier {
   private readonly reminders = new Map<string, NodeJS.Timeout>();
@@ -39,15 +40,16 @@ export class SessionNotifier {
     this.cancelReminder(event.sessionId);
     const name = this.nameOf(event.sessionId, event.cwd);
     const onClick = () => this.focus(event.sessionId);
+    const lang = this.deps.language?.() ?? "en";
 
     if (event.type === "stop") {
       const summary = shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
-      this.deps.notify(`${name}: finished`, summary ?? FINISHED_FALLBACK, onClick);
+      this.deps.notify(translate(lang, "claude.finished", { name }), summary ?? translate(lang, "claude.finishedFallback"), onClick);
       this.deps.speak?.({ kind: "finished", sessionId: event.sessionId, name, summary });
       return;
     }
 
-    const title = event.reason === "confirmation" ? `${name} needs your confirmation` : `${name} needs your input`;
+    const title = translate(lang, event.reason === "confirmation" ? "claude.needsConfirmation" : "claude.needsInput", { name });
     this.deps.notify(title, event.message, onClick);
     this.deps.speak?.({ kind: "waiting", sessionId: event.sessionId, name, confirmation: event.reason === "confirmation" });
     this.reminders.set(event.sessionId, this.setTimer(() => {
@@ -55,7 +57,8 @@ export class SessionNotifier {
       // Answered from the terminal, the session no longer waits — and only
       // the registry knows, because answering fires no hook.
       if (this.deps.findSession(event.sessionId)?.status !== "waiting") return;
-      this.deps.notify(`${this.nameOf(event.sessionId, event.cwd)} is still waiting`, event.message, onClick);
+      const later = this.deps.language?.() ?? "en";
+      this.deps.notify(translate(later, "claude.stillWaiting", { name: this.nameOf(event.sessionId, event.cwd) }), event.message, onClick);
     }, WAITING_REMINDER_MS));
   }
 

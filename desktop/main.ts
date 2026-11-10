@@ -67,7 +67,8 @@ import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
-import { calendarTrayItem, createCalendarService, language as assistantLanguage } from "./calendar/calendar-ui.ts";
+import { calendarTrayItem, createCalendarService } from "./calendar/calendar-ui.ts";
+import { broadcastUiLanguage, registerUiLanguageIpc, t, uiLanguage } from "./i18n/ui-language.ts";
 import { runPostInstallPermissionCheck } from "./permissions/post-install-check.ts";
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
@@ -266,6 +267,7 @@ async function bootstrap(): Promise<void> {
       logPermissionStatus();
       void runPostInstallPermissionCheck({
         currentVersion: app.getVersion(),
+        language: uiLanguage(),
         loadSettings,
         saveSettings,
         queryPermissions: () => ({
@@ -340,6 +342,7 @@ async function bootstrap(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
+  registerUiLanguageIpc();
   handleIpc("marshal:get-health", () => backendClient.invoke("getHealth"));
   handleIpc("marshal:list-projects", () => backendClient.invoke("listProjects"));
   handleIpc("marshal:create-project", (_event, name?: string) => backendClient.invoke("createProject", name));
@@ -486,10 +489,10 @@ function registerIpcHandlers(): void {
     const pid = input?.pid;
     // Only a pid the registry lists right now: the renderer must not pick arbitrary processes.
     if (typeof pid !== "number" || !listLiveSessions().some((session) => session.pid === pid)) {
-      return { ok: false, error: "Session is no longer running." };
+      return { ok: false, error: t("session.gone") };
     }
     const focused = await focusSession(pid);
-    return focused ? { ok: true, focused } : { ok: false, error: "Could not bring the session forward." };
+    return focused ? { ok: true, focused } : { ok: false, error: t("session.focusFailed") };
   });
   // What the agent backend reads from the env (applySettingsToEnv).
   const BACKEND_SETTING_KEYS = ["bridgeMode", "claudeModel", "codexModel"] as const;
@@ -514,6 +517,7 @@ function registerIpcHandlers(): void {
       saved.translatorTargetLang,
       saved.translatorFormality
     );
+    broadcastUiLanguage();
     // Only the reasoning bridge reads provider and model; anything else
     // restarting it would drop a running agent task for nothing (#317).
     if (BACKEND_SETTING_KEYS.some((key) => saved[key] !== before[key])) await backendClient.restart();
@@ -681,7 +685,7 @@ function registerIpcHandlers(): void {
     (_event, payload: { term?: unknown; targetLang?: unknown; translation?: unknown }) => {
       if (!translatorGlossary) throw new Error("Translator glossary is not initialized.");
       const entry = buildGlossaryEntry(payload?.term, payload?.targetLang, payload?.translation);
-      if (!entry) throw new Error("A glossary entry needs a term.");
+      if (!entry) throw new Error(t("glossary.needsTerm"));
       const next = translatorGlossary.upsert(entry);
       translatorService?.setGlossary(next);
       return next;
@@ -733,9 +737,9 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:capture-save-as", async (_event, input: { base64: string }) => {
     const defaultName = defaultCaptureFilename();
     const result = await dialog.showSaveDialog({
-      title: "Save capture",
+      title: t("dialog.saveCapture"),
       defaultPath: path.join(app.getPath("desktop"), defaultName),
-      filters: [{ name: "PNG Image", extensions: ["png"] }]
+      filters: [{ name: t("dialog.pngImage"), extensions: ["png"] }]
     });
     if (result.canceled || !result.filePath) return { path: null };
     fs.writeFileSync(result.filePath, Buffer.from(input.base64, "base64"));
@@ -787,7 +791,7 @@ function registerIpcHandlers(): void {
   handleIpc("marshal:capture-history:open-in-editor", async (_event, input: { path: string }) => {
     if (!captureHistoryWindow || !captureWindow) return { ok: false, error: "Capture not initialized" };
     const image = await captureHistoryWindow.readImage(input.path);
-    if (!image) return { ok: false, error: "Cannot read image (not in capture folder, or unreadable)" };
+    if (!image) return { ok: false, error: t("history.cannotRead") };
     // Pass kind: "area" so the editor sets the right title. width/height get
     // re-read from the decoded base64 inside the editor itself.
     captureWindow.openEditor({
@@ -882,7 +886,7 @@ function registerIpcHandlers(): void {
       if (Notification.isSupported()) {
         const name = outputPath.split("/").pop() ?? outputPath;
         const notif = new Notification({
-          title: "Marshal — GIF saved",
+          title: t("notify.gifSaved"),
           body: name,
           silent: true
         });
@@ -909,8 +913,8 @@ async function openGifConverter(): Promise<void> {
   if (!GifEncoder.isAvailable()) {
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — ffmpeg not found",
-        body: "Install ffmpeg (e.g. `brew install ffmpeg`) or run `npm install`.",
+        title: t("notify.ffmpegMissing"),
+        body: t("notify.ffmpegMissingBody"),
         silent: true
       }).show();
     }
@@ -920,10 +924,10 @@ async function openGifConverter(): Promise<void> {
   let initialPath = lastRecordingPath;
   if (!initialPath || !fs.existsSync(initialPath)) {
     const result = await dialog.showOpenDialog({
-      title: "Pick a video to convert",
+      title: t("dialog.pickVideo"),
       defaultPath: app.getPath("desktop"),
       properties: ["openFile"],
-      filters: [{ name: "Video", extensions: ["mov", "mp4", "m4v"] }]
+      filters: [{ name: t("dialog.video"), extensions: ["mov", "mp4", "m4v"] }]
     });
     if (result.canceled || result.filePaths.length === 0) return;
     initialPath = result.filePaths[0];
@@ -951,7 +955,7 @@ async function runCapture(kind: "area" | "fullscreen"): Promise<void> {
   } catch (err) {
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Capture failed",
+        title: t("notify.captureFailed"),
         body: err instanceof Error ? err.message : String(err),
         silent: true
       }).show();
@@ -976,8 +980,8 @@ async function runScrollingCapture(): Promise<void> {
   if (!(await ScrollCapture.isAvailable())) {
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Scrolling capture unavailable",
-        body: "Swift helpers were not compiled. Run `npm run build` on macOS.",
+        title: t("notify.scrollUnavailable"),
+        body: t("notify.scrollUnavailableBody"),
         silent: true
       }).show();
     }
@@ -1029,15 +1033,15 @@ async function runScrollingCapture(): Promise<void> {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Scrolling capture saved",
-        body: `${outName} (${result.frameCount} frames${result.settledEarly ? ", stopped on page bottom" : ""})`,
+        title: t("notify.scrollSaved"),
+        body: t(result.settledEarly ? "notify.scrollSavedBottom" : "notify.scrollSavedBody", { name: outName, frames: result.frameCount }),
         silent: true
       }).show();
     }
   } catch (err) {
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Scrolling capture failed",
+        title: t("notify.scrollFailed"),
         body: err instanceof Error ? err.message : String(err),
         silent: true
       }).show();
@@ -1087,8 +1091,8 @@ function keepInArchive(base64: string): void {
 function notifyCaptureCopied(): void {
   if (!Notification.isSupported()) return;
   new Notification({
-    title: "Marshal — Copied",
-    body: "Capture is on the clipboard.",
+    title: t("notify.copied"),
+    body: t("notify.copiedBody"),
     silent: true
   }).show();
 }
@@ -1292,10 +1296,10 @@ async function runScheduledUpdateCheck(): Promise<void> {
 
   if (!Notification.isSupported()) return;
   const notif = new Notification({
-    title: `Marshal ${result.latestVersion} is available`,
+    title: t("update.available", { version: result.latestVersion }),
     body: result.releaseNotes
       ? result.releaseNotes.split("\n")[0].slice(0, 120)
-      : "Click to open the release page on GitHub.",
+      : t("update.openReleasePage"),
     silent: true
   });
   notif.on("click", () => {
@@ -1313,7 +1317,7 @@ async function runManualUpdateCheck(): Promise<void> {
     await dialog.showMessageBox({
       type: "info",
       title: "Marshal",
-      message: "Update checker is not running in this build."
+      message: t("update.notRunning")
     });
     return;
   }
@@ -1328,7 +1332,7 @@ async function runManualUpdateCheck(): Promise<void> {
  */
 async function runSilentUpdateCheck(): Promise<UpdateCheckOutcome | { error: string }> {
   if (!updateChecker) {
-    return { error: "Update checker is not running in this build." };
+    return { error: t("update.notRunning") };
   }
   return updateChecker.check();
 }
@@ -1343,20 +1347,17 @@ async function runSilentUpdateCheck(): Promise<UpdateCheckOutcome | { error: str
  */
 async function runUpdateInstall(sender: Electron.WebContents): Promise<{ ok: true; version: string }> {
   if (!updateChecker) {
-    throw new Error("Update checker is not running in this build.");
+    throw new Error(t("update.notRunning"));
   }
   const result = await updateChecker.check();
   if ("error" in result) {
     throw new Error(result.error);
   }
   if (!result.available) {
-    throw new Error(`Already on the latest version (v${result.currentVersion}).`);
+    throw new Error(t("update.alreadyLatest", { version: result.currentVersion }));
   }
   if (!result.installable) {
-    throw new Error(
-      "This release has no installable ZIP metadata (latest-mac.yml missing). " +
-        "Open the release page and install manually."
-    );
+    throw new Error(t("update.notInstallable"));
   }
 
   const decision = planSwap({ execPath: process.execPath });
@@ -1389,10 +1390,10 @@ async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {
   if ("error" in result) {
     await dialog.showMessageBox({
       type: "warning",
-      title: "Marshal — update check failed",
-      message: "Could not reach the GitHub Releases API.",
+      title: t("update.checkFailed"),
+      message: t("update.unreachable"),
       detail: result.error,
-      buttons: ["OK"]
+      buttons: [t("common.ok")]
     });
     return;
   }
@@ -1401,18 +1402,18 @@ async function showUpdateDialog(result: UpdateCheckOutcome): Promise<void> {
     await dialog.showMessageBox({
       type: "info",
       title: "Marshal",
-      message: `You're up to date (v${result.currentVersion}).`,
-      buttons: ["OK"]
+      message: t("update.upToDate", { version: result.currentVersion }),
+      buttons: [t("common.ok")]
     });
     return;
   }
 
-  const buttons = ["Download", "Skip this version", "Later"];
+  const buttons = [t("update.download"), t("update.skipVersion"), t("update.later")];
   const { response } = await dialog.showMessageBox({
     type: "info",
-    title: `Marshal ${result.latestVersion} is available`,
-    message: `A new version of Marshal is available (you have v${result.currentVersion}).`,
-    detail: result.releaseNotes || "Open the release page for full notes.",
+    title: t("update.available", { version: result.latestVersion }),
+    message: t("update.newVersion", { version: result.currentVersion }),
+    detail: result.releaseNotes || t("update.openForNotes"),
     buttons,
     defaultId: 0,
     cancelId: 2
@@ -1512,12 +1513,12 @@ function initDictation(): void {
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
     const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text;
-    new Notification({ title: "Marshal — Dictated", body: preview, silent: true }).show();
+    new Notification({ title: t("notify.dictated"), body: preview, silent: true }).show();
   });
   dictationService.on("error", (err: Error) => {
     console.error("[dictation] error:", err);
     if (!Notification.isSupported()) return;
-    new Notification({ title: "Marshal — Dictation error", body: err.message, silent: true }).show();
+    new Notification({ title: t("notify.dictationError"), body: err.message, silent: true }).show();
   });
   // One-shot warning: shown only on the first silent session per app launch.
   // Persistent nagging on every restart would train users to dismiss it; one
@@ -1530,10 +1531,8 @@ function initDictation(): void {
     console.warn("[marshal] dictation: hotkey listener appears deaf; warning user");
     if (!Notification.isSupported()) return;
     const notif = new Notification({
-      title: "Marshal — push-to-talk is not receiving keys",
-      body:
-        "Grant Input Monitoring (Privacy & Security) — or disable macOS Dictation " +
-        "if it owns the same key. Click to open System Settings.",
+      title: t("notify.pttDeaf"),
+      body: t("notify.pttDeafBody"),
       silent: true
     });
     notif.on("click", () => {
@@ -1560,10 +1559,8 @@ function initDictation(): void {
     if (!Notification.isSupported()) return;
     console.warn("[marshal] dictation: macOS Dictation is enabled — may conflict with Marshal hotkey");
     const notif = new Notification({
-      title: "Marshal — macOS Dictation is on",
-      body:
-        "If push-to-talk doesn't react, macOS may own your hotkey. " +
-        "Click to open Dictation settings and change its shortcut to Off.",
+      title: t("notify.macDictationOn"),
+      body: t("notify.macDictationOnBody"),
       silent: true
     });
     notif.on("click", () => {
@@ -1617,8 +1614,8 @@ function initMeetingRecorder(): void {
     meetingHistoryWindow?.refresh();
     if (!Notification.isSupported()) return;
     const notif = new Notification({
-      title: "Marshal — Meeting recording saved",
-      body: session.videoPath ? "Screen and audio are in Meeting Recordings." : "Audio is in Meeting Recordings.",
+      title: t("notify.meetingSaved"),
+      body: t(session.videoPath ? "notify.meetingSavedScreen" : "notify.meetingSavedAudio"),
       silent: true
     });
     notif.on("click", () => meetingHistoryWindow?.open());
@@ -1628,7 +1625,7 @@ function initMeetingRecorder(): void {
     console.warn("[meeting] warning:", message);
     meetingHistoryWindow?.refresh();
     if (!Notification.isSupported()) return;
-    new Notification({ title: "Marshal — Meeting recording problem", body: message, silent: true }).show();
+    new Notification({ title: t("notify.meetingProblem"), body: message, silent: true }).show();
   });
   meetingRecorder.on("error", (err: Error) => {
     console.error("[meeting] error:", err);
@@ -1637,7 +1634,7 @@ function initMeetingRecorder(): void {
     meetingHistoryWindow?.refresh();
     void refreshTrayState();
     if (!Notification.isSupported()) return;
-    new Notification({ title: "Marshal — Meeting recording error", body: err.message, silent: true }).show();
+    new Notification({ title: t("notify.meetingError"), body: err.message, silent: true }).show();
   });
 
   globalShortcut.unregister(MEETING_TOGGLE_ACCELERATOR);
@@ -1684,7 +1681,7 @@ function initLiveCaptions(): void {
   service.on("error", (err: Error) => {
     console.error("[captions] error:", err);
     if (!Notification.isSupported()) return;
-    new Notification({ title: "Marshal — Live captions failed", body: err.message, silent: true }).show();
+    new Notification({ title: t("notify.captionsFailed"), body: err.message, silent: true }).show();
   });
 
   handleIpc("marshal:captions-stop", () => {
@@ -1698,7 +1695,7 @@ function initLiveCaptions(): void {
     return { dir: captionsService.referenceContextDir, files: context.files, truncated: context.truncated };
   });
   handleIpc("marshal:captions-context-open", async () => {
-    if (!captionsService) return { ok: false, error: "Live captions are not available." };
+    if (!captionsService) return { ok: false, error: t("captions.unavailable") };
     const dir = captionsService.referenceContextDir;
     fs.mkdirSync(dir, { recursive: true });
     const failure = await shell.openPath(dir);
@@ -1780,7 +1777,7 @@ function initCalendar(): void {
     joinAndRecord: () => void startMeetingRecording("audio")
   });
   calendarService.on("reminder", (reminder) => {
-    const { title, body } = reminderText(reminder, assistantLanguage(), new Date());
+    const { title, body } = reminderText(reminder, uiLanguage(), new Date());
     announceToAssistant(`${title} — ${body}`);
   });
   syncCalendar();
@@ -1821,7 +1818,7 @@ async function startMeetingRecording(mode: MeetingMode): Promise<void> {
     void refreshTrayState();
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Meeting recording failed",
+        title: t("notify.meetingFailed"),
         body: err instanceof Error ? err.message : String(err),
         silent: true
       }).show();
@@ -1863,7 +1860,7 @@ function initCapture(): void {
       console.error("[marshal] video recorder error:", err);
       if (Notification.isSupported()) {
         new Notification({
-          title: "Marshal — Recording error",
+          title: t("notify.recordingError"),
           body: err.message,
           silent: true
         }).show();
@@ -1882,9 +1879,9 @@ function initCapture(): void {
   // does nothing and nothing explains why. Log every failure and tell the user
   // once, so a clash reads as a clash and not as a broken feature (#135).
   const captureAccelerators: Array<{ accelerator: string; label: string; run: () => void }> = [
-    { accelerator: "CommandOrControl+Alt+3", label: "Capture area", run: () => void runCapture("area") },
-    { accelerator: "CommandOrControl+Alt+4", label: "Capture full screen", run: () => void runCapture("fullscreen") },
-    { accelerator: "CommandOrControl+Alt+6", label: "Record full screen", run: () => void toggleVideoRecording("fullscreen") }
+    { accelerator: "CommandOrControl+Alt+3", label: t("tray.captureArea"), run: () => void runCapture("area") },
+    { accelerator: "CommandOrControl+Alt+4", label: t("tray.captureFullscreen"), run: () => void runCapture("fullscreen") },
+    { accelerator: "CommandOrControl+Alt+6", label: t("tray.recordFullscreen"), run: () => void toggleVideoRecording("fullscreen") }
   ];
 
   const unavailable: string[] = [];
@@ -1900,10 +1897,8 @@ function initCapture(): void {
 
   if (unavailable.length > 0 && Notification.isSupported()) {
     new Notification({
-      title: "Marshal — Capture shortcuts unavailable",
-      body:
-        `${unavailable.join("\n")}\n` +
-        "Another app owns these keys. Capture still works from the tray menu.",
+      title: t("notify.shortcutsUnavailable"),
+      body: t("notify.shortcutsUnavailableBody", { list: unavailable.join("\n") }),
       silent: true
     }).show();
   }
@@ -1913,8 +1908,8 @@ async function toggleVideoRecording(kind: "fullscreen" | "area"): Promise<void> 
   if (!videoRecorder) {
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Recording unavailable",
-        body: "screen-recorder helper missing. Run `npm run build`.",
+        title: t("notify.recordingUnavailable"),
+        body: t("notify.recordingUnavailableBody"),
         silent: true
       }).show();
     }
@@ -1982,7 +1977,7 @@ async function startVideoRecording(kind: "fullscreen" | "area"): Promise<void> {
     isRecording = false;
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Recording failed",
+        title: t("notify.recordingFailed"),
         body: err instanceof Error ? err.message : String(err),
         silent: true
       }).show();
@@ -1999,10 +1994,10 @@ async function stopVideoRecording(): Promise<void> {
     if (Notification.isSupported()) {
       const name = outPath.split("/").pop() ?? outPath;
       const body = GifEncoder.isAvailable()
-        ? `${name}\nClick to convert to GIF…`
+        ? t("notify.recordingSavedGif", { name })
         : name;
       const notif = new Notification({
-        title: "Marshal — Recording saved",
+        title: t("notify.recordingSaved"),
         body,
         silent: true
       });
@@ -2019,7 +2014,7 @@ async function stopVideoRecording(): Promise<void> {
     cleanupRecording();
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Recording failed",
+        title: t("notify.recordingFailed"),
         body: err instanceof Error ? err.message : String(err),
         silent: true
       }).show();
@@ -2042,12 +2037,12 @@ function defaultVideoFilename(): string {
 function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
   const items: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "Capture area",
+      label: t("tray.captureArea"),
       accelerator: "CommandOrControl+Alt+3",
       click: () => void runCapture("area")
     },
     {
-      label: "Capture full screen",
+      label: t("tray.captureFullscreen"),
       accelerator: "CommandOrControl+Alt+4",
       click: () => void runCapture("fullscreen")
     },
@@ -2055,17 +2050,17 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
   ];
 
   if (isRecording) {
-    items.push({ label: "Stop recording", click: () => void stopVideoRecording() });
+    items.push({ label: t("tray.stopRecording"), click: () => void stopVideoRecording() });
   } else {
     items.push({
-      label: "Record full screen",
+      label: t("tray.recordFullscreen"),
       accelerator: "CommandOrControl+Alt+6",
       enabled: videoRecorder !== null,
       click: () => void toggleVideoRecording("fullscreen")
     });
     if (videoRecorder) {
       items.push({
-        label: "Record area",
+        label: t("tray.recordArea"),
         click: () => void toggleVideoRecording("area")
       });
     }
@@ -2074,22 +2069,22 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
   items.push(
     { type: "separator" },
     {
-      label: "Convert video to GIF…",
+      label: t("tray.convertGif"),
       enabled: GifEncoder.isAvailable(),
       click: () => void openGifConverter()
     },
     { type: "separator" },
     {
-      label: "Show capture history…",
+      label: t("tray.captureHistory"),
       click: () => captureHistoryWindow?.open()
     },
     {
-      label: floatingToolbar?.isOpen() ? "Hide floating toolbar" : "Show floating toolbar",
+      label: t(floatingToolbar?.isOpen() ? "tray.hideToolbar" : "tray.showToolbar"),
       click: () => floatingToolbar?.toggle()
     },
     { type: "separator" },
     {
-      label: "Scrolling capture (experimental)…",
+      label: t("tray.scrollingCapture"),
       click: () => void runScrollingCapture()
     }
   );
@@ -2144,19 +2139,19 @@ function backendLabel(id: string): string {
 function buildModelMenuItem(): Electron.MenuItemConstructorOptions {
   if (modelDownload) {
     return {
-      label: `Cancel Model Download (${modelDownload.percent}%)`,
+      label: t("tray.cancelModelDownload", { percent: modelDownload.percent }),
       click: () => modelDownload?.abort.abort()
     };
   }
   const installed = findInstalledModel();
   if (installed) {
     return {
-      label: `Dictation Model: ${installed.name.replace(/^ggml-|\.bin$/gu, "")}`,
+      label: t("tray.dictationModel", { name: installed.name.replace(/^ggml-|\.bin$/gu, "") }),
       enabled: false
     };
   }
   return {
-    label: "Download Dictation Model…",
+    label: t("tray.downloadModel"),
     click: () => void runModelDownload()
   };
 }
@@ -2173,21 +2168,18 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
   if (!spec) {
     await dialog.showMessageBox({
       type: "error",
-      title: "Unknown model",
-      message: `No whisper model named ${name}.`
+      title: t("model.unknown"),
+      message: t("model.unknownBody", { name })
     });
     return;
   }
 
   const { response } = await dialog.showMessageBox({
     type: "question",
-    title: "Download dictation model",
-    message: `Download ${spec.label} (${formatBytes(spec.bytes)})?`,
-    detail:
-      `Voice dictation needs this model. It is downloaded once into\n${modelsDir()}\n\n` +
-      "It lives outside the app, so app updates and reinstalls keep it, and " +
-      "an interrupted download resumes where it stopped.",
-    buttons: ["Download", "Cancel"],
+    title: t("model.downloadTitle"),
+    message: t("model.downloadQuestion", { label: spec.label, size: formatBytes(spec.bytes) }),
+    detail: t("model.downloadDetail", { dir: modelsDir() }),
+    buttons: [t("model.download"), t("common.cancel")],
     defaultId: 0,
     cancelId: 1
   });
@@ -2215,9 +2207,9 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
     restartDictation();
     await dialog.showMessageBox({
       type: "info",
-      title: "Dictation model ready",
-      message: `${spec.label} is installed.`,
-      detail: `Saved to ${modelsDir()}. Voice dictation is ready to use.`
+      title: t("model.ready"),
+      message: t("model.installed", { label: spec.label }),
+      detail: t("model.savedTo", { dir: modelsDir() })
     });
   } catch (err) {
     const aborted = abort.signal.aborted;
@@ -2225,9 +2217,9 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
     if (!aborted) {
       await dialog.showMessageBox({
         type: "error",
-        title: "Model download failed",
+        title: t("model.failed"),
         message: err instanceof Error ? err.message : String(err),
-        detail: "The partial download was kept — starting it again resumes from where it stopped."
+        detail: t("model.partialKept")
       });
     }
   } finally {
@@ -2239,9 +2231,9 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
 // Read when the menu opens, never in the background (#281).
 function buildClaudeSessionsSubmenu(): Electron.MenuItemConstructorOptions[] {
   const sessions = listLiveSessions();
-  if (sessions.length === 0) return [{ label: "No live sessions", enabled: false }];
+  if (sessions.length === 0) return [{ label: t("tray.noSessions"), enabled: false }];
   return sessions.map((session) => ({
-    label: `${session.name} · ${path.basename(session.cwd)} · ${describeStatus(session)}`,
+    label: `${session.name} · ${path.basename(session.cwd)} · ${describeStatus(session, uiLanguage())}`,
     click: () => {
       void focusSession(session.pid).catch((err: unknown) => {
         console.warn("[claude-sessions] focus failed:", err instanceof Error ? err.message : err);
@@ -2260,53 +2252,53 @@ function buildTrayMenu(): Electron.Menu {
 
   return Menu.buildFromTemplate([
     ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
-    { label: "Open Marshal", click: () => openAssistantHome() },
-    { label: "Open Translator", click: () => translatorWindow?.show() },
+    { label: t("tray.openMarshal"), click: () => openAssistantHome() },
+    { label: t("tray.openTranslator"), click: () => translatorWindow?.show() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
     // listener is dead (#84). No global accelerator: Cmd+Alt+M sat next to the
     // meeting toggle and started dictation instead of a recording (#240).
     {
-      label: recording ? "Stop Dictation" : "Start Dictation",
+      label: t(recording ? "tray.stopDictation" : "tray.startDictation"),
       enabled: dictationAvailable,
       click: () => dictationService?.toggleRecording()
     },
     ...(isMeetingRecording
       ? [{
-          label: "Stop Meeting Recording",
+          label: t("tray.stopMeeting"),
           accelerator: MEETING_TOGGLE_ACCELERATOR,
           click: () => void stopMeetingRecording()
         }]
       : [
           {
-            label: "Record Meeting (Audio)",
+            label: t("tray.recordMeetingAudio"),
             accelerator: MEETING_TOGGLE_ACCELERATOR,
             enabled: meetingAvailable,
             click: () => void startMeetingRecording("audio")
           },
           {
-            label: "Record Meeting (Audio + Screen)",
+            label: t("tray.recordMeetingScreen"),
             enabled: meetingAvailable,
             click: () => void startMeetingRecording("screen")
           }
         ]),
     {
-      label: "Meeting Recordings…",
+      label: t("tray.meetingRecordings"),
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
     },
     {
-      label: captionsRunning ? "Stop Live Captions" : "Start Live Captions",
+      label: t(captionsRunning ? "tray.stopCaptions" : "tray.startCaptions"),
       accelerator: captionsAccelerators.toggle,
       enabled: captionsService !== null,
       click: () => void toggleLiveCaptions()
     },
     {
-      label: "Live Captions",
+      label: t("tray.liveCaptions"),
       visible: captionsService !== null,
       submenu: [
         {
-          label: "Move Overlay (accept mouse)",
+          label: t("tray.moveOverlay"),
           type: "checkbox",
           checked: captionsService?.isMoveMode() ?? false,
           enabled: captionsRunning,
@@ -2316,28 +2308,28 @@ function buildTrayMenu(): Electron.Menu {
           }
         },
         {
-          label: "Read Screen Region Now",
+          label: t("tray.readRegion"),
           accelerator: captionsAccelerators.ocr,
           enabled: captionsRunning,
           click: () => void captionsService?.captureOcrContext()
         },
-        { label: "Reset OCR Region…", click: () => captionsService?.resetOcrRegion() },
-        { label: "Reset Overlay Position", click: () => captionsService?.resetOverlayPosition() }
+        { label: t("tray.resetOcrRegion"), click: () => captionsService?.resetOcrRegion() },
+        { label: t("tray.resetOverlay"), click: () => captionsService?.resetOverlayPosition() }
       ]
     },
-    { label: "Capture", submenu: buildCaptureSubmenu() },
-    { label: "Claude Sessions", submenu: buildClaudeSessionsSubmenu() },
+    { label: t("tray.capture"), submenu: buildCaptureSubmenu() },
+    { label: t("tray.claudeSessions"), submenu: buildClaudeSessionsSubmenu() },
     buildModelMenuItem(),
     // Last resort when the editor is open with floating turned off: an agent
     // app has no Dock icon to click (#168).
     {
-      label: "Bring Capture Editor to Front",
+      label: t("tray.raiseEditor"),
       enabled: captureWindow?.isOpen() ?? false,
       click: () => captureWindow?.raise()
     },
     { type: "separator" },
     {
-      label: "Start at Login",
+      label: t("tray.startAtLogin"),
       type: "checkbox",
       checked: settings.launchAtLogin,
       click: (item) => {
@@ -2346,12 +2338,12 @@ function buildTrayMenu(): Electron.Menu {
       }
     },
     {
-      label: "Check for Updates…",
+      label: t("tray.checkUpdates"),
       click: () => void runManualUpdateCheck()
     },
     { type: "separator" },
     {
-      label: "Quit",
+      label: t("tray.quit"),
       click: () => {
         isQuitting = true;
         app.quit();
@@ -2411,6 +2403,7 @@ async function getSetupHealth(): Promise<SetupHealthSummary> {
   const whisper = resolveWhisperAssetPaths();
   const isDarwin = process.platform === "darwin";
   return buildSetupHealth({
+    language: uiLanguage(),
     platform: process.platform,
     appVersion: app.getVersion(),
     buildInfo: readBuildInfo(),
@@ -2474,8 +2467,8 @@ function initTranslator(): void {
     console.error("[marshal] translator unavailable:", message);
     if (Notification.isSupported()) {
       new Notification({
-        title: "Marshal — Translator unavailable",
-        body: `${message.split("\n")[0]} Other features keep working.`,
+        title: t("notify.translatorUnavailable"),
+        body: t("notify.translatorUnavailableBody", { reason: message.split("\n")[0] }),
         silent: true
       }).show();
     }
@@ -2563,13 +2556,10 @@ function initTranslator(): void {
       setTimeout(() => {
         void dialog.showMessageBox({
           type: "info",
-          title: "Screen Recording Permission Required",
-          message: "Marshal needs Screen Recording access for OCR translation.",
-          detail:
-            "Go to System Settings → Privacy & Security → Screen Recording\n" +
-            "and enable Marshal.\n\n" +
-            "After granting, restart Marshal for the change to take effect.",
-          buttons: ["Open System Settings", "Later"],
+          title: t("permission.screenTitle"),
+          message: t("permission.screenMessage"),
+          detail: t("permission.screenDetail"),
+          buttons: [t("permission.openSettings"), t("update.later")],
           defaultId: 0,
           cancelId: 1
         }).then(({ response }) => {
@@ -2661,7 +2651,7 @@ function assistantStrip(): AssistantStrip {
 
 function pushAssistantStrip(): void {
   if (!assistantHome?.isOpen()) return;
-  assistantHome.update({ lang: assistantLanguage(), strip: assistantStrip() });
+  assistantHome.update({ lang: uiLanguage(), strip: assistantStrip() });
 }
 
 async function measureAssistantMemory(): Promise<void> {
@@ -2742,7 +2732,7 @@ function updateAmbient(): void {
   const state = deriveAssistantState(assistantInputs);
   const inCall = isMeetingRecording || (captionsService?.isRunning() ?? false);
   glowFrame?.set(glowFor(state, inCall, loadSettings().assistantGlow));
-  miniWidget?.update({ state, lang: assistantLanguage() });
+  miniWidget?.update({ state, lang: uiLanguage() });
 }
 
 /** The sessions watcher runs only while a window that lists sessions is open (#281). */
@@ -2830,7 +2820,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   // Aloud only what the owner asked for by voice; every other session stays a silent notification.
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
   if (!asked && event.name !== GENERAL_NAME) return;
-  const uk = assistantLanguage() === "uk";
+  const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
     // `general` answers the owner's own question: its name is noise.
@@ -2842,7 +2832,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
 }
 
 async function assistantVoiceAction(action: string): Promise<string> {
-  const uk = assistantLanguage() === "uk";
+  const uk = uiLanguage() === "uk";
   const t = (ukText: string, enText: string) => (uk ? ukText : enText);
   let reply: string;
   switch (action) {
@@ -2977,7 +2967,8 @@ function runAssistantAction(name: string | undefined): void {
       pushAssistantStrip();
       return;
     case "toggle-language":
-      saveSettings({ assistantLanguage: assistantLanguage() === "uk" ? "en" : "uk" });
+      saveSettings({ assistantLanguage: uiLanguage() === "uk" ? "en" : "uk" });
+      broadcastUiLanguage();
       pushAssistantStrip();
       return;
     case "toggle-glow":
@@ -3023,14 +3014,14 @@ async function refreshTrayState(): Promise<void> {
     .catch(() => null);
 
   const base = health
-    ? `Marshal\n${health.runningTasks} running, ${health.queuedTasks} queued`
-    : "Marshal\nUnavailable";
+    ? t("tray.tooltipTasks", { running: health.runningTasks, queued: health.queuedTasks })
+    : t("tray.tooltipUnavailable");
 
   const status: string[] = [];
-  if (modelDownload) status.push(`⬇ Dictation model ${modelDownload.percent}%`);
-  if (isDictating) status.push("● Recording dictation…");
-  if (isRecording) status.push("● Recording screen…");
-  if (isMeetingRecording) status.push("● Recording meeting…");
+  if (modelDownload) status.push(t("tray.tooltipModel", { percent: modelDownload.percent }));
+  if (isDictating) status.push(t("tray.tooltipDictating"));
+  if (isRecording) status.push(t("tray.tooltipScreen"));
+  if (isMeetingRecording) status.push(t("tray.tooltipMeeting"));
   tray.setToolTip(status.length > 0 ? `${base}\n${status.join("\n")}` : base);
 
   // Swap the menu bar icon itself between an idle (template/grey) glyph and a

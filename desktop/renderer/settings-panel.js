@@ -2,8 +2,10 @@
 // and hiding it; this module owns the form.
 
 const api = window.marshalDesktop;
+const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
 
 const dom = {
+  settingsLanguage: document.getElementById("settings-language"),
   settingsHealthSummary: document.getElementById("settings-health-summary"),
   settingsHealthList: document.getElementById("settings-health-list"),
   settingsHealthRefresh: document.getElementById("settings-health-refresh"),
@@ -100,7 +102,7 @@ async function populateMicrophoneDropdown(preferredValue) {
     const transport = device.transportType && device.transportType !== "Unknown"
       ? ` · ${device.transportType}`
       : "";
-    const defaultBadge = device.isDefault ? " (system default)" : "";
+    const defaultBadge = device.isDefault ? ` ${t("settings.micSystemDefaultBadge")}` : "";
     option.textContent = `${device.name}${transport}${defaultBadge}`;
     select.appendChild(option);
   }
@@ -112,10 +114,6 @@ async function populateMicrophoneDropdown(preferredValue) {
   }
 }
 
-const SPEECH_TEST_HINT = "Uses the saved settings — save first after a change.";
-const NO_UK_VOICE_HINT =
-  "No Ukrainian voice installed — add one in System Settings → Accessibility → Spoken Content → " +
-  "System Voice → Manage Voices → Ukrainian. Ukrainian updates stay silent until then.";
 
 async function populateSpeechVoices(voiceUk, voiceEn) {
   if (!api?.getSpeechVoices) return;
@@ -143,24 +141,21 @@ async function populateSpeechVoices(voiceUk, voiceEn) {
   fill(dom.settingsSpeechVoiceUk, report?.uk ?? [], voiceUk);
   fill(dom.settingsSpeechVoiceEn, report?.en ?? [], voiceEn);
   if (!dom.settingsSpeechStatus) return;
-  dom.settingsSpeechStatus.textContent = SPEECH_TEST_HINT;
-  if (!report?.available) {
-    dom.settingsSpeechStatus.textContent = "Spoken updates need macOS speech (`say` was not found).";
-  } else if ((report.uk ?? []).length === 0) {
-    dom.settingsSpeechStatus.textContent = NO_UK_VOICE_HINT;
-  }
+  dom.settingsSpeechStatus.textContent = !report?.available
+    ? t("settings.speechUnavailable")
+    : (report.uk ?? []).length === 0 ? t("settings.noUkVoice") : t("settings.usesTheSavedSettingsSave");
 }
 
 async function speakTestPhrase() {
   if (!api?.speakTestPhrase || !dom.settingsSpeechStatus) return;
-  dom.settingsSpeechStatus.textContent = "Speaking…";
+  dom.settingsSpeechStatus.textContent = t("settings.speaking");
   try {
     const results = await api.speakTestPhrase();
     dom.settingsSpeechStatus.textContent = results
       .map((result) => (result.ok ? `${result.lang}: ${result.voice}` : `${result.lang ?? "?"}: ${result.error}`))
       .join(" · ");
   } catch (err) {
-    dom.settingsSpeechStatus.textContent = `Test failed: ${err?.message ?? String(err)}`;
+    dom.settingsSpeechStatus.textContent = t("settings.testFailed", { error: err?.message ?? String(err) });
   }
 }
 
@@ -188,21 +183,14 @@ function refreshAppearanceSegmented() {
   });
 }
 
-const PROVIDER_HINTS = {
-  "claude-cli":
-    "Uses the local `claude` CLI. Requires Claude Code installed and `claude auth` completed with a Pro or Max subscription.",
-  "codex-cli":
-    "Uses the local `codex` CLI. Requires Codex CLI installed and `codex login` completed with a ChatGPT Plus/Pro/Business/Enterprise account.",
-  "claude":
-    "Uses the Anthropic Messages API. Requires ANTHROPIC_API_KEY in the app's .env file (pay-per-token billing).",
-  "api":
-    "Uses an OpenAI-compatible endpoint (Groq, OpenRouter, OpenAI). Requires MARSHAL_API_KEY and MARSHAL_API_BASE in .env.",
-  "claude-web":
-    "Automates claude.ai in a Playwright browser. Slow and fragile — use only as a fallback.",
-  "playwright":
-    "Automates chatgpt.com in a Playwright browser. Slow and fragile — use only as a fallback.",
-  "extension":
-    "Routes requests through the Marshal Chrome extension bridge."
+const PROVIDER_HINT_KEYS = {
+  "claude-cli": "settings.providerHint.claudeCli",
+  "codex-cli": "settings.providerHint.codexCli",
+  "claude": "settings.providerHint.claude",
+  "api": "settings.providerHint.api",
+  "claude-web": "settings.providerHint.claudeWeb",
+  "playwright": "settings.providerHint.playwright",
+  "extension": "settings.providerHint.extension"
 };
 
 async function openSettings() {
@@ -212,6 +200,7 @@ async function openSettings() {
     dom.settingsBridgeMode.value = current.bridgeMode;
     dom.settingsClaudeModel.value = current.claudeModel ?? "";
     dom.settingsCodexModel.value = current.codexModel ?? "";
+    if (dom.settingsLanguage) dom.settingsLanguage.value = current.assistantLanguage ?? "auto";
     if (dom.settingsTranslatorBackend) {
       dom.settingsTranslatorBackend.value = current.translatorBackend ?? "auto";
     }
@@ -312,19 +301,21 @@ async function openSettings() {
 }
 
 let claudeHooksInstalled = false;
+let claudeHooksState = null;
 
 function renderClaudeHooks(state) {
   if (!dom.settingsClaudeHooksStatus || !dom.settingsClaudeHooksToggle) return;
+  claudeHooksState = state;
   claudeHooksInstalled = state?.installed === true;
   dom.settingsClaudeHooksStatus.textContent = state?.error
-    ? `Failed: ${state.error}`
-    : claudeHooksInstalled ? "Hooks installed" : "Hooks not installed";
-  dom.settingsClaudeHooksToggle.textContent = claudeHooksInstalled ? "Remove hooks" : "Install hooks";
+    ? t("settings.failed", { error: state.error })
+    : t(claudeHooksInstalled ? "settings.hooksInstalled" : "settings.hooksNotInstalled");
+  dom.settingsClaudeHooksToggle.textContent = t(claudeHooksInstalled ? "settings.removeHooks" : "settings.installHooks");
   dom.settingsClaudeHooksToggle.disabled = false;
   if (dom.settingsClaudeRoutingCount) {
     const sessions = state?.sessions;
     dom.settingsClaudeRoutingCount.textContent = sessions
-      ? `Read now: ${sessions.routable} of ${sessions.live} live sessions.`
+      ? t("settings.routingCount", { routable: sessions.routable, live: sessions.live })
       : "";
   }
 }
@@ -344,20 +335,25 @@ async function toggleClaudeHooks() {
   })));
 }
 
+let calendarStatus = null;
+
 // The saved address never comes back from main; only whether one exists.
 function renderCalendarStatus(status) {
   if (!dom.settingsCalendarStatus) return;
-  let text = "No address saved.";
+  calendarStatus = status;
+  let text = t("settings.calendar.noAddress");
   if (status?.configured) {
-    text = "Address saved.";
-    if (status.lastError) text += ` Last check failed: ${status.lastError}.`;
-    else if (status.next) text += ` Next: ${new Date(status.next.start).toLocaleString()} — ${status.next.title}.`;
-    else if (status.lastSyncAt) text += " No upcoming meetings in the next day.";
+    text = t("settings.calendar.saved");
+    if (status.lastError) text += ` ${t("settings.calendar.lastCheckFailed", { error: status.lastError })}`;
+    else if (status.next) {
+      const start = new Date(status.next.start).toLocaleString(window.MarshalI18n?.language() === "uk" ? "uk-UA" : "en-GB");
+      text += ` ${t("settings.calendar.next", { start, title: status.next.title })}`;
+    } else if (status.lastSyncAt) text += ` ${t("settings.calendar.noUpcoming")}`;
   }
   dom.settingsCalendarStatus.textContent = text;
   if (dom.settingsCalendarUrl) {
     dom.settingsCalendarUrl.placeholder = status?.configured
-      ? "Saved — paste a new address to replace it"
+      ? t("settings.calendar.replacePlaceholder")
       : "https://calendar.google.com/calendar/ical/…/basic.ics";
   }
 }
@@ -365,13 +361,13 @@ function renderCalendarStatus(status) {
 async function refreshSetupHealth() {
   if (!api?.getSetupHealth || !dom.settingsHealthList || !dom.settingsHealthSummary) return;
   if (dom.settingsHealthRefresh) dom.settingsHealthRefresh.disabled = true;
-  dom.settingsHealthSummary.textContent = "Checking…";
+  dom.settingsHealthSummary.textContent = t("settings.checking");
   dom.settingsHealthList.innerHTML = "";
   try {
     const health = await api.getSetupHealth();
     renderSetupHealth(health);
   } catch (err) {
-    dom.settingsHealthSummary.textContent = `Check failed: ${err?.message ?? err}`;
+    dom.settingsHealthSummary.textContent = t("settings.checkFailed", { error: err?.message ?? err });
   } finally {
     if (dom.settingsHealthRefresh) dom.settingsHealthRefresh.disabled = false;
   }
@@ -383,16 +379,16 @@ function renderSetupHealth(health) {
   const blocking = Number(counts.error ?? 0);
   const warnings = Number(counts.warn ?? 0);
   dom.settingsHealthSummary.textContent = blocking > 0
-    ? `${blocking} blocking, ${warnings} warning${warnings === 1 ? "" : "s"}`
+    ? t("settings.health.blocking", { blocking, warnings })
     : warnings > 0
-      ? `${warnings} warning${warnings === 1 ? "" : "s"}`
-      : "Ready";
+      ? t("settings.health.warnings", { warnings })
+      : t("settings.health.ready");
   dom.settingsHealthList.innerHTML = items.map(renderSetupHealthItem).join("");
 }
 
 function renderSetupHealthItem(item) {
   const status = typeof item?.status === "string" ? item.status : "unknown";
-  const label = escapeHtml(item?.label ?? "Unknown");
+  const label = escapeHtml(item?.label ?? t("settings.health.unknown"));
   const detail = escapeHtml(item?.detail ?? "");
   const action = item?.action ? `<span class="health-action">${escapeHtml(item.action)}</span>` : "";
   return `
@@ -410,7 +406,7 @@ let closeSettings = () => {};
 
 function refreshSettingsVisibility() {
   const mode = dom.settingsBridgeMode.value;
-  dom.settingsProviderHint.textContent = PROVIDER_HINTS[mode] ?? "";
+  dom.settingsProviderHint.textContent = PROVIDER_HINT_KEYS[mode] ? t(PROVIDER_HINT_KEYS[mode]) : "";
   document.querySelectorAll("[data-visible-for]").forEach((el) => {
     const applicable = el.getAttribute("data-visible-for").split(",").map((s) => s.trim());
     el.classList.toggle("hidden", !applicable.includes(mode));
@@ -432,17 +428,16 @@ async function refreshCaptionsContextInfo() {
   if (!api?.getCaptionsContextInfo || !dom.settingsCaptionsContextDir) return;
   try {
     const info = await api.getCaptionsContextInfo();
-    dom.settingsCaptionsContextDir.value = info.dir || "(live captions unavailable)";
+    dom.settingsCaptionsContextDir.value = info.dir || t("settings.captionsUnavailable");
     const used = info.files.filter((file) => file.included > 0);
     if (dom.settingsCaptionsContextInfo) {
+      const files = used.map((file) => file.name).join(", ");
       const summary = used.length === 0
-        ? "No reference files yet."
-        : `${used.length} file${used.length === 1 ? "" : "s"} in the prompt: ${used.map((file) => file.name).join(", ")}` +
-          (info.truncated > 0 ? ` (${info.truncated} characters over the budget were cut).` : ".");
-      dom.settingsCaptionsContextInfo.textContent =
-        `${summary} Drop Markdown or text files in this folder — meeting agenda, project log, glossary — ` +
-        "to help the summary get names and terms right; it only ever restates what was said. " +
-        "Up to ~12k characters; re-read when a file changes.";
+        ? t("settings.context.none")
+        : info.truncated > 0
+          ? t("settings.context.filesCut", { count: used.length, files, cut: info.truncated })
+          : t("settings.context.files", { count: used.length, files });
+      dom.settingsCaptionsContextInfo.textContent = `${summary} ${t("settings.context.hint")}`;
     }
   } catch (err) {
     console.error("getCaptionsContextInfo failed", err);
@@ -456,6 +451,7 @@ async function saveSettingsFromForm() {
     claudeModel: dom.settingsClaudeModel.value.trim(),
     codexModel: dom.settingsCodexModel.value.trim(),
     translatorBackend: dom.settingsTranslatorBackend?.value ?? "auto",
+    assistantLanguage: dom.settingsLanguage?.value ?? "auto",
     dictationEnabled: dom.settingsDictationEnabled?.checked ?? true,
     dictationHotkey: (dom.settingsDictationHotkey?.value ?? "RightCmd").trim() || "RightCmd",
     dictationHoldDelayMs: Number.parseInt(dom.settingsDictationHoldDelay?.value ?? "200", 10),
@@ -496,7 +492,7 @@ async function saveSettingsFromForm() {
     speechVoiceEn: dom.settingsSpeechVoiceEn?.value ?? ""
   };
   dom.settingsSave.disabled = true;
-  showSettingsStatus("Saving…", null);
+  showSettingsStatus(t("settings.saving"), null);
   try {
     // Saved before the settings so turning reminders on starts with the new address.
     const calendarUrl = dom.settingsCalendarUrl?.value.trim() ?? "";
@@ -512,8 +508,8 @@ async function saveSettingsFromForm() {
     const launchRejected = payload.launchAtLogin && saved?.launchAtLogin === false;
     showSettingsStatus(
       launchRejected
-        ? "Saved, but macOS rejected Start at Login. See Setup Health."
-        : "Saved. New settings are active.",
+        ? t("settings.savedLoginRejected")
+        : t("settings.saved"),
       launchRejected ? "error" : "success"
     );
     if (!launchRejected) {
@@ -521,7 +517,7 @@ async function saveSettingsFromForm() {
     }
   } catch (err) {
     console.error("saveSettings failed", err);
-    showSettingsStatus(`Failed: ${err?.message ?? err}`, "error");
+    showSettingsStatus(t("settings.failed", { error: err?.message ?? err }), "error");
   } finally {
     dom.settingsSave.disabled = false;
   }
@@ -545,16 +541,16 @@ async function checkForUpdatesFromSettings() {
 
   btn.disabled = true;
   const originalLabel = btn.textContent;
-  btn.textContent = "Checking…";
+  btn.textContent = t("settings.checking");
   out.classList.remove("hidden", "is-available", "is-error");
-  out.innerHTML = `<div class="update-result-row"><span class="title">Contacting GitHub Releases…</span></div>`;
+  out.innerHTML = `<div class="update-result-row"><span class="title">${escapeHtml(t("settings.update.contacting"))}</span></div>`;
 
   try {
     const result = await api.checkForUpdatesSilent();
     renderUpdateResult(result);
   } catch (err) {
     out.classList.add("is-error");
-    out.innerHTML = `<div class="update-result-row"><span class="title">Check failed: ${escapeHtml(err?.message ?? String(err))}</span></div>`;
+    out.innerHTML = `<div class="update-result-row"><span class="title">${escapeHtml(t("settings.checkFailed", { error: err?.message ?? String(err) }))}</span></div>`;
   } finally {
     btn.disabled = false;
     btn.textContent = originalLabel;
@@ -568,16 +564,16 @@ function renderUpdateResult(result) {
 
   if (result && "error" in result && result.error) {
     out.classList.add("is-error");
-    out.innerHTML = `<div class="update-result-row"><span class="title">Could not reach GitHub: ${escapeHtml(result.error)}</span></div>`;
+    out.innerHTML = `<div class="update-result-row"><span class="title">${escapeHtml(t("settings.update.unreachable", { error: result.error }))}</span></div>`;
     return;
   }
   if (!result || !("available" in result)) {
     out.classList.add("is-error");
-    out.innerHTML = `<div class="update-result-row"><span class="title">Unexpected response</span></div>`;
+    out.innerHTML = `<div class="update-result-row"><span class="title">${escapeHtml(t("settings.update.unexpected"))}</span></div>`;
     return;
   }
   if (!result.available) {
-    out.innerHTML = `<div class="update-result-row"><span class="title">You're up to date (v${escapeHtml(result.currentVersion ?? "")}).</span></div>`;
+    out.innerHTML = `<div class="update-result-row"><span class="title">${escapeHtml(t("settings.update.upToDate", { version: result.currentVersion ?? "" }))}</span></div>`;
     return;
   }
 
@@ -587,14 +583,14 @@ function renderUpdateResult(result) {
   const canInstall = Boolean(result.installable);
 
   const installButton = canInstall
-    ? `<button type="button" class="btn btn-primary" data-update-install>Download &amp; install</button>`
+    ? `<button type="button" class="btn btn-primary" data-update-install>${escapeHtml(t("settings.update.install"))}</button>`
     : "";
   const releasePageLinkClass = canInstall ? "btn-secondary-link" : "btn btn-primary";
-  const releasePageLinkLabel = canInstall ? "Open release page" : "Download";
+  const releasePageLinkLabel = escapeHtml(t(canInstall ? "settings.update.releasePage" : "settings.update.download"));
 
   out.innerHTML = `
     <div class="update-result-row">
-      <span class="title">Marshal v${escapeHtml(result.latestVersion)} is available <span style="color:var(--text-muted);font-weight:400;">(you have v${escapeHtml(result.currentVersion)})</span></span>
+      <span class="title">${escapeHtml(t("settings.update.available", { version: result.latestVersion }))} <span style="color:var(--text-muted);font-weight:400;">${escapeHtml(t("settings.update.youHave", { version: result.currentVersion }))}</span></span>
       <div class="update-result-actions">
         ${installButton}
         <button type="button" class="${releasePageLinkClass}" data-update-release-page>${releasePageLinkLabel}</button>
@@ -610,17 +606,8 @@ function renderUpdateResult(result) {
   });
 }
 
-// Map of internal install phases → user-facing labels.
-const UPDATE_PHASE_LABELS = {
-  starting: "Preparing…",
-  downloading: "Downloading…",
-  verifying: "Verifying signature…",
-  extracting: "Unpacking…",
-  staging: "Staging install…",
-  relaunching: "Relaunching Marshal…",
-  done: "Done.",
-  error: "Failed."
-};
+const UPDATE_PHASES = new Set(["starting", "downloading", "verifying", "extracting", "staging", "relaunching", "done", "error"]);
+const phaseLabel = (phase) => (UPDATE_PHASES.has(phase) ? t(`settings.update.phase.${phase}`) : phase);
 
 let updateInstallDisposer = null;
 
@@ -633,12 +620,12 @@ async function startInPlaceInstall(result) {
   out.classList.add("is-available");
   out.innerHTML = `
     <div class="update-result-row">
-      <span class="title">Installing Marshal v${escapeHtml(result.latestVersion)}…</span>
+      <span class="title">${escapeHtml(t("settings.update.installing", { version: result.latestVersion }))}</span>
     </div>
     <div class="update-progress">
       <div class="update-progress-bar is-indeterminate"><div class="update-progress-bar-fill"></div></div>
       <div class="update-progress-label">
-        <span data-update-phase>Preparing…</span>
+        <span data-update-phase>${escapeHtml(phaseLabel("starting"))}</span>
         <span data-update-detail></span>
       </div>
     </div>
@@ -655,7 +642,7 @@ async function startInPlaceInstall(result) {
   }
   updateInstallDisposer = api.onUpdateInstallProgress?.((_event, payload) => {
     if (!payload) return;
-    phaseEl.textContent = UPDATE_PHASE_LABELS[payload.phase] ?? payload.phase;
+    phaseEl.textContent = phaseLabel(payload.phase);
     if (Number.isFinite(payload.ratio) && payload.ratio >= 0 && payload.ratio <= 1) {
       bar.classList.remove("is-indeterminate");
       fill.style.width = `${Math.round(payload.ratio * 100)}%`;
@@ -676,7 +663,7 @@ async function startInPlaceInstall(result) {
     // The main process spawns the post-quit script and triggers app.quit().
     // We won't actually get here in practice — the window goes away first —
     // but if the quit is somehow delayed, show a friendly "relaunching" state.
-    phaseEl.textContent = UPDATE_PHASE_LABELS.relaunching;
+    phaseEl.textContent = phaseLabel("relaunching");
     bar.classList.remove("is-indeterminate");
     fill.style.width = "100%";
     detailEl.textContent = "";
@@ -686,10 +673,10 @@ async function startInPlaceInstall(result) {
     const message = err?.message ?? String(err);
     out.innerHTML = `
       <div class="update-result-row">
-        <span class="title">Install failed: ${escapeHtml(message)}</span>
+        <span class="title">${escapeHtml(t("settings.update.installFailed", { error: message }))}</span>
         <div class="update-result-actions">
-          <button type="button" class="btn btn-secondary" data-update-retry>Try again</button>
-          <button type="button" class="btn-secondary-link" data-update-release-page>Open release page</button>
+          <button type="button" class="btn btn-secondary" data-update-retry>${escapeHtml(t("settings.update.retry"))}</button>
+          <button type="button" class="btn-secondary-link" data-update-release-page>${escapeHtml(t("settings.update.releasePage"))}</button>
         </div>
       </div>
     `;
@@ -755,7 +742,7 @@ function bindEvents() {
     if (!api?.openCaptionsContextFolder) return;
     try {
       const result = await api.openCaptionsContextFolder();
-      if (!result.ok) showSettingsStatus(`Could not open the folder: ${result.error ?? "unknown error"}`, "error");
+      if (!result.ok) showSettingsStatus(t("settings.openFolderFailed", { error: result.error ?? t("settings.unknownError") }), "error");
       else void refreshCaptionsContextInfo();
     } catch (err) {
       console.error("openCaptionsContextFolder failed", err);
@@ -793,6 +780,14 @@ function bindEvents() {
   });
   dom.settingsPalette?.addEventListener("change", () => {
     window.MarshalTheme?.set({ palette: dom.settingsPalette.value });
+  });
+  // Text this module wrote itself does not carry data-i18n; redraw it.
+  window.addEventListener("marshal:language", () => {
+    refreshSettingsVisibility();
+    if (claudeHooksState) renderClaudeHooks(claudeHooksState);
+    renderCalendarStatus(calendarStatus);
+    if (!dom.settingsHealthRefresh?.disabled) void refreshSetupHealth();
+    void refreshCaptionsContextInfo();
   });
 
 }

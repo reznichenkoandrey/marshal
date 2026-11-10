@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -135,12 +137,12 @@
       <div class="corner corner-tr"></div>
       <div class="corner corner-bl"></div>
       <div class="corner corner-br"></div>
-      <div id="sel-hint">Release to translate</div>
+      <div id="sel-hint" data-i18n="crop.release">Release to translate</div>
     </div>
 
     <div id="hint">
-      Drag to select region to translate
-      <span>Press Esc to cancel</span>
+      <div data-i18n="crop.hint">Drag to select region to translate</div>
+      <span data-i18n="crop.esc">Press Esc to cancel</span>
     </div>
     <div id="size-label"></div>
 

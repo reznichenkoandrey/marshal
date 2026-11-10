@@ -424,8 +424,12 @@ async function main() {
   record("a narrow window drops the side panel, not the visual", narrow === "none", narrow);
   win.setSize(920, 600);
   await sleep(300);
+  const RAIL = `document.querySelector("#settings-rail [data-section='dictation']").textContent`;
+  const ukRail = await win.webContents.executeJavaScript(RAIL);
   win.webContents.send("marshal:assistant-state", { state: "idle", lang: "en", lines: [], sessions: [] });
   await sleep(100);
+  const enRail = await win.webContents.executeJavaScript(RAIL);
+  record("the Settings markup follows the UI language (#330)", ukRail === "Диктовка" && enRail === "Dictation", `${ukRail} / ${enRail}`);
   const english = await win.webContents.executeJavaScript(VIEW);
   const sideTitle = await win.webContents.executeJavaScript(`document.getElementById("sessions-title").textContent`);
   record("English follows the system language",

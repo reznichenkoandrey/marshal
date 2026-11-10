@@ -12,6 +12,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { translate, type MessageKey, type MessageParams, type UiLanguage } from "../i18n/catalog.ts";
 import { createSummaryStreamer, type SummaryStreamer } from "../captions/summarizer.ts";
 import { isLikelyHallucination } from "../captions/transcript-buffer.ts";
 import { createLocalWhisperBackend, isLocalWhisperAvailable, type WhisperBackend } from "../dictation/whisper-backend.ts";
@@ -49,6 +50,7 @@ export type NotesJobInput = {
 export type NotesServiceDeps = {
   whisper?: () => WhisperBackend | null;
   summarizer?: () => SummaryStreamer | null;
+  language?: () => UiLanguage;
 };
 
 // Quieter than -35 dB for 0.3 s or longer is a pause worth cutting at.
@@ -58,6 +60,7 @@ export class MeetingNotesService {
   private job: { input: NotesJobInput; controller: AbortController; progress: NotesProgress } | null = null;
   private readonly whisper: () => WhisperBackend | null;
   private readonly summarizer: () => SummaryStreamer | null;
+  private readonly language: () => UiLanguage;
 
   constructor(
     private readonly onProgress: (progress: NotesProgress | null) => void,
@@ -65,6 +68,11 @@ export class MeetingNotesService {
   ) {
     this.whisper = deps.whisper ?? (() => (isLocalWhisperAvailable() ? createLocalWhisperBackend() : null));
     this.summarizer = deps.summarizer ?? (() => createSummaryStreamer(process.env));
+    this.language = deps.language ?? (() => "en");
+  }
+
+  private tr(key: MessageKey, params?: MessageParams): string {
+    return translate(this.language(), key, params);
   }
 
   current(): NotesProgress | null {
@@ -77,11 +85,11 @@ export class MeetingNotesService {
     return true;
   }
 
-  async run(input: NotesJobInput): Promise<{ ok: boolean; error?: string }> {
+  async run(input: NotesJobInput): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
     if (this.job) {
       return {
         ok: false,
-        error: this.job.input.id === input.id ? "Already in progress." : "Another recording is being transcribed."
+        error: this.tr(this.job.input.id === input.id ? "meetings.notes.alreadyRunning" : "meetings.notes.otherRunning")
       };
     }
     const controller = new AbortController();
@@ -96,13 +104,11 @@ export class MeetingNotesService {
         transcript = await this.transcribe(input.audioPath, controller.signal);
         await fs.writeFile(files.transcript, transcript, "utf8");
       }
-      if (transcript.trim().length === 0) throw new Error("No speech was recognised in this recording.");
+      if (transcript.trim().length === 0) throw new Error(this.tr("meetings.notes.noSpeech"));
 
       const summarizer = this.summarizer();
       if (!summarizer) {
-        throw new Error(
-          "Transcript saved, but no summary provider is configured: set ANTHROPIC_API_KEY or MARSHAL_API_KEY."
-        );
+        throw new Error(this.tr("meetings.notes.noProvider"));
       }
       this.report({ phase: "summarizing", done: 0, total: 1 });
       const language = resolveNotesLanguage(input.language, transcript);
@@ -125,7 +131,7 @@ export class MeetingNotesService {
       await fs.writeFile(files.notesMd, renderNotesMarkdown(notes, language, input.startedAt), "utf8");
       return { ok: true };
     } catch (err) {
-      if (controller.signal.aborted) return { ok: false, error: "Cancelled." };
+      if (controller.signal.aborted) return { ok: false, cancelled: true, error: this.tr("meetings.notes.cancelled") };
       return { ok: false, error: (err as Error).message };
     } finally {
       this.job = null;
@@ -142,18 +148,18 @@ export class MeetingNotesService {
   private async transcribe(audioPath: string, signal: AbortSignal): Promise<string> {
     const whisper = this.whisper();
     if (!whisper) {
-      throw new Error("The local dictation model is not installed. Tray → Download Dictation Model…, then try again.");
+      throw new Error(this.tr("meetings.notes.noModel"));
     }
     const probe = await runFfmpeg(["-nostats", "-i", audioPath, "-af", SILENCE_FILTER, "-f", "null", "-"], signal);
     const durationMs = parseFfmpegDurationMs(probe);
-    if (durationMs === null) throw new Error("Could not read the length of the recording.");
+    if (durationMs === null) throw new Error(this.tr("meetings.notes.noDuration"));
     const chunks = planTranscriptionChunks(durationMs, parseSilences(probe));
 
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "marshal-notes-"));
     try {
       const lines: TranscriptLine[] = [];
       for (const chunk of chunks) {
-        if (signal.aborted) throw new Error("Cancelled.");
+        if (signal.aborted) throw new Error(this.tr("meetings.notes.cancelled"));
         this.report({ phase: "transcribing", done: chunk.index, total: chunks.length });
         const wav = path.join(tmp, `chunk-${chunk.index}.wav`);
         await runFfmpeg(

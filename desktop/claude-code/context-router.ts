@@ -9,6 +9,7 @@ import path from "node:path";
 
 import type { OneShotRequest } from "./answer-summary.ts";
 import type { ClaudeSession } from "./registry.ts";
+import { translate, type UiLanguage } from "../i18n/catalog.ts";
 
 export type ContextRoute =
   | { kind: "session"; sessionId: string }
@@ -136,10 +137,10 @@ export function createContextRouter(deps: ContextRouterDeps): ContextRouter {
 const NOTICE_COMMAND_CHARS = 120;
 
 /** The "Sent to <session> by context" notification, so a wrong route is visible. */
-export function routedNotice(sessionName: string, command: string): { title: string; body: string } {
+export function routedNotice(sessionName: string, command: string, lang: UiLanguage = "en"): { title: string; body: string } {
   const text = command.trim();
   return {
-    title: `Sent to ${sessionName} by context`,
+    title: translate(lang, "claude.sentByContext", { name: sessionName }),
     body: text.length > NOTICE_COMMAND_CHARS ? `${text.slice(0, NOTICE_COMMAND_CHARS)}…` : text
   };
 }

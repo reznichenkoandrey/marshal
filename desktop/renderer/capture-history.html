@@ -4,15 +4,17 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Marshal — Captures</title>
+  <title data-i18n="history.windowTitle">Marshal — Captures</title>
   <link rel="stylesheet" href="./design-tokens.css" />
   <link rel="stylesheet" href="./capture-history.css" />
   <script src="./theme.js"></script>
+  <script src="./locales.js"></script>
+  <script src="./i18n.js"></script>
 </head>
 <body>
   <header class="history-toolbar">
     <div class="history-title">
-      <span class="history-title-label">Captures</span>
+      <span class="history-title-label" data-i18n="history.title">Captures</span>
       <span id="folder-path" class="history-folder"></span>
     </div>
     <div class="history-actions">
@@ -24,18 +26,20 @@
         spellcheck="false"
         placeholder="Search captures…"
         aria-label="Search captures by name, date or type"
+        data-i18n-placeholder="history.searchPlaceholder"
+        data-i18n-aria-label="history.searchLabel"
       />
-      <button id="refresh-btn" type="button" class="ghost-btn" title="Re-read folder">Refresh</button>
-      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the capture folder in Finder">Open folder</button>
-      <button id="close-btn" type="button" class="ghost-btn" title="Close history">Close</button>
+      <button id="refresh-btn" type="button" class="ghost-btn" title="Re-read folder" data-i18n-title="history.refreshTitle" data-i18n="history.refresh">Refresh</button>
+      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the capture folder in Finder" data-i18n-title="history.openFolderTitle" data-i18n="history.openFolder">Open folder</button>
+      <button id="close-btn" type="button" class="ghost-btn" title="Close history" data-i18n-title="history.closeTitle" data-i18n="history.close">Close</button>
     </div>
   </header>
 
   <main>
     <div id="groups"></div>
     <div id="empty" class="history-empty hidden">
-      <p>No Marshal captures yet.</p>
-      <p class="history-empty-hint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
+      <p data-i18n="history.empty">No Marshal captures yet.</p>
+      <p class="history-empty-hint" data-i18n-html="history.emptyHint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
     </div>
   </main>
 

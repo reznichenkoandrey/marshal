@@ -518,6 +518,16 @@ const assistantApi = {
 
 contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);
 
+// UI language (#330): asked synchronously so the first paint is already in it;
+// main pushes a change to every open window.
+const i18nApi = {
+  language: ipcRenderer.sendSync("marshal:ui-language") as "uk" | "en",
+  onChange: (cb: (lang: "uk" | "en") => void) =>
+    registerListener<["uk" | "en"]>("marshal:ui-language", (_event, lang) => cb(lang))
+};
+
+contextBridge.exposeInMainWorld("marshalI18n", i18nApi);
+
 declare global {
   interface Window {
     marshalDesktop: typeof desktopApi;
@@ -529,5 +539,6 @@ declare global {
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
     marshalAssistant: typeof assistantApi;
+    marshalI18n: typeof i18nApi;
   }
 }

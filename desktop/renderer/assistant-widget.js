@@ -17,18 +17,8 @@ const DRAG_THRESHOLD_PX = 4;
 // A click waits this long for a second one, so a double-click does not also skip speech.
 const CLICK_DELAY_MS = 250;
 
-const TEXT = {
-  uk: {
-    hint: "Клік — пропустити фразу · подвійний клік — відкрити асистента · тягни — перемістити",
-    waiting: "чекає на тебе"
-  },
-  en: {
-    hint: "Click to skip the phrase · double-click to open the assistant · drag to move",
-    waiting: "needs you"
-  }
-};
-
-let lang = "en";
+const t = (key) => window.MarshalI18n?.t(key) ?? key;
+const lang = () => window.MarshalI18n?.language() ?? "en";
 let state = "idle";
 let idleTimer = 0;
 
@@ -44,7 +34,7 @@ function resolveColor(token) {
 const visual = createHudVisual(canvas, {
   resolveColor,
   getLevel: () => null,
-  labelFor: (value) => stateLabel(value, lang),
+  labelFor: (value) => stateLabel(value, lang()),
   footer: "",
   mini: true
 });
@@ -60,7 +50,6 @@ function scheduleIdlePause() {
 }
 
 function renderCards(cards) {
-  const t = TEXT[lang] ?? TEXT.en;
   cardsList.replaceChildren(
     ...cards.map((card) => {
       const item = document.createElement("li");
@@ -69,7 +58,7 @@ function renderCards(cards) {
       const name = document.createElement("b");
       name.textContent = card.name;
       const reason = document.createElement("small");
-      reason.textContent = card.waitingFor || t.waiting;
+      reason.textContent = card.waitingFor || t("widget.waiting");
       item.title = `${card.name} — ${reason.textContent}`;
       item.append(name, reason);
       return item;
@@ -78,15 +67,13 @@ function renderCards(cards) {
 }
 
 api.onState((_event, view) => {
-  lang = view.lang === "uk" ? "uk" : "en";
-  document.documentElement.lang = lang;
+  window.MarshalI18n?.set(view.lang);
   const next = normalizeState(view.state);
   const changed = next !== state;
   state = next;
   widget.dataset.state = state;
-  const t = TEXT[lang];
-  canvas.title = t.hint;
-  canvas.setAttribute("aria-label", `${stateLabel(state, lang)}. ${t.hint}`);
+  canvas.title = t("widget.hint");
+  canvas.setAttribute("aria-label", `${stateLabel(state, lang())}. ${t("widget.hint")}`);
   visual.setState(state);
   if (changed || !idleTimer) scheduleIdlePause();
   renderCards(Array.isArray(view.cards) ? view.cards : []);

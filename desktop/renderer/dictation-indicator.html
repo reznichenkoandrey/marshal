@@ -5,6 +5,8 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'" />
     <link rel="stylesheet" href="./design-tokens.css" />
     <script src="./theme.js"></script>
+    <script src="./locales.js"></script>
+    <script src="./i18n.js"></script>
     <style>
       /* Dictation indicator in the assistant's visual language (#285): tokens
          only, the listening colour, the label font of the active look. */
@@ -79,9 +81,9 @@
   <body>
     <div class="pill">
       <span class="ring" aria-hidden="true"></span>
-      <span id="label">Listening</span>
+      <span id="label" data-i18n="indicator.listening">Listening</span>
       <span id="time">00:00</span>
-      <button class="stop" id="stop" title="Stop dictation"><span class="square"></span></button>
+      <button class="stop" id="stop" title="Stop dictation" aria-label="Stop dictation" data-i18n-title="indicator.stopDictation" data-i18n-aria-label="indicator.stopDictation"><span class="square"></span></button>
     </div>
     <script type="module">
       const api = window.marshalDictation;
