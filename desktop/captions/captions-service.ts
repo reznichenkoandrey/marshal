@@ -824,7 +824,8 @@ export class LiveCaptionsService extends EventEmitter {
     this.modifierHeld = false;
     this.moveModeToggled = false;
     this.window.setInteractive(false);
-    this.window.hide();
+    // Destroyed, not hidden: a stopped overlay must not keep a renderer (#281, #350).
+    this.window.close();
     this.status = "stopped";
   }
 

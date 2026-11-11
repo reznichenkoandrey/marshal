@@ -25,6 +25,9 @@ const MIN_WIDTH = 520;
 const MIN_HEIGHT = 340;
 const CURSOR_OFFSET = 16; // px gap between cursor and window edge
 const STATE_FILE = "translator-window-state.json";
+// A hidden, empty window is kept this long for a fast reopen, then destroyed:
+// a renderer kept forever counts against the idle budget (#281, #350).
+const RELEASE_HIDDEN_MS = 10 * 60_000;
 const COMPACT_WIDTH = 420;
 const COMPACT_INITIAL_HEIGHT = 150;
 const COMPACT_MIN_HEIGHT = 96;
@@ -54,6 +57,7 @@ export class TranslatorWindow {
    * reports the empty↔non-empty transitions; main cannot see them.
    */
   private hasContent = false;
+  private releaseTimer: NodeJS.Timeout | null = null;
   private view: TranslatorView = "full";
   /** Resolves once the page can receive IPC; sends before that are lost. */
   private ready: Promise<void> = Promise.resolve();
@@ -136,7 +140,23 @@ export class TranslatorWindow {
     if (this.win && !this.win.isDestroyed()) {
       this.captureBounds();
       this.win.hide();
+      this.scheduleRelease();
     }
+  }
+
+  private scheduleRelease(): void {
+    this.cancelRelease();
+    if (this.hasContent) return;
+    this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = null;
+      if (this.win && !this.win.isDestroyed() && !this.win.isVisible() && !this.hasContent) this.win.destroy();
+    }, RELEASE_HIDDEN_MS);
+    this.releaseTimer.unref();
+  }
+
+  private cancelRelease(): void {
+    if (this.releaseTimer) clearTimeout(this.releaseTimer);
+    this.releaseTimer = null;
   }
 
   isVisible(): boolean {
@@ -205,7 +225,9 @@ export class TranslatorWindow {
   }
 
   private ensureWindow(): void {
+    this.cancelRelease();
     if (this.win && !this.win.isDestroyed()) return;
+    this.hasContent = false;
 
     this.win = new BrowserWindow({
       width: this.state.width,
