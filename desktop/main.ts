@@ -67,6 +67,16 @@ import { GENERAL_NAME } from "./assistant/dispatcher-files.ts";
 import { parseRoutingRoots } from "./claude-code/context-router.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
+import { completeOnce } from "./claude-code/answer-summary.ts";
+import {
+  buildGreetingRequest,
+  cleanGreeting,
+  greetingFallback,
+  meetingToday,
+  readLastGreeted,
+  shouldGreet,
+  writeLastGreeted
+} from "./assistant/greeting.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -169,6 +179,8 @@ let sessionsRefresh: NodeJS.Timeout | null = null;
 let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
+// Voices, the first calendar sync and the mic probe settle before the greeting.
+const GREETING_DELAY_MS = 8_000;
 // Counted on hook events and while the home window is open, never polled (#281).
 let waitingSessionCount = 0;
 // One footprint measurement per opening of the home window (#309).
@@ -306,6 +318,9 @@ async function bootstrap(): Promise<void> {
       initAmbient();
       void initExtensionBridge();
       initUpdater();
+      if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) {
+        setTimeout(() => void greetOnLaunch(), GREETING_DELAY_MS).unref();
+      }
     }
 
     app.on("activate", () => {
@@ -2932,6 +2947,28 @@ function talkToAssistant(): void {
     void syncAssistantDispatcher();
   }
   dictationService.toggleRecording("assistant");
+}
+
+// Once per launch, at most once per 30 min (#360); silent on a call, and then the next launch greets.
+async function greetOnLaunch(): Promise<void> {
+  if (!speechService || !loadSettings().speechEnabled) return;
+  const file = path.join(app.getPath("userData"), "greeted.json");
+  if (!shouldGreet(Date.now(), readLastGreeted(file))) return;
+  const now = new Date();
+  const facts = {
+    lang: uiLanguage(),
+    now,
+    meeting: meetingToday(calendarService?.nextMeeting() ?? null, now),
+    waiting: listLiveSessions()
+      .filter((session) => session.status === "waiting" && !assistantDispatcher?.isDispatcher(session))
+      .map((session) => session.name)
+  };
+  const reply = await completeOnce({ ...buildGreetingRequest(facts), maxTokens: 160, label: "greeting" });
+  const text = cleanGreeting(reply) ?? greetingFallback(facts);
+  const result = await speechService.speak(text, { lang: facts.lang });
+  if (!result.ok) return;
+  announceToAssistant(text);
+  writeLastGreeted(file, Date.now());
 }
 
 function sayAsAssistant(text: string): void {
