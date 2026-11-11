@@ -328,6 +328,8 @@ const captureApi = {
   saveQuick: (base64Png: string) => ipcRenderer.invoke("marshal:capture-save-quick", { base64: base64Png }),
   copy: (base64Png: string) => ipcRenderer.invoke("marshal:capture-copy", { base64: base64Png }),
   pin: (base64Png: string) => ipcRenderer.invoke("marshal:capture-pin", { base64: base64Png }),
+  sendToClaude: (base64Png: string, note: string) =>
+    ipcRenderer.invoke("marshal:capture-send-to-claude", { base64: base64Png, note }),
   close: () => ipcRenderer.invoke("marshal:capture-close"),
   // Window-level "keep above other windows" — distinct from `pin` above,
   // which detaches the image into its own floating window.

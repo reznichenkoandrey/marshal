@@ -62,7 +62,7 @@ import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher } from "./assistant/dispatcher.ts";
-import { GENERAL_NAME } from "./assistant/dispatcher-files.ts";
+import { GENERAL_NAME, screenshotCommand } from "./assistant/dispatcher-files.ts";
 import { parseRoutingRoots } from "./claude-code/context-router.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
@@ -797,6 +797,22 @@ function registerIpcHandlers(): void {
     notifyCaptureCopied();
     captureWindow?.close();
     currentArchiveEntry = null;
+    return { ok: true, closed: true };
+  });
+
+  // "Show Claude the bug" (#265): the annotated image goes into history and the
+  // dispatcher routes the note plus its path to a session. Terminal, like Copy.
+  handleIpc("marshal:capture-send-to-claude", (_event, input: { base64: string; note: string }) => {
+    keepInArchive(input.base64);
+    let imagePath = currentArchiveEntry?.path ?? null;
+    if (!imagePath) {
+      imagePath = path.join(app.getPath("temp"), defaultCaptureFilename());
+      fs.writeFileSync(imagePath, Buffer.from(input.base64, "base64"));
+    }
+    captureWindow?.close();
+    currentArchiveEntry = null;
+    enableAssistantOnce();
+    assistantDispatcher?.submit(screenshotCommand(String(input.note ?? ""), imagePath));
     return { ok: true, closed: true };
   });
 

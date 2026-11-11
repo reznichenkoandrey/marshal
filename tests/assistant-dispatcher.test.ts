@@ -15,6 +15,7 @@ import {
   generalCommandLine,
   isValidSessionName,
   parseHelperArgs,
+  screenshotCommand,
   sessionsForDispatcher,
   spawnProjects,
   terminalScript,
@@ -294,5 +295,14 @@ describe("formatRecentTurns", () => {
     );
     expect(formatRecentTurns(null)).toBe("No conversation yet.");
     expect(formatRecentTurns({ branch: null, turns: [] })).toBe("No conversation yet.");
+  });
+});
+
+describe("screenshotCommand", () => {
+  it("puts the note first and the image path on its own last line", () => {
+    expect(screenshotCommand("  marshal:\n кнопка Save не працює ", "/tmp/a b.png")).toBe("marshal: кнопка Save не працює\n\nScreenshot: /tmp/a b.png");
+  });
+  it("still says something when the note is empty", () => {
+    expect(screenshotCommand("", "/x.png")).toBe("Look at this screenshot.\n\nScreenshot: /x.png");
   });
 });

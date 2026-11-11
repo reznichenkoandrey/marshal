@@ -65,6 +65,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - No name, and the text reads as an answer ("так", "ні", "другий варіант", "yes", "do it"): if exactly one session has \`status\` \`waiting\`, that one.
    - No name otherwise: run \`./marshal context\`. It prints \`off\`, or sessions with a \`dossier\` saying what each works on. If exactly one clearly works on what the text is about (the same project, feature, bug or topic), that one, and say "<name>, за контекстом." or "<name>, by context."
    - Anything else — a question, a request to do something on the computer, open an app, find a file, look something up — goes to the session named \`${GENERAL_NAME}\`. If it is not in the list, run \`./marshal spawn ${GENERAL_NAME}\` first.
+   - A text whose last line is \`Screenshot: <path>\` comes from the capture editor: the owner is pointing at something on screen. Route it by the rules above, never to a Marshal feature, and keep the \`Screenshot:\` line exactly as written in what you send: the session reads the image from that path. With no other words, it goes to the session that clearly matches by context, else to \`${GENERAL_NAME}\`.
    - Speech you cannot make sense of: say "Не розчув, повтори." or "Didn't catch that." and send nothing.
 5. Send it once: \`SendMessage\` with \`to\` set to the target's \`address\` exactly as printed and \`message\` set to
 
@@ -271,4 +272,10 @@ export function withTrustedFolder(state: Record<string, unknown>, dir: string): 
   const projects = (typeof state.projects === "object" && state.projects !== null ? state.projects : {}) as Record<string, Record<string, unknown>>;
   if (projects[key]?.hasTrustDialogAccepted === true) return null;
   return { ...state, projects: { ...projects, [key]: { ...projects[key], hasTrustDialogAccepted: true } } };
+}
+
+/** What "Send to Claude" in the capture editor hands the dispatcher (#265). */
+export function screenshotCommand(note: string, imagePath: string): string {
+  const text = note.replace(/\s+/gu, " ").trim();
+  return `${text || "Look at this screenshot."}\n\nScreenshot: ${imagePath}`;
 }

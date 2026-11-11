@@ -22,7 +22,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, screen, systemPreferences } from "electron";
+import { app, BrowserWindow, ipcMain, screen, systemPreferences } from "electron";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -368,6 +368,36 @@ app.whenReady().then(async () => {
     await fs.writeFile(afterCropPath, afterCropImg.toPNG());
     report.artifacts.push(afterCropPath);
 
+    // ── Send to Claude (#265): note field, Enter sends, stubbed session target ──
+    const sent = [];
+    ipcMain.handle("marshal:capture-send-to-claude", (_event, payload) => {
+      sent.push(payload);
+      return { ok: true, closed: true };
+    });
+    const toolBeforeNote = await win.webContents.executeJavaScript(`document.querySelector('.tool.active')?.dataset.tool ?? null`);
+    const noteAt = await win.webContents.executeJavaScript(`
+      (() => { const r = document.getElementById('claude-note').getBoundingClientRect();
+        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) }; })()
+    `);
+    await click(win, noteAt);
+    for (const ch of "marshal: arrow") {
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: ch });
+      win.webContents.sendInputEvent({ type: "char", keyCode: ch });
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode: ch });
+      await sleep(15);
+    }
+    const toolAfterNote = await win.webContents.executeJavaScript(`document.querySelector('.tool.active')?.dataset.tool ?? null`);
+    report.checks.noteKeepsToolKeys = toolAfterNote === toolBeforeNote;
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await sleep(600);
+    log("send to claude", { count: sent.length, note: sent[0]?.note, pngBytes: sent[0]?.base64?.length ?? 0 });
+    report.checks.sentToClaude =
+      sent.length === 1 && sent[0].note === "marshal: arrow" && sent[0].base64.length > 1000;
+    const notePath = path.join(SHOTS, "live-4-claude-note.png");
+    await fs.writeFile(notePath, (await win.webContents.capturePage()).toPNG());
+    report.artifacts.push(notePath);
+
     // The willReadFrequently line is a performance advisory Chromium emits
     // because this harness polls getImageData; it is not a product defect.
     const realErrors = consoleErrors.filter((m) => !m.includes("willReadFrequently"));
@@ -391,6 +421,8 @@ app.whenReady().then(async () => {
       "textDrawn",
       "cropRestoresUsableTool",
       "drawableRightAfterCrop",
+      "noteKeepsToolKeys",
+      "sentToClaude",
       "noConsoleErrors"
     ];
     report.failed = mustPass.filter((k) => report.checks[k] !== true);
