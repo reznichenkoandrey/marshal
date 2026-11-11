@@ -35,8 +35,26 @@ describe("TranscriptBuffer", () => {
     buffer.pushTranscript("third sentence about retries", t0 + 4_000);
     expect(buffer.displayLines()).toEqual(["second sentence about queues", "third sentence about retries"]);
     // 3 × 29 chars > 60, so the oldest line is gone from the prompt too.
-    expect(buffer.transcriptText()).not.toContain("first");
-    expect(buffer.transcriptText()).toContain("third");
+    expect(buffer.transcriptText(t0 + 4_000)).not.toContain("first");
+    expect(buffer.transcriptText(t0 + 4_000)).toContain("third");
+  });
+
+  it("summarizes only the last minute of speech, not topics finished long ago (#355)", () => {
+    const buffer = new TranscriptBuffer({ summaryWindowMs: 60_000 });
+    const t0 = 1_000_000;
+    buffer.pushTranscript("We shard the write path by tenant id.", t0);
+    buffer.pushTranscript("The cache purge moves into an event after commit.", t0 + 50_000);
+    buffer.pushTranscript("Partners get a retry after header on the rate limit.", t0 + 90_000);
+    const text = buffer.transcriptText(t0 + 100_000);
+    expect(text).not.toContain("tenant");
+    expect(text).toContain("cache purge");
+    expect(text).toContain("retry after");
+  });
+
+  it("keeps the newest line for the summary after a long silence", () => {
+    const buffer = new TranscriptBuffer({ summaryWindowMs: 60_000 });
+    buffer.pushTranscript("We ship the release on Friday.", 1_000_000);
+    expect(buffer.transcriptText(1_000_000 + 10 * 60_000)).toBe("We ship the release on Friday.");
   });
 
   it("never drops the only line even if it exceeds the budget", () => {

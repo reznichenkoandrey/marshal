@@ -90,3 +90,4 @@ Legend: ✅ done · 🟡 partial · ⬜ not started.
 | `MARSHAL_CAPTIONS_SILENCE_MS` | `1200` | end-of-utterance pause (#209) |
 | `MARSHAL_CAPTIONS_MIX_MIC` | `0` | also caption the microphone (#191, #212) |
 | `MARSHAL_CAPTIONS_TRANSLATE` | `uk` | target language of the live translation, or `off` (#210) |
+| `MARSHAL_CAPTIONS_DEBUG` | off | `1` logs a timestamped line per step: segment, STT, stored line, translation, summary (#355) |

@@ -38,6 +38,11 @@ export interface TranscriptPushResult {
 export interface TranscriptBufferOptions {
   /** Characters of transcript kept for the summarizer prompt. */
   maxTranscriptChars: number;
+  /**
+   * Only lines stored this recently go to the summarizer (#355). A wider
+   * window made the bullets restate topics finished minutes ago.
+   */
+  summaryWindowMs: number;
   /** Lines kept for the overlay's raw caption area. */
   maxDisplayLines: number;
   /** OCR snapshots kept. */
@@ -63,6 +68,7 @@ export interface TranscriptBufferOptions {
 
 export const DEFAULT_TRANSCRIPT_BUFFER_OPTIONS: TranscriptBufferOptions = {
   maxTranscriptChars: 1_400,
+  summaryWindowMs: 45_000,
   maxDisplayLines: 3,
   maxOcrSnapshots: 2,
   maxOcrChars: 1_500,
@@ -212,9 +218,11 @@ export class TranscriptBuffer {
     return this.lines.slice(-this.options.maxDisplayLines).map((line) => line.text);
   }
 
-  /** Everything the summarizer should see, trimmed to the character budget. */
-  transcriptText(): string {
-    return this.lines.map((line) => line.text).join("\n");
+  /** The speech of the summary window (at least the newest line), within the character budget. */
+  transcriptText(now = Date.now()): string {
+    const since = now - this.options.summaryWindowMs;
+    const recent = this.lines.filter((line, index) => line.at >= since || index === this.lines.length - 1);
+    return recent.map((line) => line.text).join("\n");
   }
 
   ocrText(now = Date.now()): string {
