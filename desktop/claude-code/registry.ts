@@ -21,6 +21,8 @@ export type ClaudeSession = {
   waitingFor: string | null;
   // "claude-desktop", "claude-vscode", "cli", … — decides how to focus it.
   entrypoint: string | null;
+  // Claude desktop's own id for the session ("local_<uuid>"); only desktop sessions have it.
+  hostSessionId?: string;
   socketPath: string;
   startedAt: number;
   statusUpdatedAt: number | null;
@@ -30,6 +32,8 @@ const STATUSES: readonly SessionStatus[] = ["busy", "shell", "idle", "waiting"];
 // Claude Code names a session file after its pid; anything else is a temp or
 // foreign file it would ignore too.
 const FILE_PATTERN = /^(\d+)\.json$/;
+// The shape Claude desktop's claude://code/continue handler accepts.
+const HOST_SESSION_ID = /^local_[A-Za-z0-9-]{1,64}$/;
 
 export function defaultSessionsDir(): string {
   return path.join(os.homedir(), ".claude", "sessions");
@@ -68,6 +72,9 @@ export function parseSessionFile(fileName: string, raw: string): ClaudeSession |
     status,
     waitingFor: status === "waiting" && typeof o.waitingFor === "string" ? o.waitingFor : null,
     entrypoint: typeof o.entrypoint === "string" ? o.entrypoint : null,
+    ...(typeof o.hostSessionId === "string" && HOST_SESSION_ID.test(o.hostSessionId)
+      ? { hostSessionId: o.hostSessionId }
+      : {}),
     socketPath: o.messagingSocketPath,
     startedAt: typeof o.startedAt === "number" ? o.startedAt : 0,
     statusUpdatedAt: typeof o.statusUpdatedAt === "number" ? o.statusUpdatedAt : null

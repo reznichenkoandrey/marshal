@@ -1,10 +1,12 @@
 // Bring a Claude Code session's window to the front: the exact Terminal/iTerm
-// tab when the session runs on a tty, otherwise the app that hosts it (Claude
-// desktop, VS Code, …). Desktop sessions have no tty, so for them the app is
-// as close as macOS lets us get.
+// tab when the session runs on a tty, the session itself in Claude desktop via
+// its claude://code/continue deep link, otherwise the app that hosts it
+// (VS Code, …).
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+
+import { listLiveSessions, type ClaudeSession } from "./registry.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,9 +103,17 @@ export function terminalTabScript(appPath: string, tty: string): string | null {
   return null;
 }
 
-// "tab" = the session's own terminal tab is in front; "app" = only its host
-// app is, showing whatever it had open — not safe to type into.
-export async function focusSession(pid: number): Promise<"tab" | "app" | null> {
+/** Claude desktop's link to one Code session (#357); null for any other host. */
+export function desktopSessionLink(session: Pick<ClaudeSession, "entrypoint" | "hostSessionId">): string | null {
+  if (session.entrypoint !== "claude-desktop" || !session.hostSessionId) return null;
+  return `claude://code/continue?session=${encodeURIComponent(session.hostSessionId)}`;
+}
+
+// "tab" = the session's own terminal tab is in front; "session" = Claude
+// desktop was asked to show it, but nothing confirms its composer has focus;
+// "app" = only its host app is, showing whatever it had open. Only "tab" is
+// safe to type into.
+export async function focusSession(pid: number): Promise<"tab" | "session" | "app" | null> {
   const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid=,tty=,comm="]);
   const target = findFocusTarget(parseProcessTable(stdout), pid);
   if (!target.appPath) return null;
@@ -118,6 +128,13 @@ export async function focusSession(pid: number): Promise<"tab" | "app" | null> {
       // app itself is still worth bringing forward.
       console.warn("[claude-sessions] tab focus failed:", err instanceof Error ? err.message : err);
     }
+  }
+  const session = target.tty ? undefined : listLiveSessions().find((live) => live.pid === pid);
+  const link = session ? desktopSessionLink(session) : null;
+  if (link) {
+    // With Claude's deep-link entry points switched off this only activates the app.
+    await execFileAsync("open", [link]);
+    return "session";
   }
   await execFileAsync("open", ["-a", target.appPath]);
   return "app";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { describeStatus, listLiveSessions, parseSessionFile } from "../desktop/claude-code/registry.ts";
-import { findFocusTarget, parseProcessTable, terminalTabScript } from "../desktop/claude-code/focus.ts";
+import { desktopSessionLink, findFocusTarget, parseProcessTable, terminalTabScript } from "../desktop/claude-code/focus.ts";
 
 // Shape copied from a real ~/.claude/sessions file written by Claude Code 2.1.317.
 const desktopSession = {
@@ -37,10 +37,16 @@ describe("parseSessionFile", () => {
       status: "idle",
       waitingFor: null,
       entrypoint: "claude-desktop",
+      hostSessionId: "local_6081acd0",
       socketPath: "/tmp/cc-socks/15142.sock",
       startedAt: 1794061768635,
       statusUpdatedAt: 1794062407401
     });
+  });
+
+  it("drops a host session id the desktop deep link would reject", () => {
+    expect(parseSessionFile("15142.json", file({ hostSessionId: "local_x&session=other" }))?.hostSessionId).toBeUndefined();
+    expect(parseSessionFile("15142.json", file({ hostSessionId: 42 }))?.hostSessionId).toBeUndefined();
   });
 
   it("keeps what a waiting session is blocked on", () => {
@@ -134,5 +140,18 @@ describe("focus target", () => {
     expect(terminalTabScript("/Applications/iTerm.app", "ttys003")).toContain('tty of s is "/dev/ttys003"');
     expect(terminalTabScript("/Applications/Visual Studio Code.app", "ttys003")).toBeNull();
     expect(terminalTabScript("/Applications/iTerm.app", "ttys003\" & do shell script \"x")).toBeNull();
+  });
+});
+
+describe("desktopSessionLink", () => {
+  it("links a Claude desktop session to its own claude://code/continue route", () => {
+    expect(desktopSessionLink({ entrypoint: "claude-desktop", hostSessionId: "local_6081acd0" })).toBe(
+      "claude://code/continue?session=local_6081acd0"
+    );
+  });
+
+  it("has no link for other hosts or a desktop session without its id", () => {
+    expect(desktopSessionLink({ entrypoint: "claude-vscode", hostSessionId: "local_6081acd0" })).toBeNull();
+    expect(desktopSessionLink({ entrypoint: "claude-desktop" })).toBeNull();
   });
 });
