@@ -11,14 +11,19 @@ const WARM_UP_TIMEOUT_MS = 60_000;
 // Phrases come in bursts (a session event and its reminder); one probe covers them.
 const CACHE_MS = 2_000;
 
-export type MicUser = { pid: number; ppid: number; bundleId: string };
+// Siri, Voice Control and system dictation hold the mic all the time; they are not calls.
+const NOT_CALLS = new Set(["corespeechd", "speechrecognitiond", "localspeechrecognition"]);
 
-/** Lines of `mic-users`: "<pid> <ppid> <bundle id>"; the bundle id is empty for bare executables. */
+export type MicUser = { pid: number; ppid: number; name: string; bundleId: string };
+
+/** Tab-separated lines of `mic-users`: pid, parent pid, executable name, bundle id (empty for bare executables). */
 export function parseMicUsers(stdout: string): MicUser[] {
   const users: MicUser[] = [];
   for (const line of stdout.split("\n")) {
-    const match = /^(\d+) (\d+) ?(\S*)\s*$/.exec(line.trim());
-    if (match) users.push({ pid: Number(match[1]), ppid: Number(match[2]), bundleId: match[3] });
+    const [pid, ppid, name = "", bundleId = ""] = line.split("\t");
+    if (/^\d+$/.test(pid ?? "") && /^\d+$/.test(ppid ?? "")) {
+      users.push({ pid: Number(pid), ppid: Number(ppid), name: name.trim(), bundleId: bundleId.trim() });
+    }
   }
   return users;
 }
@@ -29,7 +34,7 @@ export function parseMicUsers(stdout: string): MicUser[] {
  * process or its direct children.
  */
 export function isOnCall(users: MicUser[], ownPid: number): boolean {
-  return users.some((user) => user.pid !== ownPid && user.ppid !== ownPid);
+  return users.some((user) => user.pid !== ownPid && user.ppid !== ownPid && !NOT_CALLS.has(user.name.toLowerCase()));
 }
 
 export type CallPresenceOptions = { binPath?: string; ownPid?: number; now?: () => number };

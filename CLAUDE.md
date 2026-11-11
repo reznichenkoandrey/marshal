@@ -416,7 +416,9 @@
   запускає Swift helper `mic-users` (`desktop/presence/`). Helper читає CoreAudio
   `kAudioHardwarePropertyProcessObjectList`, працює на macOS 14+ і не потребує дозволу мікрофона.
   Якщо вхід тримає процес поза Marshal (не сам main і не його прямий child), це дзвінок: Meet,
-  Zoom, Slack і Telegram потрапляють сюди однаково. Фраза на дзвінку **викидається**, а не
+  Zoom, Slack і Telegram потрапляють сюди однаково. Siri, Voice Control і системна диктовка
+  (`corespeechd`, `speechrecognitiond`, `localspeechrecognition`) тримають мікрофон постійно і
+  дзвінком не вважаються. Фраза на дзвінку **викидається**, а не
   відкладається, бо через годину вона неактуальна, а нотифікація лишається. Відповідь кешується
   на 2 с. Поллера немає (#281). Helper прогрівається на старті через Gatekeeper (#181). Збій
   helper-а вважається «не дзвінок». `force` (тест голосу в Settings) не перевіряє дзвінок.

@@ -1,8 +1,9 @@
 // desktop/presence/mic-users.swift
 //
 // Print one line per process that is capturing audio input right now:
-// "<pid> <ppid> <bundle id>". Marshal reads it to tell whether the owner is
-// on a call (#359): Meet, Zoom, Slack and Telegram all hold the mic open.
+// "<pid>\t<ppid>\t<executable name>\t<bundle id>" (names may contain spaces).
+// Marshal reads it to tell whether the owner is on a call (#359): Meet, Zoom,
+// Slack and Telegram all hold the mic open.
 // Metadata only — no capture, no microphone permission. macOS 14+ (the
 // process object list); older systems print nothing.
 
@@ -30,6 +31,11 @@ func readBundleId(_ object: AudioObjectID) -> String {
   return value.takeRetainedValue() as String
 }
 
+func processName(_ pid: pid_t) -> String {
+  var buffer = [CChar](repeating: 0, count: 256)
+  return proc_name(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : ""
+}
+
 func parentPid(_ pid: pid_t) -> pid_t {
   var info = kinfo_proc()
   var size = MemoryLayout<kinfo_proc>.size
@@ -46,7 +52,7 @@ if #available(macOS 14.0, *) {
     if AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &objects) == noErr {
       for object in objects where readScalar(object, kAudioProcessPropertyIsRunningInput, as: UInt32.self) == 1 {
         guard let pid = readScalar(object, kAudioProcessPropertyPID, as: pid_t.self) else { continue }
-        print("\(pid) \(parentPid(pid)) \(readBundleId(object))")
+        print("\(pid)\t\(parentPid(pid))\t\(processName(pid))\t\(readBundleId(object))")
       }
     }
   }

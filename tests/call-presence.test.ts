@@ -16,21 +16,26 @@ async function stubHelper(body: string): Promise<string> {
 
 describe("parseMicUsers", () => {
   it("reads pid, parent pid and bundle id, which bare executables lack", () => {
-    expect(parseMicUsers("69646 69405 com.google.Chrome.helper\n11153 11149 \n\ngarbage\n")).toEqual([
-      { pid: 69646, ppid: 69405, bundleId: "com.google.Chrome.helper" },
-      { pid: 11153, ppid: 11149, bundleId: "" }
+    expect(parseMicUsers("69646\t69405\tGoogle Chrome Helper\tcom.google.Chrome.helper\n11153\t11149\tffmpeg\t\n\ngarbage\n")).toEqual([
+      { pid: 69646, ppid: 69405, name: "Google Chrome Helper", bundleId: "com.google.Chrome.helper" },
+      { pid: 11153, ppid: 11149, name: "ffmpeg", bundleId: "" }
     ]);
   });
 });
 
 describe("isOnCall", () => {
   it("ignores Marshal itself and its direct children", () => {
-    expect(isOnCall([{ pid: 100, ppid: 1, bundleId: "com.marshal.desktop" }], 100)).toBe(false);
-    expect(isOnCall([{ pid: 101, ppid: 100, bundleId: "com.marshal.desktop.helper" }], 100)).toBe(false);
+    expect(isOnCall([{ pid: 100, ppid: 1, name: "Marshal", bundleId: "com.marshal.desktop" }], 100)).toBe(false);
+    expect(isOnCall([{ pid: 101, ppid: 100, name: "Marshal Helper", bundleId: "com.marshal.desktop.helper" }], 100)).toBe(false);
   });
 
   it("is a call when any other process captures input", () => {
-    expect(isOnCall([{ pid: 69646, ppid: 69405, bundleId: "com.google.Chrome.helper" }], 100)).toBe(true);
+    expect(isOnCall([{ pid: 69646, ppid: 69405, name: "Google Chrome Helper", bundleId: "com.google.Chrome.helper" }], 100)).toBe(true);
+  });
+
+  it("ignores Siri, Voice Control and dictation, which hold the mic all the time", () => {
+    expect(isOnCall([{ pid: 751, ppid: 1, name: "corespeechd", bundleId: "com.apple.CoreSpeech" }], 100)).toBe(false);
+    expect(isOnCall([{ pid: 752, ppid: 1, name: "speechrecognitiond", bundleId: "" }], 100)).toBe(false);
   });
 
   it("is not a call when nobody captures input", () => {
@@ -40,13 +45,13 @@ describe("isOnCall", () => {
 
 describe("createCallPresence", () => {
   it("reports a call from the helper output", async () => {
-    const bin = await stubHelper('echo "500 1 us.zoom.xos"');
+    const bin = await stubHelper('printf "500\\t1\\tzoom.us\\tus.zoom.xos\\n"');
     expect(await createCallPresence({ binPath: bin, ownPid: 100 })()).toBe(true);
   });
 
   it("treats a missing or failing helper as no call, so speech still works", async () => {
     expect(await createCallPresence({ binPath: "/nonexistent/mic-users", ownPid: 100 })()).toBe(false);
-    const failing = await stubHelper('echo "500 1 us.zoom.xos"; exit 3');
+    const failing = await stubHelper('printf "500\\t1\\tzoom.us\\tus.zoom.xos\\n"; exit 3');
     expect(await createCallPresence({ binPath: failing, ownPid: 100 })()).toBe(false);
   });
 
