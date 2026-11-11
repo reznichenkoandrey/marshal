@@ -417,7 +417,7 @@ describe("resolveDefaultModel", () => {
 
   it("looks in the shared directory first, before the repo tree and the bundle", () => {
     const candidates = whisperModelCandidates();
-    expect(candidates[0]).toBe(modelPath("ggml-large-v3-turbo.bin"));
+    expect(candidates[0]).toBe(modelPath("ggml-large-v3-turbo-q8_0.bin"));
     // Model quality is the outer loop, location the inner one: a turbo copy
     // already on disk should beat a freshly downloaded `small`.
     const sharedSmall = candidates.indexOf(modelPath("ggml-small.bin"));

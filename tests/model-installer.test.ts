@@ -45,7 +45,7 @@ describe("model catalogue", () => {
   });
 
   it("findModelSpec rejects anything not in the catalogue", () => {
-    expect(findModelSpec(DEFAULT_MODEL_NAME)?.label).toBe("large-v3-turbo");
+    expect(findModelSpec(DEFAULT_MODEL_NAME)?.label).toBe("large-v3-turbo-q8_0");
     expect(findModelSpec("ggml-made-up.bin")).toBeUndefined();
   });
 });
@@ -129,6 +129,8 @@ describe("findInstalledModel", () => {
     fs.writeFileSync(path.join(tempModels, "ggml-small.bin"), "s");
     fs.writeFileSync(path.join(tempModels, "ggml-large-v3-turbo.bin"), "t");
     expect(findInstalledModel()?.name).toBe("ggml-large-v3-turbo.bin");
+    fs.writeFileSync(path.join(tempModels, "ggml-large-v3-turbo-q8_0.bin"), "q");
+    expect(findInstalledModel()?.name).toBe("ggml-large-v3-turbo-q8_0.bin");
   });
 });
 

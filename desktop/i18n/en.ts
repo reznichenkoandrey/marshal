@@ -94,6 +94,7 @@ export const en = {
   "tray.scrollingCapture": "Scrolling capture (experimental)…",
   "tray.cancelModelDownload": "Cancel Model Download ({percent}%)",
   "tray.dictationModel": "Dictation Model: {name}",
+  "tray.lighterModel": "Dictation Model: {name} — Get {label} ({size}, ~45% less memory)…",
   "tray.downloadModel": "Download Dictation Model…",
   "tray.noSessions": "No live sessions",
   "tray.openMarshal": "Open Marshal",

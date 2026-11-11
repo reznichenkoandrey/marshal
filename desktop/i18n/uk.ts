@@ -96,6 +96,7 @@ export const uk: Record<MessageKey, string> = {
   "tray.scrollingCapture": "Знімок із прокруткою (експериментально)…",
   "tray.cancelModelDownload": "Скасувати завантаження моделі ({percent}%)",
   "tray.dictationModel": "Модель диктовки: {name}",
+  "tray.lighterModel": "Модель диктовки: {name} — завантажити {label} ({size}, на ~45% менше пам'яті)…",
   "tray.downloadModel": "Завантажити модель диктовки…",
   "tray.noSessions": "Немає живих сесій",
   "tray.openMarshal": "Відкрити Marshal",

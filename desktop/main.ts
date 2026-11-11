@@ -2252,10 +2252,16 @@ function buildModelMenuItem(): Electron.MenuItemConstructorOptions {
   }
   const installed = findInstalledModel();
   if (installed) {
-    return {
-      label: t("tray.dictationModel", { name: installed.name.replace(/^ggml-|\.bin$/gu, "") }),
-      enabled: false
-    };
+    const name = installed.name.replace(/^ggml-|\.bin$/gu, "");
+    const preferred = findModelSpec(DEFAULT_MODEL_NAME);
+    // An older default stays in use until the owner fetches the lighter one; nothing is deleted.
+    if (preferred && installed.name !== DEFAULT_MODEL_NAME && installed.name === "ggml-large-v3-turbo.bin") {
+      return {
+        label: t("tray.lighterModel", { name, label: preferred.label, size: formatBytes(preferred.bytes) }),
+        click: () => void runModelDownload()
+      };
+    }
+    return { label: t("tray.dictationModel", { name }), enabled: false };
   }
   return {
     label: t("tray.downloadModel"),

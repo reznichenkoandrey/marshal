@@ -32,16 +32,24 @@ export interface WhisperModelSpec {
 }
 
 /**
- * Supported models in resolution priority: turbo first (the default since
- * #93), then large-v3 for anyone who wants maximum accuracy, then small for
- * installs that predate #93. Sizes are the upstream Content-Length values.
+ * Supported models in resolution priority: turbo q8_0 first (the default
+ * since #282: same transcripts as full turbo, ~45% less resident memory, 4x
+ * faster cold load), then full turbo (the default since #93), large-v3 for
+ * maximum accuracy, and small for installs that predate #93. Sizes are the
+ * upstream Content-Length values.
  */
 export const WHISPER_MODELS: readonly WhisperModelSpec[] = [
+  {
+    name: "ggml-large-v3-turbo-q8_0.bin",
+    label: "large-v3-turbo-q8_0",
+    bytes: 874_188_075,
+    note: "recommended — full turbo quality on ~45% less memory"
+  },
   {
     name: "ggml-large-v3-turbo.bin",
     label: "large-v3-turbo",
     bytes: 1_624_555_275,
-    note: "recommended — near large-v3 accuracy at a fraction of the runtime"
+    note: "near large-v3 accuracy at a fraction of the runtime"
   },
   {
     name: "ggml-large-v3.bin",
@@ -57,7 +65,7 @@ export const WHISPER_MODELS: readonly WhisperModelSpec[] = [
   }
 ];
 
-export const DEFAULT_MODEL_NAME = "ggml-large-v3-turbo.bin";
+export const DEFAULT_MODEL_NAME = "ggml-large-v3-turbo-q8_0.bin";
 
 // Same host the upstream `models/download-ggml-model.sh` uses, which is what
 // `scripts/install-whisper-cpp.sh` already invokes. Verified 2026-09-16:
