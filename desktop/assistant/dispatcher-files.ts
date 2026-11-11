@@ -53,6 +53,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
    - Marshal's settings → \`./marshal do settings\`
+   - write, type or insert text where the owner is ("напиши …", "встав …", "надрукуй …", "type …"), with no session named → \`./marshal insert "<text>"\` with only the text to insert, exactly as dictated, without the instruction words. It lands in the app the owner was in when they spoke.
 2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
    - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"
    - What is going on overall ("що відбувається", "хто працює", "status"): run \`./marshal sessions\` and \`./marshal context\`, then say in one or two plain sentences what matters: who waits for the owner and for what, and what the busy sessions are working on, from their \`dossier\`. Skip idle sessions, ids, paths and statuses as words.
@@ -128,12 +129,12 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
-    "  say|do|spawn|sent|peek)",
+    "  say|do|insert|spawn|sent|peek)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | spawn [project] [name] | sent <session> | peek <session>'",
+    "    echo 'usage: marshal watch | sessions | context | say <text> | do <action> | insert <text> | spawn [project] [name] | sent <session> | peek <session>'",
     "    exit 1 ;;",
     "esac",
     ""

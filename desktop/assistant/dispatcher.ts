@@ -63,6 +63,8 @@ export type DispatcherDeps = {
   /** Shown in the home line only: the owner's own command, echoed. */
   announce: (text: string) => void;
   focus: (pid: number) => void;
+  /** `./marshal insert`: types the text into the app the owner was in when they spoke (#361). */
+  insert: (text: string) => Promise<string>;
   runAppleScript?: (script: string) => Promise<void>;
   /** Where Claude Code keeps folder trust; ~/.claude.json. */
   claudeStatePath?: string;
@@ -222,6 +224,10 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (route === "do") {
       const [action] = args;
       return action ? this.deps.runAction(action) : "usage: marshal do <action>";
+    }
+    if (route === "insert") {
+      const text = args.join(" ");
+      return text ? this.deps.insert(text) : "usage: marshal insert <text>";
     }
     if (route === "spawn") return this.spawn(args);
     if (route === "peek") {

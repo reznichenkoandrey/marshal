@@ -154,6 +154,7 @@ describe("dispatcher over the hook receiver", () => {
     const said: string[] = [];
     const actions: string[] = [];
     const scripts: string[] = [];
+    const inserted: string[] = [];
     const deps: DispatcherDeps = {
       userDataDir,
       hookDir: () => hookDir,
@@ -167,6 +168,10 @@ describe("dispatcher over the hook receiver", () => {
       },
       announce: () => undefined,
       focus: () => undefined,
+      insert: async (text) => {
+        inserted.push(text);
+        return "pasted";
+      },
       runAppleScript: async (script) => {
         scripts.push(script);
       },
@@ -175,7 +180,7 @@ describe("dispatcher over the hook receiver", () => {
     const dispatcher = new AssistantDispatcher(deps);
     const service = new ClaudeHookService(hookDir, () => undefined);
     service.setAssistantRoutes(dispatcher);
-    return { dispatcher, service, said, actions, scripts, hookDir };
+    return { dispatcher, service, said, actions, scripts, inserted, hookDir };
   }
 
   const helper = (hookDir: string, args: string[]) => new Promise<string>((resolve, reject) => {
@@ -186,7 +191,7 @@ describe("dispatcher over the hook receiver", () => {
 
   it("answers the real helper script: sessions, say with quotes, do", async () => {
     const live = [session({ name: "marshal", cwd: "/htdocs/marshal", socketPath: "/s/m" })];
-    const { dispatcher, service, said, actions, hookDir } = setup(live);
+    const { dispatcher, service, said, actions, inserted, hookDir } = setup(live);
     await service.start();
     try {
       const sessions = JSON.parse(await helper(hookDir, ["sessions"])) as { address: string }[];
@@ -195,6 +200,8 @@ describe("dispatcher over the hook receiver", () => {
       expect(said).toEqual(["Передав \"marshal\"; $(rm -rf /)"]);
       expect(await helper(hookDir, ["do", "skip"])).toBe("ran skip\n");
       expect(actions).toEqual(["skip"]);
+      expect(await helper(hookDir, ["insert", "Буду за 5 хвилин"])).toBe("pasted\n");
+      expect(inserted).toEqual(["Буду за 5 хвилин"]);
       expect(await helper(hookDir, ["sent", "nobody"])).toBe("No live session named \"nobody\".\n");
       expect(await helper(hookDir, ["sent", "marshal"])).toBe("ok\n");
       expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, false)).toBe(true);
