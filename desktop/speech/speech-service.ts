@@ -12,6 +12,7 @@ import {
   normalizeSpeechRate,
   parseSayVoices,
   pickVoice,
+  pronounceForUkrainian,
   voicesForLang,
   type SpeechEngine,
   type SpeechItem,
@@ -126,6 +127,7 @@ export class SpeechService {
     if (!options.force && (await this.onCall())) return { ok: false, error: "Silent on a call." };
 
     const lang = options.lang ?? detectSpeechLang(trimmed);
+    const spoken = lang === "uk" ? pronounceForUkrainian(trimmed) : trimmed;
     const preferred = lang === "uk" ? settings.voiceUk : settings.voiceEn;
     let voice = pickVoice(await this.listVoices(), lang, preferred);
     // A voice installed after the first listing should work without a restart.
@@ -133,13 +135,13 @@ export class SpeechService {
     const installed = settings.engine === "holos" ? isHolosInstalled() : isPiperInstalled();
     const engine = chooseSpeechEngine(settings.engine, lang, installed);
     if (engine !== "macos") {
-      this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice?.name ?? "", engine });
+      this.queue.enqueue({ text: spoken, lang, key: options.key, voice: voice?.name ?? "", engine });
       this.pump();
       return { ok: true, lang, voice: engine === "holos" ? `Holos · ${settings.holosVoice || "default"}` : PIPER_VOICE_LABEL };
     }
     if (!voice) return { ok: false, lang, error: lang === "uk" ? NO_UK_VOICE_MESSAGE : NO_EN_VOICE_MESSAGE };
 
-    this.queue.enqueue({ text: trimmed, lang, key: options.key, voice: voice.name, engine });
+    this.queue.enqueue({ text: spoken, lang, key: options.key, voice: voice.name, engine });
     this.pump();
     return { ok: true, lang, voice: voice.name };
   }
