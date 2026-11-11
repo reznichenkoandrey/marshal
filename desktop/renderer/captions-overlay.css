@@ -15,6 +15,8 @@
   --captions-accent: #4dc3ff;
   --captions-keyword: #ffb547;
   --captions-danger: #ff4d6a;
+  --captions-stop: rgba(248, 113, 113, 0.28);
+  --captions-stop-hover: rgba(248, 113, 113, 0.5);
   --captions-radius: 8px;
   --captions-fs-summary: 18px;
   --captions-fs-caption: 17px;
@@ -52,14 +54,12 @@ html, body {
   transition: background 160ms ease-out, border-color 160ms ease-out;
 }
 
-/* Drag mode: the whole body moves the window; buttons opt out. */
+/* Move mode: the whole overlay drags (captions-overlay.js moves the window). */
 body.interactive .overlay {
-  -webkit-app-region: drag;
   background: var(--captions-bg-interactive);
   border-color: var(--captions-border-interactive);
   cursor: move;
 }
-body.interactive button { -webkit-app-region: no-drag; }
 
 .bar {
   display: flex;
@@ -71,7 +71,10 @@ body.interactive button { -webkit-app-region: no-drag; }
   text-transform: uppercase;
   font-family: var(--font-label);
   min-height: 20px;
+  /* The drag handle: the only part that takes the mouse outside move mode. */
+  cursor: grab;
 }
+body.dragging, body.dragging .bar { cursor: grabbing; }
 
 .dot {
   width: 8px;
@@ -114,20 +117,19 @@ body.interactive button { -webkit-app-region: no-drag; }
 .summary.stale { opacity: 0.6; }
 
 button.stop {
-  display: none;
+  display: inline-flex;
   width: 20px;
   height: 20px;
   border: 0;
   border-radius: 10px;
-  background: rgba(248, 113, 113, 0.28);
+  background: var(--captions-stop);
   cursor: pointer;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
-button.stop:hover { background: rgba(248, 113, 113, 0.5); }
+button.stop:hover { background: var(--captions-stop-hover); }
 .square { width: 8px; height: 8px; border-radius: 1px; background: var(--captions-fg); }
-body.interactive button.stop { display: inline-flex; }
 
 .summary {
   flex: 1;

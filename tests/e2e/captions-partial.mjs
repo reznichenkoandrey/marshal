@@ -5,7 +5,9 @@
 // layout, which no unit test can see: a long partial must show its *end* —
 // the newest words — and clip its beginning, the fade must appear only when
 // something was actually clipped, and the brightest line must stay the latest
-// final one rather than jumping to the provisional guess.
+// final one rather than jumping to the provisional guess. Also the header bar:
+// Stop is reachable outside move mode and dragging the bar reports the pointer
+// to main, which moves the window (#351, #352).
 //
 // No audio, no STT, no TCC grants — safe for the CI runner.
 //
@@ -47,14 +49,17 @@ function record(name, passed, detail) {
 const PRELOAD = `
 const { contextBridge } = require("electron");
 let listener = null;
+const pointerLog = [];
 contextBridge.exposeInMainWorld("marshalCaptions", {
   stop: async () => {},
+  pointer: (message) => { pointerLog.push(message); },
   onUpdate: (cb) => { listener = cb; return () => { listener = null; }; }
 });
 // Updates cross the isolated world through contextBridge, the same way the
 // real ipcRenderer event does.
 contextBridge.exposeInMainWorld("__captionsProbe", {
-  push: (update) => { if (listener) listener({}, update); }
+  push: (update) => { if (listener) listener({}, update); },
+  pointerLog: () => pointerLog.slice()
 });
 `;
 
@@ -201,6 +206,61 @@ async function main() {
   await sleep(150);
   const cleared = await js(`document.querySelectorAll("#captions .line.partial").length`);
   record("live line disappears when the final lands", cleared === 0);
+
+  // ── Header bar (#351, #352): Stop outside move mode, drag by the bar ──
+  await js(`window.__captionsProbe.push(${update({ interactive: false })})`);
+  await sleep(100);
+  const bar = await js(`(() => {
+    const stop = document.getElementById("stop").getBoundingClientRect();
+    const title = document.querySelector(".bar .title").getBoundingClientRect();
+    return {
+      stopVisible: stop.width > 0 && stop.height > 0,
+      x: Math.round(title.left + title.width / 2),
+      y: Math.round(title.top + title.height / 2)
+    };
+  })()`);
+  record("Stop is visible outside move mode", bar.stopVisible === true);
+
+  win.showInactive();
+  await sleep(200);
+  // Synthetic events carry no screen position unless given one.
+  const [winX, winY] = win.getPosition();
+  const at = (x, y) => ({ x, y, globalX: winX + x, globalY: winY + y });
+  win.webContents.sendInputEvent({ type: "mouseMove", ...at(bar.x, bar.y) });
+  win.webContents.sendInputEvent({ type: "mouseDown", ...at(bar.x, bar.y), button: "left", clickCount: 1 });
+  win.webContents.sendInputEvent({ type: "mouseMove", ...at(bar.x + 40, bar.y + 25), button: "left" });
+  win.webContents.sendInputEvent({ type: "mouseUp", ...at(bar.x + 40, bar.y + 25), button: "left", clickCount: 1 });
+  await sleep(200);
+  const pointer = await js(`window.__captionsProbe.pointerLog()`);
+  const types = pointer.map((message) => message.type);
+  const start = pointer.find((message) => message.type === "drag-start");
+  const move = pointer.find((message) => message.type === "drag-move");
+  record("hovering the bar asks main for the mouse", pointer.some((m) => m.type === "hover" && m.hovered === true), types.join(","));
+  record(
+    "dragging the bar reports start, move and end",
+    types.includes("drag-start") && types.includes("drag-move") && types.includes("drag-end"),
+    types.join(",")
+  );
+  record(
+    "drag moves are in screen coordinates",
+    start && move && move.screenX - start.screenX === 40 && move.screenY - start.screenY === 25,
+    JSON.stringify({ start, move })
+  );
+
+  const before = (await js(`window.__captionsProbe.pointerLog()`)).length;
+  const caption = await js(`(() => {
+    const r = document.getElementById("captions").getBoundingClientRect();
+    return { x: Math.round(r.left + 20), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  win.webContents.sendInputEvent({ type: "mouseDown", x: caption.x, y: caption.y, button: "left", clickCount: 1 });
+  win.webContents.sendInputEvent({ type: "mouseUp", x: caption.x, y: caption.y, button: "left", clickCount: 1 });
+  await sleep(150);
+  const afterBody = await js(`window.__captionsProbe.pointerLog()`);
+  record(
+    "the caption body does not start a drag outside move mode",
+    !afterBody.slice(before).some((m) => m.type === "drag-start"),
+    afterBody.slice(before).map((m) => m.type).join(",")
+  );
 
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));
 

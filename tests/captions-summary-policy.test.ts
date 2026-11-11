@@ -13,6 +13,12 @@ describe("decideSummaryAction (#189)", () => {
     expect(decideSummaryAction({ policy: "interrupt", streaming: true })).toBe("restart");
     expect(decideSummaryAction({ policy: "queue", streaming: true })).toBe("queue");
   });
+
+  it("never aborts a summary that is already on screen (#353)", () => {
+    expect(decideSummaryAction({ policy: "interrupt", streaming: true, shown: false })).toBe("restart");
+    expect(decideSummaryAction({ policy: "interrupt", streaming: true, shown: true })).toBe("queue");
+    expect(decideSummaryAction({ policy: "queue", streaming: true, shown: false })).toBe("queue");
+  });
 });
 
 const SAMPLE_RATE = 16_000;

@@ -6,9 +6,12 @@
 //   • `setContentProtection(true)` — on macOS this sets the NSWindow's
 //     sharingType to .none, so ScreenCaptureKit (Zoom, Meet, OBS, QuickTime)
 //     never sees it; on Windows the same call is WDA_EXCLUDEFROMCAPTURE.
-//   • `setIgnoreMouseEvents(true)` — clicks land on whatever is underneath,
-//     so the overlay can sit over a call or an editor without stealing focus.
-//     It flips to interactive only while the user is moving it.
+//   • `setIgnoreMouseEvents(true, { forward: true })` — clicks land on
+//     whatever is underneath, so the overlay can sit over a call or an editor
+//     without stealing focus. Mouse moves still reach the renderer, and the
+//     header bar takes the mouse while the pointer is over it: that is where
+//     the stop button and the drag handle live (#351, #352). Holding the drag
+//     modifier or tray → Move Overlay makes the whole window take it.
 //   • `type: "panel"` + always-on-top at screen-saver level, visible on every
 //     Space including full-screen apps — a caption box that disappears when
 //     the call goes full screen is useless.
@@ -56,6 +59,8 @@ export class CaptionsWindow {
   private readonly statePath: string | null;
   private state: CaptionsWindowState;
   private interactive = false;
+  private barHovered = false;
+  private drag: { pointerX: number; pointerY: number; windowX: number; windowY: number } | null = null;
   private lastUpdate: OverlayUpdate | null = null;
   private boundsTimer: NodeJS.Timeout | null = null;
 
@@ -75,6 +80,8 @@ export class CaptionsWindow {
   }
 
   hide(): void {
+    this.barHovered = false;
+    this.drag = null;
     if (this.win && !this.win.isDestroyed()) {
       this.captureBounds();
       this.writeState();
@@ -103,14 +110,10 @@ export class CaptionsWindow {
     this.win.webContents.send("marshal:captions-update", this.lastUpdate);
   }
 
-  /**
-   * Drag mode. While interactive the renderer's `-webkit-app-region: drag`
-   * body moves the window; otherwise every event passes through.
-   */
+  /** Move mode: the whole window takes the mouse, not just the header bar. */
   setInteractive(interactive: boolean): void {
     this.interactive = interactive;
-    if (!this.win || this.win.isDestroyed()) return;
-    this.win.setIgnoreMouseEvents(!interactive);
+    this.applyMouse();
     if (this.lastUpdate) this.update(this.lastUpdate);
   }
 
@@ -189,7 +192,9 @@ export class CaptionsWindow {
     win.setContentProtection(true);
     win.setAlwaysOnTop(true, "screen-saver");
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-    win.setIgnoreMouseEvents(!this.interactive);
+    this.applyMouse();
+    // Scoped to this window's renderer: no other page can move it.
+    win.webContents.ipc.on("marshal:captions-pointer", (_event, message: unknown) => this.onPointer(message));
 
     win.on("resize", () => this.captureBoundsDebounced());
     win.on("move", () => this.captureBoundsDebounced());
@@ -201,6 +206,40 @@ export class CaptionsWindow {
     });
 
     void win.loadFile(path.join(rendererDir, "captions-overlay.html"));
+  }
+
+  private applyMouse(): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    const accept = this.interactive || this.barHovered || this.drag !== null;
+    this.win.setIgnoreMouseEvents(!accept, { forward: true });
+  }
+
+  /**
+   * The renderer moves the window from its own pointer events.
+   * `-webkit-app-region: drag` did not move this non-focusable panel, while
+   * the native resize edges worked (#351).
+   */
+  private onPointer(message: unknown): void {
+    const win = this.win;
+    if (!win || win.isDestroyed() || !message || typeof message !== "object") return;
+    const { type, screenX, screenY, hovered } = message as Record<string, unknown>;
+    const hasPoint = Number.isFinite(screenX) && Number.isFinite(screenY);
+    if (type === "hover") {
+      this.barHovered = hovered === true;
+      this.applyMouse();
+    } else if (type === "drag-start" && hasPoint) {
+      const [windowX, windowY] = win.getPosition();
+      this.drag = { pointerX: screenX as number, pointerY: screenY as number, windowX, windowY };
+      this.applyMouse();
+    } else if (type === "drag-move" && hasPoint && this.drag) {
+      win.setPosition(
+        Math.round(this.drag.windowX + (screenX as number) - this.drag.pointerX),
+        Math.round(this.drag.windowY + (screenY as number) - this.drag.pointerY)
+      );
+    } else if (type === "drag-end") {
+      this.drag = null;
+      this.applyMouse();
+    }
   }
 
   private captureBoundsDebounced(): void {

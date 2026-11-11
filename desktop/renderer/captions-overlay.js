@@ -84,4 +84,40 @@
   stopBtn.addEventListener("click", () => {
     if (api && typeof api.stop === "function") api.stop();
   });
+
+  // The window is click-through except for the header bar: main lets it take
+  // the mouse while the pointer is over the bar, which is the drag handle and
+  // holds Stop (#351, #352). In move mode the whole overlay drags.
+  const bar = overlay.querySelector(".bar");
+  let dragging = false;
+  const sendPointer = (message) => {
+    if (api && typeof api.pointer === "function") api.pointer(message);
+  };
+
+  bar.addEventListener("mouseenter", () => sendPointer({ type: "hover", hovered: true }));
+  bar.addEventListener("mouseleave", () => {
+    if (!dragging) sendPointer({ type: "hover", hovered: false });
+  });
+
+  overlay.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    if (!bar.contains(event.target) && !document.body.classList.contains("interactive")) return;
+    dragging = true;
+    overlay.setPointerCapture(event.pointerId);
+    document.body.classList.add("dragging");
+    sendPointer({ type: "drag-start", screenX: event.screenX, screenY: event.screenY });
+  });
+  overlay.addEventListener("pointermove", (event) => {
+    if (dragging) sendPointer({ type: "drag-move", screenX: event.screenX, screenY: event.screenY });
+  });
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("dragging");
+    sendPointer({ type: "drag-end" });
+    sendPointer({ type: "hover", hovered: bar.matches(":hover") });
+  };
+  overlay.addEventListener("pointerup", endDrag);
+  overlay.addEventListener("pointercancel", endDrag);
+  overlay.addEventListener("lostpointercapture", endDrag);
 })();
