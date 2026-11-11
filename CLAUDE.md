@@ -465,7 +465,11 @@
   іншому застосунку відправляє вікно назад, а tray-іконка й `⌘⌥A` піднімають його, якщо воно не
   в фокусі, і закривають, якщо в фокусі (`isInFront`). Через `alwaysOnTop` клік по сесії в
   панелі виглядав мертвим: Claude.app виходив наперед, але під home (#337). Desktop-сесію
-  ззовні не вибрати, тому на `"app"` рядок асистента каже вибрати її в застосунку.
+  відкриває deep link Claude.app `claude://code/continue?session=<hostSessionId>` (#357): `local_…` id
+  лежить у registry-файлі сесії. Це `"session"`, а не `"tab"`: що фокус у полі вводу, ніхто не
+  підтверджує, тож диктовка в таку сесію й далі йде через буфер. Якщо Claude.app вимкне свої deep
+  link entry points, лінк лише активує застосунок. На `"app"` (VS Code тощо) рядок асистента каже
+  вибрати сесію в застосунку.
   **Термінал асистента** запускає диспетчер, якщо той не працює (і вмикає `assistantDispatcher`),
   і виводить його вкладку Terminal наперед розгорнутою (`AssistantDispatcher.reveal`); `general`
   стартує як завжди, згорнутим.
@@ -672,8 +676,9 @@
   needed»…) уже лежать у файлі. Live = `kind: "interactive"` + pid живий + сокет існує; файл,
   що не збігся з форматом, пропускається з одним рядком у лог. Читається **лише на вимогу**
   (tray → «Claude Sessions» будує список у момент відкриття меню), без watcher-а (#281).
-  `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, інакше
-  `open -a` застосунку-хоста з дерева процесів (desktop-сесії tty не мають → Claude.app).
+  `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, desktop-сесія
+  (tty немає) — `claude://code/continue?session=<hostSessionId>` (#357), інакше `open -a`
+  застосунку-хоста з дерева процесів.
   **Hooks (#263)** — Settings → «Claude Code integration» → Install/Remove: лише явна дія
   користувача. `hook-installer.ts` **мерджить** `Stop` і `Notification` (`async: true`) у
   `~/.claude/settings.json` поруч із чужими hooks; свої записи впізнає за `marshal-claude-hook.sh`
