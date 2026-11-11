@@ -137,6 +137,13 @@ export const en = {
   // ── Claude Code sessions ──
   "claude.finished": "{name}: finished",
   "claude.finishedFallback": "Finished, check the session.",
+  "greeting.morning": "Good morning.",
+  "greeting.afternoon": "Good afternoon.",
+  "greeting.evening": "Good evening.",
+  "greeting.night": "Hi, working late.",
+  "greeting.meeting": "{title} at {time}.",
+  "greeting.waiting": "Waiting for you: {names}.",
+  "greeting.question": "What are we doing today?",
   "claude.needsConfirmation": "{name} needs your confirmation",
   "claude.needsInput": "{name} needs your input",
   "claude.stillWaiting": "{name} is still waiting",

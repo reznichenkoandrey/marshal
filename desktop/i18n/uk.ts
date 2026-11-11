@@ -139,6 +139,13 @@ export const uk: Record<MessageKey, string> = {
   // ── Claude Code sessions ──
   "claude.finished": "{name}: готово",
   "claude.finishedFallback": "Готово, глянь у сесію.",
+  "greeting.morning": "Доброго ранку.",
+  "greeting.afternoon": "Доброго дня.",
+  "greeting.evening": "Доброго вечора.",
+  "greeting.night": "Привіт, працюємо допізна.",
+  "greeting.meeting": "О {time} — «{title}».",
+  "greeting.waiting": "На тебе чекають: {names}.",
+  "greeting.question": "Що робимо сьогодні?",
   "claude.needsConfirmation": "{name} чекає на дозвіл",
   "claude.needsInput": "{name} чекає на відповідь",
   "claude.stillWaiting": "{name} досі чекає",
