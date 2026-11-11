@@ -10,6 +10,7 @@ import {
   normalizeSpeechRate,
   parseSayVoices,
   pickVoice,
+  pronounceForUkrainian,
   voiceBaseName,
   type SystemVoice
 } from "../desktop/speech/speech-policy.ts";
@@ -153,5 +154,29 @@ describe("SpeechQueue", () => {
     queue.enqueue({ text: "a", lang: "uk" });
     queue.clear();
     expect(queue.size).toBe(0);
+  });
+});
+
+describe("pronounceForUkrainian", () => {
+  it("says known terms the way the team does", () => {
+    expect(pronounceForUkrainian("Відкрив PR, deploy пройшов, JSON валідний")).toBe(
+      "Відкрив пі-ар, деплой пройшов, джейсон валідний"
+    );
+  });
+
+  it("prefers the longest term and ignores case", () => {
+    expect(pronounceForUkrainian("Pull request змерджено в GitHub")).toBe("пул реквест змерджено в гітхаб");
+  });
+
+  it("spells unknown abbreviations with English letter names", () => {
+    expect(pronounceForUkrainian("Тест AAT і CI зелені")).toBe("Тест ей-ей-ті і сі-ай зелені");
+  });
+
+  it("leaves words that only contain a term alone", () => {
+    expect(pronounceForUkrainian("prompts, PRX1, bugfix, APIv2")).toBe("prompts, PRX1, bugfix, APIv2");
+  });
+
+  it("keeps Ukrainian text and inflection suffixes after a hyphen", () => {
+    expect(pronounceForUkrainian("Два PR-и чекають")).toBe("Два пі-ар-и чекають");
   });
 });

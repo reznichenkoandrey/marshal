@@ -115,6 +115,102 @@ export function detectSpeechLang(text: string, fallback: SpeechLang = "uk"): Spe
   return cyrillic * 2 >= latin ? "uk" : "en";
 }
 
+// How the team says English terms inside a Ukrainian sentence. Ukrainian
+// voices read Latin as letter soup ("PR" comes out as "ПР"), and Holos cannot
+// pronounce Latin at all. Abbreviations read as words belong here; anything
+// spelled letter by letter is handled by LETTER_NAMES below.
+export const SPOKEN_TERMS: Readonly<Record<string, string>> = {
+  "pull request": "пул реквест",
+  "merge request": "мердж реквест",
+  "rate limit": "рейт ліміт",
+  "Claude Code": "клод код",
+  JSON: "джейсон",
+  YAML: "ямл",
+  GIF: "гіф",
+  RAM: "рам",
+  SQL: "сіквел",
+  OAuth: "оу-ауз",
+  macOS: "мак-оу-ес",
+  iOS: "ай-оу-ес",
+  iPhone: "айфон",
+  "Wi-Fi": "вай-фай",
+  GitHub: "гітхаб",
+  GitLab: "гітлаб",
+  Git: "гіт",
+  npm: "ен-пі-ем",
+  Claude: "клод",
+  Codex: "кодекс",
+  Groq: "грок",
+  Whisper: "віспер",
+  Holos: "голос",
+  Marshal: "маршал",
+  Figma: "фігма",
+  Slack: "слек",
+  Zoom: "зум",
+  Meet: "міт",
+  Telegram: "телеграм",
+  Chrome: "хром",
+  Electron: "електрон",
+  Docker: "докер",
+  Node: "ноуд",
+  React: "ріакт",
+  TypeScript: "тайпскрипт",
+  JavaScript: "джаваскрипт",
+  Python: "пайтон",
+  Magento: "маджента",
+  Hyva: "хайва",
+  deploy: "деплой",
+  commit: "коміт",
+  merge: "мердж",
+  push: "пуш",
+  pull: "пул",
+  branch: "бранч",
+  release: "реліз",
+  build: "білд",
+  issue: "ішʼю",
+  review: "рев'ю",
+  bug: "баг",
+  fix: "фікс",
+  test: "тест",
+  tests: "тести",
+  worktree: "ворктрі",
+  backend: "бекенд",
+  frontend: "фронтенд",
+  hook: "хук",
+  hooks: "хуки",
+  prompt: "промпт",
+  summary: "саммарі",
+  dashboard: "дешборд",
+  cache: "кеш",
+  token: "токен",
+  tokens: "токени"
+};
+
+const LETTER_NAMES: Readonly<Record<string, string>> = {
+  A: "ей", B: "бі", C: "сі", D: "ді", E: "і", F: "еф", G: "джі", H: "ейч", I: "ай",
+  J: "джей", K: "кей", L: "ел", M: "ем", N: "ен", O: "оу", P: "пі", Q: "кʼю", R: "ар",
+  S: "ес", T: "ті", U: "ю", V: "ві", W: "дабл-ю", X: "екс", Y: "вай", Z: "зет"
+};
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Longest first, so "pull request" wins over "pull". `\b` is ASCII-only (#147).
+const SPOKEN_TERM_PATTERN = new RegExp(
+  `(?<![\\p{L}\\d])(?:${Object.keys(SPOKEN_TERMS)
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join("|")})(?![\\p{L}\\d])`,
+  "giu"
+);
+const SPOKEN_TERM_LOOKUP = new Map(Object.entries(SPOKEN_TERMS).map(([term, spoken]) => [term.toLowerCase(), spoken]));
+const ABBREVIATION = /(?<![\p{L}\d])[A-Z]{2,6}(?![\p{L}\d])/gu;
+
+/** Rewrites English terms of a Ukrainian phrase the way the team says them (#371). */
+export function pronounceForUkrainian(text: string): string {
+  return text
+    .replace(SPOKEN_TERM_PATTERN, (match) => SPOKEN_TERM_LOOKUP.get(match.toLowerCase()) ?? match)
+    .replace(ABBREVIATION, (match) => [...match].map((letter) => LETTER_NAMES[letter]).join("-"));
+}
+
 /** `macos` = `say`; `piper` (#325) and `holos` (#333) = downloaded local neural Ukrainian voices. */
 export type SpeechEngine = "macos" | "piper" | "holos";
 
