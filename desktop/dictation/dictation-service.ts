@@ -10,7 +10,7 @@
 //   can react.
 
 import { EventEmitter } from "node:events";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -22,7 +22,7 @@ import { BrowserWindow, clipboard } from "electron";
 import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
 import { isLikelyHallucination } from "../captions/transcript-buffer.ts";
-import { deliverTranscript, probeFocusedElement } from "./focus-paste.ts";
+import { deliverTranscript, probeFocusedElement, type DeliveryResult } from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -31,10 +31,12 @@ import {
   type WhisperBackend
 } from "./whisper-backend.ts";
 
-const DEFAULT_HOTKEY = "RightCmd";
-// Hold to dictate into a Claude Code session instead of the frontmost app
-// (#264). A key of its own, so the right-⌘ gestures (#239, #242) stay as is.
-const DEFAULT_SESSION_HOTKEY = "RightOption";
+// Hold to talk to Marshal (#361); this key also carries the right-⌘ gestures (#239, #242).
+const DEFAULT_TALK_HOTKEY = "RightCmd";
+// Hold to dictate straight into the frontmost app: ~1 s, without the dispatcher round trip.
+const DEFAULT_PASTE_HOTKEY = "RightOption";
+// `open -a` returns before the app owns keyboard focus.
+const ACTIVATE_SETTLE_MS = 250;
 // Hard safety-net: if the keyup event never arrives (known uiohook quirks on
 // macOS for modifier-only keys, #49) we auto-stop after this many ms.
 const MAX_RECORDING_MS = 60_000;
@@ -55,20 +57,18 @@ function debug(...args: unknown[]): void {
   }
 }
 
-// paste = into the frontmost app; session = straight into a Claude Code
-// session (#264); assistant = a command for the voice dispatcher (#318).
-export type DictationMode = "paste" | "session" | "assistant";
+// paste = into the frontmost app; talk = the held talk key, assistant = the
+// home mic toggle: both are a command for the voice dispatcher (#318, #361).
+export type DictationMode = "paste" | "talk" | "assistant";
 
 export type DictationEvents = {
   "recording-start": [];
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
-  // Transcript recorded with the session hotkey: routed by main, never pasted.
-  "session-command": [string];
-  // Recorded from the assistant home's mic: a command for the dispatcher.
+  // Recorded with the talk key or the home mic: a command for the dispatcher.
   "assistant-command": [string];
   // Bracket the whisper call so a UI can show "thinking" and always clear it,
-  // whatever the outcome (text, session command, error or nothing at all).
+  // whatever the outcome (text, assistant command, error or nothing at all).
   "transcribe-start": [];
   "transcribe-end": [];
   error: [Error];
@@ -128,8 +128,11 @@ export function transcriptToDeliver(raw: string): string {
 }
 
 export class DictationService extends EventEmitter {
-  private readonly hotkey: PushToTalkBackend;
-  private readonly sessionHotkey: PushToTalkBackend | null;
+  private readonly talkHotkey: PushToTalkBackend;
+  private readonly pasteHotkey: PushToTalkBackend | null;
+  // Where `insert` lands: the app that was frontmost when the talk key went
+  // down, since the dispatcher answers seconds later from anywhere (#361).
+  private talkTarget: Promise<string> = Promise.resolve("");
   // Which hotkey started the current recording; the other one's events are ignored.
   private mode: DictationMode = "paste";
   private readonly backend: WhisperBackend;
@@ -152,31 +155,28 @@ export class DictationService extends EventEmitter {
 
   constructor(private readonly glossaryTerms: () => readonly string[] = () => []) {
     super();
-    const hotkeyString = process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_HOTKEY;
     // Backend selection happens inside createPushToTalkHotkey: modifier-only
-    // hotkeys (the default RightCmd here) go through the Swift helper that
-    // sidesteps the Sequoia CGEventTap TCC race; everything else stays on
-    // uiohook. The dictation service doesn't care which one is active —
-    // both expose the same EventEmitter surface.
-    this.hotkey = createPushToTalkHotkey(hotkeyString);
+    // hotkeys go through the Swift helper that sidesteps the Sequoia
+    // CGEventTap TCC race; everything else stays on uiohook.
+    this.talkHotkey = createPushToTalkHotkey(process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_TALK_HOTKEY);
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
 
-    this.hotkey.on("hold-start", () => this.handleHoldStart("paste"));
-    this.hotkey.on("hold-end", () => this.handleHoldEnd("paste"));
-    this.hotkey.on("hold-cancel", () => this.handleHoldCancel("paste"));
-    this.hotkey.on("double-tap", () => this.emit("double-tap"));
-    this.hotkey.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
+    this.talkHotkey.on("hold-start", () => this.handleHoldStart("talk"));
+    this.talkHotkey.on("hold-end", () => this.handleHoldEnd("talk"));
+    this.talkHotkey.on("hold-cancel", () => this.handleHoldCancel("talk"));
+    this.talkHotkey.on("double-tap", () => this.emit("double-tap"));
+    this.talkHotkey.on("input-monitoring-silent", () => this.emit("input-monitoring-silent"));
 
-    const sessionHotkey = (process.env.MARSHAL_CC_DICTATION_HOTKEY ?? DEFAULT_SESSION_HOTKEY).trim();
+    const pasteHotkey = (process.env.MARSHAL_PASTE_DICTATION_HOTKEY ?? DEFAULT_PASTE_HOTKEY).trim();
     // Taps on this key mean nothing: no hands-free toggle, no meeting double-tap.
-    this.sessionHotkey =
-      sessionHotkey === "" || sessionHotkey.toLowerCase() === "off"
+    this.pasteHotkey =
+      pasteHotkey === "" || pasteHotkey.toLowerCase() === "off"
         ? null
-        : createPushToTalkHotkey(sessionHotkey, { toggleTapCount: 0 });
-    this.sessionHotkey?.on("hold-start", () => this.handleHoldStart("session"));
-    this.sessionHotkey?.on("hold-end", () => this.handleHoldEnd("session"));
-    this.sessionHotkey?.on("hold-cancel", () => this.handleHoldCancel("session"));
+        : createPushToTalkHotkey(pasteHotkey, { toggleTapCount: 0 });
+    this.pasteHotkey?.on("hold-start", () => this.handleHoldStart("paste"));
+    this.pasteHotkey?.on("hold-end", () => this.handleHoldEnd("paste"));
+    this.pasteHotkey?.on("hold-cancel", () => this.handleHoldCancel("paste"));
   }
 
   async start(): Promise<void> {
@@ -191,13 +191,13 @@ export class DictationService extends EventEmitter {
       );
       return;
     }
-    this.hotkey.start();
-    this.sessionHotkey?.start();
+    this.talkHotkey.start();
+    this.pasteHotkey?.start();
   }
 
   stop(): void {
-    this.hotkey.stop();
-    this.sessionHotkey?.stop();
+    this.talkHotkey.stop();
+    this.pasteHotkey?.stop();
     if (this.recorderProcess) {
       this.recorderProcess.kill("SIGTERM");
       this.recorderProcess = null;
@@ -269,6 +269,7 @@ export class DictationService extends EventEmitter {
       return;
     }
     this.mode = mode;
+    if (mode === "talk") this.talkTarget = probeFocusedElement().then((focus) => focus.frontmostApp);
 
     const wavPath = path.join(os.tmpdir(), `marshal-dict-${randomUUID()}.wav`);
     this.currentWavPath = wavPath;
@@ -290,7 +291,7 @@ export class DictationService extends EventEmitter {
       debug("safety timeout — forcing hold-end after", MAX_RECORDING_MS, "ms");
       // The assistant mic is a toggle, not a held key: no hotkey to end.
       if (mode === "assistant") this.stopRecording();
-      else (mode === "session" ? this.sessionHotkey : this.hotkey)?.forceEnd();
+      else (mode === "talk" ? this.talkHotkey : this.pasteHotkey)?.forceEnd();
     }, MAX_RECORDING_MS);
 
     child.stdout?.once("data", () => {
@@ -428,6 +429,20 @@ export class DictationService extends EventEmitter {
     );
   }
 
+  /**
+   * The dispatcher's `insert` (#361): bring back the app the owner was in when
+   * the talk key went down, then deliver like dictation does.
+   */
+  async insert(text: string): Promise<DeliveryResult> {
+    const app = await this.talkTarget;
+    if (app && app !== (await probeFocusedElement()).frontmostApp) {
+      await new Promise<void>((resolve) => execFile("open", ["-a", app], () => resolve()));
+      await new Promise((resolve) => setTimeout(resolve, ACTIVATE_SETTLE_MS));
+    }
+    clipboard.writeText(text);
+    return deliverTranscript(text, await probeFocusedElement());
+  }
+
   private async finishRecording(child: ChildProcess, wavPath: string): Promise<void> {
     this.isTranscribing = true;
     this.emit("transcribe-start");
@@ -477,9 +492,7 @@ export class DictationService extends EventEmitter {
       // not the post-processed version — listeners that telemeter accuracy
       // need the raw output.
       const cleanText = transcriptToDeliver(result.text);
-      if (cleanText.length > 0 && this.mode === "session") {
-        this.emit("session-command", cleanText.trim());
-      } else if (cleanText.length > 0 && this.mode === "assistant") {
+      if (cleanText.length > 0 && this.mode !== "paste") {
         this.emit("assistant-command", cleanText.trim());
       } else if (cleanText.length > 0) {
         // The clipboard is both what deliverText() pastes and the manual

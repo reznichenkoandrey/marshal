@@ -37,7 +37,6 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
-import { SessionDictation } from "./claude-code/session-dictation.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import {
   DEFAULT_MODEL_NAME,
@@ -164,7 +163,6 @@ let translatorGlossary: TranslatorGlossaryStore | null = null;
 let modelDownload: { name: string; percent: number; abort: AbortController } | null = null;
 let dictationService: DictationService | null = null;
 let dictationIndicator: DictationIndicator | null = null;
-let sessionDictation: SessionDictation | null = null;
 let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
@@ -1576,13 +1574,8 @@ function initDictation(): void {
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
   });
-  dictationService.on("session-command", (text: string) => {
-    sessionDictation ??= new SessionDictation(() => tray, claudeHooks ?? undefined);
-    void sessionDictation.handle(text).catch((err: unknown) => {
-      console.error("[claude-dictation] delivery failed:", err);
-    });
-  });
   dictationService.on("assistant-command", (text: string) => {
+    enableAssistantOnce();
     assistantDispatcher?.submit(text);
     speechService?.warmUp();
   });
@@ -2888,6 +2881,7 @@ function initAssistantDispatcher(): void {
     focus: (pid) => {
       void focusSession(pid).catch(() => undefined);
     },
+    insert: async (text) => (dictationService ? dictationService.insert(text) : "not running"),
     runAppleScript: async (script) => {
       await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     }
@@ -2935,17 +2929,20 @@ async function showDispatcherTerminal(): Promise<void> {
   await assistantDispatcher.start();
 }
 
-// The home mic. The first press turns the assistant on: that press is the
-// owner's explicit choice, and a voice assistant that cannot speak is useless.
+// The first command — home mic or the held talk key (#361) — turns the
+// assistant on: that is the owner's explicit choice, and a voice assistant
+// that cannot speak is useless. A command sent meanwhile waits in the queue.
+function enableAssistantOnce(): void {
+  if (loadSettings().assistantDispatcher) return;
+  saveSettings({ assistantDispatcher: true, speechEnabled: true });
+  pushAssistantStrip();
+  announceToAssistant("Асистент увімкнено: hooks Claude Code встановлено, диспетчер і general стартують у Terminal.");
+  void syncAssistantDispatcher();
+}
+
 function talkToAssistant(): void {
   if (!dictationService) return;
-  const settings = loadSettings();
-  if (!dictationService.isCurrentlyRecording() && !settings.assistantDispatcher) {
-    saveSettings({ assistantDispatcher: true, speechEnabled: true });
-    pushAssistantStrip();
-    announceToAssistant("Асистент увімкнено: hooks Claude Code встановлено, диспетчер і general стартують у Terminal.");
-    void syncAssistantDispatcher();
-  }
+  if (!dictationService.isCurrentlyRecording()) enableAssistantOnce();
   dictationService.toggleRecording("assistant");
 }
 
