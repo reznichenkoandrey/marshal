@@ -79,6 +79,12 @@ const FRAGMENT_HOLD_MS = 4_000;
 /** Segments waiting for whisper beyond this are dropped, oldest first. */
 const MAX_TRANSCRIBE_BACKLOG = 2;
 
+/** `MARSHAL_CAPTIONS_DEBUG=1`: one timestamped line per pipeline step, to see where a delay builds up. */
+function debugLog(message: string): void {
+  if (process.env.MARSHAL_CAPTIONS_DEBUG !== "1") return;
+  console.log(`[captions:debug] ${new Date().toISOString().slice(11, 23)} ${message}`);
+}
+
 export type CaptionsState = "stopped" | "starting" | "running";
 
 export type CaptionsServiceEvents = {
@@ -231,10 +237,18 @@ export class LiveCaptionsService extends EventEmitter {
       resolvePartialBackend(process.env.MARSHAL_CAPTIONS_PARTIALS, sttBackend)
     );
     const target = resolveTranslationTarget(process.env.MARSHAL_CAPTIONS_TRANSLATE, resolveLangCode);
+    const translate = this.translate;
     this.translator =
-      this.translate && target
+      translate && target
         ? new CaptionTranslator({
-            translate: this.translate,
+            translate: async (text, lang) => {
+              const started = Date.now();
+              try {
+                return await translate(text, lang);
+              } finally {
+                debugLog(`translation ${Date.now() - started}ms (${text.length} chars)`);
+              }
+            },
             targetLang: target,
             onUpdate: () => this.pushUpdate(),
             onError: (err) => {
@@ -432,6 +446,7 @@ export class LiveCaptionsService extends EventEmitter {
       void this.transcribePartial(segment);
       return;
     }
+    debugLog(`segment ${segment.reason} utt=${segment.utteranceId} speech=${segment.speechMs}ms queued=${this.transcribeQueue.length}`);
     // A provisional copy is only worth keeping while nothing newer waits:
     // drop queued provisionals when another arrives or the final lands, and
     // never let a provisional push out a final.
@@ -482,6 +497,7 @@ export class LiveCaptionsService extends EventEmitter {
       provisional.speechMs === segment.speechMs
     ) {
       this.provisional = null;
+      debugLog(`final utt=${segment.utteranceId} from the speculative pass`);
       this.dropPartial(segment.utteranceId);
       this.applyTranscript(this.buffer.pushTranscript(provisional.text));
       if (!this.summaryStreaming) this.setStatus("listening");
@@ -494,7 +510,9 @@ export class LiveCaptionsService extends EventEmitter {
     try {
       await fs.writeFile(wavPath, encodeWavPcm16Mono(segment.samples));
       this.partialGate.noteRequest(Date.now());
+      const sttStarted = Date.now();
       const result = await this.whisper.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+      debugLog(`stt ${segment.reason} utt=${segment.utteranceId} ${Date.now() - sttStarted}ms`);
       if (this.state !== "running") return;
       if (segment.reason === "provisional") {
         this.provisional = { utteranceId: segment.utteranceId, speechMs: segment.speechMs, text: result.text };
@@ -588,6 +606,7 @@ export class LiveCaptionsService extends EventEmitter {
       return;
     }
     if (!result.accepted) return;
+    debugLog(`line stored (${result.text.length} chars)`);
     // A merged line (#202) is new text, so it gets its own translation.
     this.translator?.request(result.text);
     // The bullets on screen no longer cover the transcript; say so until the
@@ -638,6 +657,7 @@ export class LiveCaptionsService extends EventEmitter {
       // Let the current bullets finish; one follow-up request covers
       // everything that arrives meanwhile.
       this.summaryQueued = true;
+      debugLog("summary queued behind the one on screen");
       return;
     }
     this.summaryQueued = false;
@@ -655,6 +675,8 @@ export class LiveCaptionsService extends EventEmitter {
       referenceContext: this.lastReference.text
     };
     let streamed = "";
+    const summaryStarted = Date.now();
+    debugLog(`summary ${action} (${input.transcript.length} chars of transcript)`);
     this.summaryStreaming = true;
     this.summaryShown = false;
     this.setStatus("summarizing");
@@ -663,6 +685,7 @@ export class LiveCaptionsService extends EventEmitter {
         input,
         (delta) => {
           if (controller.signal.aborted) return;
+          if (streamed.length === 0) debugLog(`summary first words ${Date.now() - summaryStarted}ms`);
           streamed += delta;
           this.summaryShown = true;
           // The previous summary stays on screen until the new one has
@@ -673,6 +696,7 @@ export class LiveCaptionsService extends EventEmitter {
         },
         controller.signal
       );
+      debugLog(`summary ${controller.signal.aborted ? "aborted" : "done"} ${Date.now() - summaryStarted}ms`);
       if (!controller.signal.aborted) {
         this.summaryText = streamed;
         this.summaryStreaming = false;

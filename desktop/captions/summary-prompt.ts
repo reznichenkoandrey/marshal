@@ -56,7 +56,10 @@ export function buildSummaryMessages(input: SummaryInput): SummaryMessages {
   if (ocr.length > 0) {
     parts.push("Screen context (OCR of a region the user selected, may be partial):\n" + ocr);
   }
-  parts.push("Live transcript (oldest first, most recent last):\n" + input.transcript.trim());
+  parts.push("Live transcript of the last minute (oldest first, most recent last):\n" + input.transcript.trim());
+  // Without this the first bullet restates the oldest topic in the window,
+  // and the overlay reads as running behind the speech (#355).
+  parts.push("Lead with what was said most recently.");
   const language = input.outputLanguage.trim();
   parts.push(
     language.length > 0
