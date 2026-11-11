@@ -194,9 +194,17 @@
   давав Groq-переклад рядків, а не OCR.
 - **Live captions (`desktop/captions/`) — оверлей, якого не видно у screen share.** Це не
   «красивий» always-on-top, а `setContentProtection(true)` (`NSWindow.sharingType = .none`) плюс
-  `setIgnoreMouseEvents(true)`: Zoom/Meet/OBS бачать шпалери, кліки проходять наскрізь. Мишу
-  вікно приймає лише поки утримується `MARSHAL_CAPTIONS_DRAG_MODIFIER` (дефолт `LeftControl`,
-  через `ptt-monitor`) або увімкнено tray → Move Overlay. Аудіо — окремий Swift helper
+  `setIgnoreMouseEvents(true, { forward: true })`: Zoom/Meet/OBS бачать шпалери, кліки проходять
+  наскрізь. **Шапка оверлею приймає мишу завжди** (#351, #352): поки курсор над нею, main вимикає
+  click-through. Шапка — ручка драгу, у ній завжди видно Stop. Решта вікна приймає мишу лише поки
+  утримується `MARSHAL_CAPTIONS_DRAG_MODIFIER` (дефолт `LeftControl`, через `ptt-monitor`) або
+  увімкнено tray → Move Overlay. **Вікно рухає renderer, а не `-webkit-app-region: drag`:** на
+  non-focusable panel drag-region не рухав вікно, хоча resize працював. Renderer шле
+  `marshal:captions-pointer` (hover, drag-start/move/end в екранних координатах), а
+  `CaptionsWindow` слухає його через `webContents.ipc`, тож інша сторінка вікно не зрушить.
+  **Summary не обривається, якщо вже показує текст** (#353): `interrupt` перезапускає запит лише
+  до першого слова, далі діє як `queue`. Інакше під безперервною мовою жоден запит не встигав
+  дострімитись, і пункти на екрані відставали на хвилини. Аудіо — окремий Swift helper
   `system-audio-tap` (ScreenCaptureKit → 16 kHz mono PCM у stdout), **не** meeting-recorder:
   той пише один M4A до стопу, а субтитрам потрібен потік. Нарізка на фрази — `segmenter.ts`
   (energy VAD, чистий і тестований); whisper — той самий `WhisperBackend`, що в диктовці;

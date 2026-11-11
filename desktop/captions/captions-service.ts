@@ -161,6 +161,8 @@ export class LiveCaptionsService extends EventEmitter {
   private summaryAbort: AbortController | null = null;
   private summaryText = "";
   private summaryStreaming = false;
+  /** The in-flight summary has streamed text onto the overlay (#353). */
+  private summaryShown = false;
   private ocrBusy = false;
 
   constructor(options: CaptionsServiceOptions) {
@@ -627,7 +629,11 @@ export class LiveCaptionsService extends EventEmitter {
 
   private async runSummary(): Promise<void> {
     if (!this.summarizer || this.state !== "running") return;
-    const action = decideSummaryAction({ policy: this.turnPolicy, streaming: this.summaryStreaming });
+    const action = decideSummaryAction({
+      policy: this.turnPolicy,
+      streaming: this.summaryStreaming,
+      shown: this.summaryShown
+    });
     if (action === "queue") {
       // Let the current bullets finish; one follow-up request covers
       // everything that arrives meanwhile.
@@ -650,6 +656,7 @@ export class LiveCaptionsService extends EventEmitter {
     };
     let streamed = "";
     this.summaryStreaming = true;
+    this.summaryShown = false;
     this.setStatus("summarizing");
     try {
       await this.summarizer.stream(
@@ -657,6 +664,7 @@ export class LiveCaptionsService extends EventEmitter {
         (delta) => {
           if (controller.signal.aborted) return;
           streamed += delta;
+          this.summaryShown = true;
           // The previous summary stays on screen until the new one has
           // something to show — no blank flash between requests.
           this.summaryText = streamed;

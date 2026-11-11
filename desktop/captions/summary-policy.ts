@@ -17,15 +17,20 @@ export type SummaryAction =
 export interface SummaryPolicyContext {
   policy: TurnPolicy;
   streaming: boolean;
+  /** The in-flight request has already put text on screen. */
+  shown?: boolean;
 }
 
 /**
- * `interrupt` favours freshness: the bullets on screen always describe the
- * latest words, at the cost of a wasted partial request. `queue` favours
- * stability: the current bullets finish, and one follow-up request covers
- * everything that came in meanwhile — never one request per segment.
+ * `interrupt` favours freshness, but only until the request has shown text:
+ * restarting before the first words costs nothing visible. Aborting a summary
+ * that is already streaming did not make it fresher — under continuous speech
+ * a line closes every few seconds, no request ever finished, and the overlay
+ * kept bullets from minutes ago (#353). From then on it behaves as `queue`:
+ * the current bullets finish, and one follow-up request covers everything
+ * that came in meanwhile — never one request per segment.
  */
 export function decideSummaryAction(context: SummaryPolicyContext): SummaryAction {
   if (!context.streaming) return "start";
-  return context.policy === "queue" ? "queue" : "restart";
+  return context.policy === "interrupt" && !context.shown ? "restart" : "queue";
 }

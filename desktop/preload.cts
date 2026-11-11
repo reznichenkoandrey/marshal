@@ -410,10 +410,13 @@ const meetingHistoryApi = {
 contextBridge.exposeInMainWorld("marshalMeetingHistory", meetingHistoryApi);
 
 // ── Live captions API ──
-// The overlay is a view only: main pushes fully rendered updates, the
-// renderer has one control (Stop) that is reachable only in drag mode.
+// The overlay is a view only: main pushes fully rendered updates. The
+// renderer reports the pointer over its header bar (hover, drag) and has one
+// control, Stop (#351, #352).
 const captionsApi = {
   stop: () => ipcRenderer.invoke("marshal:captions-stop"),
+  pointer: (message: { type: "hover"; hovered: boolean } | { type: "drag-start" | "drag-move"; screenX: number; screenY: number } | { type: "drag-end" }) =>
+    ipcRenderer.send("marshal:captions-pointer", message),
   onUpdate: (
     cb: (
       event: IpcRendererEvent,
