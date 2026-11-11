@@ -62,6 +62,7 @@
       "dist/desktop/dictation/focus-probe",
       "dist/desktop/dictation/insert-text",
       "dist/desktop/dictation/mic-list",
+      "dist/desktop/presence/mic-users",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/whisper-server",

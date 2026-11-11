@@ -163,6 +163,12 @@ if (process.platform === "darwin") {
       fallbackNote: "microphone selection dropdown will show 'system default' only"
     },
     {
+      src: path.join(root, "desktop", "presence", "mic-users.swift"),
+      out: path.join(root, "dist", "desktop", "presence", "mic-users"),
+      label: "mic-users",
+      fallbackNote: "spoken updates will not notice calls in other apps"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",

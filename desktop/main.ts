@@ -66,6 +66,7 @@ import { AssistantDispatcher } from "./assistant/dispatcher.ts";
 import { GENERAL_NAME } from "./assistant/dispatcher-files.ts";
 import { parseRoutingRoots } from "./claude-code/context-router.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
+import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -1778,9 +1779,10 @@ function initSpeech(): void {
         voiceEn: settings.speechVoiceEn
       };
     },
-    // No call-presence signal exists yet; a running recording or captions session is the proxy.
+    // Our own recording or captions; a call in another app is caught by the mic probe (#359).
     () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null),
-    (speaking) => setAssistantInputs({ speaking })
+    (speaking) => setAssistantInputs({ speaking }),
+    createCallPresence()
   );
   handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
   let piperInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
@@ -2575,6 +2577,7 @@ function initTranslator(): void {
   // First exec of a freshly installed helper is slow enough to time out the
   // first OCR (#181); pay that cost now, in the background.
   void warmUpAppleVisionOcr();
+  warmUpMicUsers();
   translatorHistory = new TranslatorHistoryStore(app.getPath("userData"));
   translatorGlossary = new TranslatorGlossaryStore(app.getPath("userData"));
   translatorService?.setGlossary(translatorGlossary.list());
@@ -2937,9 +2940,9 @@ function sayAsAssistant(text: string): void {
 }
 
 function speakSessionEvent(event: SpokenSessionEvent): void {
-  // Aloud only what the owner asked for by voice; every other session stays a silent notification.
+  // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
-  if (!asked && event.name !== GENERAL_NAME) return;
+  if (event.kind === "finished" && !asked && event.name !== GENERAL_NAME) return;
   const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
