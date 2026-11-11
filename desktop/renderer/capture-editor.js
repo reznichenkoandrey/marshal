@@ -518,6 +518,23 @@ async function doCopy() {
   }
 }
 
+const noteInput = document.getElementById("claude-note");
+
+async function doSendToClaude() {
+  try {
+    // Main archives the image, closes this window and hands the note plus the
+    // image path to the assistant dispatcher, which picks the session (#265).
+    await api.sendToClaude(composeForExport(), noteInput.value);
+  } catch (err) {
+    toast(t("capture.sendFailed", { error: err.message || err }));
+  }
+}
+
+document.getElementById("send-to-claude").addEventListener("click", doSendToClaude);
+noteInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); doSendToClaude(); }
+});
+
 document.getElementById("save-as").addEventListener("click", doSaveAs);
 document.getElementById("save-quick").addEventListener("click", doSaveQuick);
 document.getElementById("copy").addEventListener("click", doCopy);
@@ -618,6 +635,8 @@ const TOOL_KEYS = {
 
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
+  // The note field keeps its own editing keys: undo, copy and tool letters.
+  if (e.target === noteInput && e.key !== "Escape") return;
 
   if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
   if (mod && e.key.toLowerCase() === "z" && e.shiftKey)  { e.preventDefault(); redo(); return; }
