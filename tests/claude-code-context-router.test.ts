@@ -5,14 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OneShotRequest } from "../desktop/claude-code/answer-summary.ts";
-import {
-  buildRouteRequest,
-  createContextRouter,
-  isUnderRoots,
-  parseRouteReply,
-  parseRoutingRoots,
-  routedNotice
-} from "../desktop/claude-code/context-router.ts";
+import { isUnderRoots, parseRoutingRoots } from "../desktop/claude-code/context-router.ts";
 import {
   buildDossierRequest,
   DOSSIER_REFRESH_MS,
@@ -191,108 +184,6 @@ describe("DossierKeeper", () => {
   });
 });
 
-describe("route reply parsing", () => {
-  const labels = ["S1", "S2", "S3"];
-
-  it("accepts exactly one known label", () => {
-    expect(parseRouteReply("S2", labels)).toEqual({ pick: "S2" });
-    expect(parseRouteReply(" s3. ", labels)).toEqual({ pick: "S3" });
-  });
-
-  it("never guesses: unknown labels, two labels, prose and no reply are unsure", () => {
-    for (const reply of ["S4", "S1 S2", "Probably S2", "", null]) {
-      expect(parseRouteReply(reply, labels)).toEqual({ unsure: labels });
-    }
-  });
-
-  it("narrows an UNSURE reply to the labels it names when there are at least two", () => {
-    expect(parseRouteReply("UNSURE S1 S3", labels)).toEqual({ unsure: ["S1", "S3"] });
-    expect(parseRouteReply("UNSURE S2", labels)).toEqual({ unsure: labels });
-    expect(parseRouteReply("UNSURE", labels)).toEqual({ unsure: labels });
-  });
-});
-
-describe("context router", () => {
-  const sessions = [
-    session("id-cache", "shop-hyva"),
-    session("id-captions", "marshal"),
-    session("id-cv", "portfolio")
-  ];
-  const dossiers = new Map([
-    ["id-cache", "Project: shop\nFeature: product cache invalidation (cache tags)\nNow: running integration tests"],
-    ["id-captions", "Project: Marshal\nFeature: live captions overlay\nNow: tuning the VAD"],
-    ["id-cv", "Project: portfolio\nFeature: CV page\nNow: editing copy"]
-  ]);
-
-  function router(reply: string | null, enabled = true) {
-    const complete = vi.fn(async (_request: OneShotRequest) => reply);
-    const dossierFn = vi.fn(async () => dossiers);
-    return { complete, dossierFn, router: createContextRouter({ enabled: () => enabled, inScope: () => true, dossiers: dossierFn, complete }) };
-  }
-
-  it("returns off without touching the model when the setting is disabled", async () => {
-    const { router: r, complete, dossierFn } = router("S1", false);
-    expect(await r.route("фікс кешу", sessions)).toEqual({ kind: "off" });
-    expect(complete).not.toHaveBeenCalled();
-    expect(dossierFn).not.toHaveBeenCalled();
-  });
-
-  it("routes a Ukrainian command to the session whose English dossier matches", async () => {
-    const { router: r, complete } = router("S1");
-    expect(await r.route("фікс кешу, запусти тести", sessions)).toEqual({ kind: "session", sessionId: "id-cache" });
-    const request = complete.mock.calls[0][0];
-    expect(request.user).toContain("S1: shop-hyva");
-    expect(request.user).toContain("product cache invalidation");
-    expect(request.user).toContain("Command: фікс кешу, запусти тести");
-    expect(request.system).toContain("across languages");
-  });
-
-  it("maps unsure labels back to session ids for the picker", async () => {
-    const { router: r } = router("UNSURE S1 S2");
-    expect(await r.route("run the tests", sessions)).toEqual({ kind: "unsure", candidates: ["id-cache", "id-captions"] });
-  });
-
-  it("is unsure across all sessions when the model is unavailable", async () => {
-    const { router: r } = router(null);
-    expect(await r.route("фікс кешу", sessions)).toEqual({ kind: "unsure", candidates: ["id-cache", "id-captions", "id-cv"] });
-  });
-
-  it("still asks the model when dossiers fail, with titles only", async () => {
-    const complete = vi.fn(async (_request: OneShotRequest) => "S2");
-    const r = createContextRouter({
-      enabled: () => true,
-      inScope: () => true,
-      dossiers: async () => { throw new Error("disk"); },
-      complete
-    });
-    expect(await r.route("субтитри", sessions)).toEqual({ kind: "session", sessionId: "id-captions" });
-    expect(complete.mock.calls[0][0].user).toContain("Dossier: not available yet");
-  });
-
-  it("needs no model call for zero or one session, or an empty command", async () => {
-    const { router: r, complete } = router("S1");
-    expect(await r.route("x", [])).toEqual({ kind: "unsure", candidates: [] });
-    expect(await r.route("x", sessions.slice(0, 1))).toEqual({ kind: "session", sessionId: "id-cache" });
-    expect(await r.route("  ", sessions)).toEqual({ kind: "unsure", candidates: ["id-cache", "id-captions", "id-cv"] });
-    expect(complete).not.toHaveBeenCalled();
-  });
-
-  it("labels sessions in order", () => {
-    const request = buildRouteRequest("x", [
-      { label: "S1", name: "a", cwd: "/a", dossier: null },
-      { label: "S2", name: "b", cwd: "/b", dossier: "Project: b" }
-    ]);
-    expect(request.user.indexOf("S1: a")).toBeLessThan(request.user.indexOf("S2: b"));
-  });
-});
-
-describe("routed notice", () => {
-  it("names the session and shows the command, trimmed", () => {
-    expect(routedNotice("shop-hyva", " фікс кешу ")).toEqual({ title: "Sent to shop-hyva by context", body: "фікс кешу" });
-    expect(routedNotice("x", "a".repeat(200)).body).toHaveLength(121);
-  });
-});
-
 describe("routing roots (#303)", () => {
   it("parses one absolute folder per line and expands ~", () => {
     expect(parseRoutingRoots("~/htdocs\n\n  /work/clients/ \nrelative/dir\n~", "/Users/me")).toEqual([
@@ -311,38 +202,5 @@ describe("routing roots (#303)", () => {
     expect(isUnderRoots("/Users/me/work/shop", roots)).toBe(false);
     expect(isUnderRoots("/Users/me/htdocs/../work/shop", roots)).toBe(false);
     expect(isUnderRoots("/anything", [])).toBe(false);
-  });
-
-  const personal = session("id-mine", "marshal", "/Users/me/htdocs/marshal");
-  const personal2 = session("id-mine2", "snoriq", "/Users/me/htdocs/snoriq");
-  const work = session("id-work", "shop", "/Users/me/work/shop");
-  const inScope = (s: ClaudeSession) => isUnderRoots(s.cwd, ["/Users/me/htdocs"]);
-
-  function scoped(reply: string) {
-    const complete = vi.fn(async (_request: OneShotRequest) => reply);
-    const dossiers = vi.fn(async (_sessions: readonly ClaudeSession[]) => new Map<string, string>());
-    return { complete, dossiers, router: createContextRouter({ enabled: () => true, inScope, dossiers, complete }) };
-  }
-
-  it("never reads or describes a session outside the folders", async () => {
-    const { router: r, complete, dossiers } = scoped("S2");
-    expect(await r.route("субтитри", [personal, work, personal2])).toEqual({ kind: "session", sessionId: "id-mine2" });
-    expect(dossiers.mock.calls[0][0]).toEqual([personal, personal2]);
-    expect(complete.mock.calls[0][0].user).not.toContain("/Users/me/work");
-  });
-
-  it("keeps excluded sessions in the picker when the model is unsure", async () => {
-    const { router: r } = scoped("UNSURE");
-    expect(await r.route("run the tests", [personal, work, personal2])).toEqual({
-      kind: "unsure",
-      candidates: ["id-mine", "id-mine2", "id-work"]
-    });
-  });
-
-  it("is off when no live session is under the folders", async () => {
-    const { router: r, complete, dossiers } = scoped("S1");
-    expect(await r.route("фікс кешу", [work, session("id-work2", "b", "/Users/me/work/b")])).toEqual({ kind: "off" });
-    expect(dossiers).not.toHaveBeenCalled();
-    expect(complete).not.toHaveBeenCalled();
   });
 });

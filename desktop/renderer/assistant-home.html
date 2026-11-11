@@ -373,11 +373,11 @@
             </div>
             <label class="checkbox-row">
               <input id="settings-claude-context-routing" name="claudeCodeContextRouting" type="checkbox" checked />
-              <span data-i18n="settings.routeACommandThatNames">Route a command that names no session by what each session works on</span>
+              <span data-i18n="settings.routeACommandThatNames">Tell the assistant what each session works on</span>
             </label>
             <p class="field-hint" data-i18n="settings.keepsA3LineSummary">
-              Keeps a 3-line summary of each live session (built from its recent turns, at most every 10 minutes) and
-              asks a small model which one a command is about. When it is not sure, you pick.
+              Keeps a 3-line summary of each live session in the allowed folders (built from its recent turns, at most
+              every 10 minutes). The voice assistant's dispatcher uses it to pick the session for a command that names none.
             </p>
             <div class="field">
               <label for="settings-claude-routing-roots" data-i18n="settings.foldersWhoseSessionsMayBe">Folders whose sessions may be read</label>

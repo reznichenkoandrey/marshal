@@ -7,10 +7,10 @@ import path from "node:path";
 
 import { Notification } from "electron";
 
-import { t, uiLanguage } from "../i18n/ui-language.ts";
+import { uiLanguage } from "../i18n/ui-language.ts";
 import { loadSettings } from "../settings-store.ts";
 import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
-import { createContextRouter, isUnderRoots, parseRoutingRoots, routedNotice, type ContextRouter } from "./context-router.ts";
+import { isUnderRoots, parseRoutingRoots } from "./context-router.ts";
 import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
 import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, uninstallHooks } from "./hook-installer.ts";
@@ -39,8 +39,6 @@ export class ClaudeHooksController {
   // collected; hold the shown ones until they are clicked or closed.
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
-  /** For #264: the session a command that names none is meant for. */
-  readonly contextRouter: ContextRouter;
 
   constructor(
     userDataDir: string,
@@ -53,12 +51,6 @@ export class ClaudeHooksController {
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
-      complete: (request) => completeOnce(request)
-    });
-    this.contextRouter = createContextRouter({
-      enabled: () => loadSettings().claudeCodeContextRouting,
-      inScope: (session) => inRoutingRoots(session),
-      dossiers: (sessions) => this.dossiers.dossiersFor(sessions),
       complete: (request) => completeOnce(request)
     });
     this.notifier = new SessionNotifier({
@@ -154,30 +146,12 @@ export class ClaudeHooksController {
     this.service.stop();
   }
 
-  /**
-   * For #264, after sending a command picked by context: "Sent to <session>
-   * by context". Clicking it or its button calls `onResend` (the picker), so
-   * a wrong route can be redone from the notification.
-   */
-  notifyRoutedByContext(session: Pick<ClaudeSession, "name">, command: string, onResend: () => void): void {
-    const { title, body } = routedNotice(session.name, command, uiLanguage());
-    this.notify(title, body, onResend, t("claude.sendElsewhere"));
-  }
-
-  private notify(title: string, body: string, onClick: () => void, actionText?: string): void {
+  private notify(title: string, body: string, onClick: () => void): void {
     this.announce(body ? `${title} — ${body}` : title);
     if (!Notification.isSupported()) return;
-    const notification = new Notification({
-      title,
-      body,
-      ...(actionText ? { actions: [{ type: "button" as const, text: actionText }] } : {})
-    });
+    const notification = new Notification({ title, body });
     const release = () => this.shown.delete(notification);
     notification.on("click", () => {
-      release();
-      onClick();
-    });
-    notification.on("action", () => {
       release();
       onClick();
     });
