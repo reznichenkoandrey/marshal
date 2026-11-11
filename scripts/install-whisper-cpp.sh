@@ -19,7 +19,7 @@
 # in the old place keeps working.
 #
 # Env overrides:
-#   WHISPER_MODEL      — model name (default: ggml-large-v3-turbo)
+#   WHISPER_MODEL      — model name (default: ggml-large-v3-turbo-q8_0)
 #   WHISPER_TAG        — whisper.cpp git tag (default: latest tagged release)
 #   MARSHAL_MODELS_DIR — where the weights go (default: the path above)
 
@@ -53,7 +53,7 @@ REPO_DIR="$WHISPER_DIR/whisper.cpp"
 BIN_DIR="$WHISPER_DIR/bin"
 LEGACY_MODEL_DIR="$WHISPER_DIR/models"
 MODEL_DIR="${MARSHAL_MODELS_DIR:-$HOME/Library/Application Support/Marshal/models}"
-MODEL="${WHISPER_MODEL:-ggml-large-v3-turbo}"
+MODEL="${WHISPER_MODEL:-ggml-large-v3-turbo-q8_0}"
 MODEL_FILE="$MODEL_DIR/${MODEL}.bin"
 
 mkdir -p "$WHISPER_DIR" "$BIN_DIR" "$MODEL_DIR" "$LEGACY_MODEL_DIR"
