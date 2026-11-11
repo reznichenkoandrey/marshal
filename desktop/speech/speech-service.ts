@@ -81,7 +81,9 @@ export class SpeechService {
     private readonly settings: () => SpeechSettings,
     private readonly blockedReason: () => string | null,
     // The assistant home shows "speaking" from this (#308).
-    private readonly onSpeakingChange: (speaking: boolean) => void = () => {}
+    private readonly onSpeakingChange: (speaking: boolean) => void = () => {},
+    // Another app holds the mic (#359). Checked once per phrase, not polled.
+    private readonly onCall: () => Promise<boolean> = async () => false
   ) {}
 
   isAvailable(): boolean {
@@ -120,6 +122,8 @@ export class SpeechService {
     if (!this.isAvailable()) return { ok: false, error: "Spoken updates need macOS (`say` was not found)." };
     const settings = this.settings();
     if (!settings.enabled && !options.force) return { ok: false, error: "Spoken updates are off in Settings." };
+    // Dropped, not held: a phrase spoken an hour later is stale, and the notification stays on screen.
+    if (!options.force && (await this.onCall())) return { ok: false, error: "Silent on a call." };
 
     const lang = options.lang ?? detectSpeechLang(trimmed);
     const preferred = lang === "uk" ? settings.voiceUk : settings.voiceEn;
