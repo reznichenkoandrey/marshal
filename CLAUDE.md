@@ -636,6 +636,11 @@
   фічі. Те саме число бачить Settings → Setup health → Memory (`desktop/perf/footprint.ts`).
   Заміряно 2026-11-09 на 0.4.x idle: 262 МБ (main 88, GPU 52, node service 47, два renderer 29+26,
   `ptt-monitor` 13, network 7).
+  Заміряно 2026-11-11 (#350), свіжий старт без вікон: 163–169 МБ (main 70, node service 60, два
+  `ptt-monitor` по 8). **Idle міряти з закритими home і віджетом:** відкритий canvas тримає GPU-пул
+  (#310), і strip показує число разом із ним. Вікно перекладача, сховане порожнім, знищується через
+  10 хв (`RELEASE_HIDDEN_MS`); оверлей субтитрів закривається на stop. Раніше обидва жили прихованими
+  до виходу з застосунку, по ~30–40 МБ кожен.
 - **Теми — дві незалежні осі (#283).** Режим (`data-theme` light/dark, без атрибута — як у
   macOS) і look (`data-look`: `hud` — дефолт, `classic`, `liquid`, `signal`, `soft`; для HUD ще
   `data-palette`: `blue` — дефолт, `teal`, `green`, `amber`). Обирається в Settings → Theme.
