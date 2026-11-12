@@ -4,7 +4,6 @@
 // until the words arrive through its own input field.
 
 import { execFile } from "node:child_process";
-import path from "node:path";
 import { promisify } from "node:util";
 
 import type { FocusProbeResult } from "../dictation/focus-paste.ts";
@@ -28,14 +27,16 @@ export function replyRefusal(session: Pick<ClaudeSession, "name" | "status"> | u
   return null;
 }
 
-/** Return only lands in the session when its host is in front with a text field focused. */
-export function mayPressReturn(focus: FocusProbeResult, hostApp: string): boolean {
-  if (!focus.isTextInput || !hostApp) return false;
-  // iTerm.app reports itself as "iTerm2".
-  return focus.frontmostApp === hostApp || focus.frontmostApp.startsWith(hostApp);
+/**
+ * Return only lands in the session when its host is in front with a text field
+ * focused. Compared by bundle path: the app's name is localized ("Термінал").
+ */
+export function mayPressReturn(focus: FocusProbeResult, hostPath: string): boolean {
+  return focus.isTextInput && hostPath !== "" && focus.frontmostPath === hostPath;
 }
 
 export type ReplyDeps = {
+  /** Bundle path of the app that hosts the session. */
   hostApp: (pid: number) => Promise<string>;
   focusSession: (pid: number) => Promise<"tab" | "session" | "app" | null>;
   probe: () => Promise<FocusProbeResult>;
@@ -47,18 +48,20 @@ export type ReplyDeps = {
 export async function hostAppOf(pid: number): Promise<string> {
   const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid=,tty=,comm="]);
   const { appPath } = findFocusTarget(parseProcessTable(stdout), pid);
-  return appPath ? path.basename(appPath, ".app") : "";
+  return appPath ?? "";
 }
 
 /** Types `text` into the session and presses Return; returns what happened, for the dispatcher. */
 export async function replyToSession(session: ClaudeSession, text: string, deps: ReplyDeps): Promise<string> {
-  const before = (await deps.probe()).frontmostApp;
+  const before = (await deps.probe()).frontmostPath ?? "";
   const host = await deps.hostApp(session.pid);
   deps.writeClipboard(text);
   const shown = await deps.focusSession(session.pid);
   if (shown !== "tab" && shown !== "session") {
     return `Could not open ${session.name}; the reply is on the clipboard.`;
   }
+  // AppleScript's `activate` sent from a background app does not take focus; LaunchServices does.
+  if (host) await deps.activate(host);
   await new Promise((resolve) => setTimeout(resolve, shown === "tab" ? TAB_SETTLE_MS : DESKTOP_SETTLE_MS));
   if (!mayPressReturn(await deps.probe(), host)) {
     return `${session.name} is open but its input field is not focused; the reply is on the clipboard.`;
