@@ -8,13 +8,17 @@
 }
 
 .meeting {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--hist-hairline);
+  border-radius: var(--hist-radius-card);
   overflow: hidden;
 }
 .meeting.open {
   border-color: var(--accent);
+}
+/* Interrupted or failed recording reads as a Lumen alert row. */
+.meeting:has(.meeting-sub.problem) {
+  border-left: 2px solid var(--danger);
 }
 
 .meeting-row {
@@ -31,14 +35,14 @@
 .meeting-kind {
   flex: 0 0 auto;
   font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  font-family: var(--font-label);
-  letter-spacing: var(--letter-wider);
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  padding: 2px var(--space-2);
+  font-family: var(--font-mono);
+  letter-spacing: var(--hist-tracking);
+  color: var(--accent-text);
+  background: var(--chip-info-bg, var(--accent-soft));
+  border-radius: var(--hist-radius-chip);
+  padding: 2px 6px;
 }
 
 .meeting-title {
@@ -53,7 +57,9 @@
   color: var(--text-default);
 }
 .meeting-sub {
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  letter-spacing: var(--hist-tracking);
   color: var(--text-muted);
 }
 .meeting-sub.problem {
@@ -98,7 +104,7 @@
   font-size: var(--fs-sm);
   color: var(--text-default);
   background: var(--bg-muted);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--hist-hairline);
   border-radius: var(--radius-sm);
   padding: 2px var(--space-2);
 }
@@ -110,17 +116,17 @@
 }
 .notes-title {
   margin: 0 0 var(--space-2);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-regular);
   color: var(--text-strong);
 }
 .notes-heading {
   margin: var(--space-3) 0 var(--space-1);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  font-family: var(--font-label);
-  letter-spacing: var(--letter-wider);
+  font-family: var(--font-mono);
+  letter-spacing: var(--hist-tracking);
   color: var(--text-muted);
 }
 .notes-list,
@@ -149,16 +155,20 @@
 }
 .notes-task-owner {
   flex: 0 0 auto;
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 .notes-task-mine {
   flex: 0 0 auto;
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--hist-tracking);
   color: var(--accent-text);
-  background: var(--accent-soft);
-  border-radius: var(--radius-pill);
-  padding: 0 var(--space-2);
+  background: var(--chip-info-bg, var(--accent-soft));
+  border-radius: var(--hist-radius-chip);
+  padding: 1px 6px;
 }
 .notes-task .ghost-btn {
   flex: 0 0 auto;

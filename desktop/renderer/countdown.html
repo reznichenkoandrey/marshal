@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <link rel="stylesheet" href="./design-tokens.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body {
@@ -13,7 +14,7 @@
         user-select: none;
         -webkit-user-drag: none;
         cursor: none;
-        font-family: -apple-system, "SF Pro Display", Inter, sans-serif;
+        font-family: var(--font-sans);
       }
       #n {
         position: fixed;
@@ -21,7 +22,10 @@
         top: 50%;
         transform: translate(-50%, -50%);
         font-size: 240px;
-        font-weight: 800;
+        /* Lumen numerals are light; white with a shadow stays readable over
+           whatever is on screen, so this one does not follow the theme. */
+        font-weight: 300;
+        font-variant-numeric: tabular-nums;
         color: #fff;
         text-shadow:
           0 0 40px rgba(0,0,0,0.65),
@@ -42,7 +46,7 @@
         width: 320px;
         height: 320px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(229,72,77,0.35), rgba(229,72,77,0) 70%);
+        background: radial-gradient(circle, color-mix(in srgb, var(--state-fail) 35%, transparent), transparent 70%);
         pointer-events: none;
       }
     </style>

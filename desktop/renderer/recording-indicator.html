@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'" />
+    <link rel="stylesheet" href="./design-tokens.css" />
+    <script src="./theme.js"></script>
     <script src="./locales.js"></script>
     <script src="./i18n.js"></script>
     <style>
@@ -13,68 +15,83 @@
         overflow: hidden;
         background: transparent;
         user-select: none;
-        font-family: -apple-system, "SF Pro Text", Inter, sans-serif;
+        font-family: var(--font-sans);
       }
+      /* Lumen indicator (#399): hairline card, mono uppercase readouts, the
+         state colour only on the marker and the label. */
       .pill {
         width: 100%;
         height: 100%;
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 0 10px 0 14px;
-        background: rgba(19, 19, 22, 0.88);
+        gap: var(--space-2);
+        padding: 0 var(--space-2) 0 var(--space-3);
+        border-radius: var(--radius-card, var(--radius-lg));
+        border: 1px solid var(--border-hairline, var(--border-default));
+        border-left: 2px solid var(--marker);
+        background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
-        color: #fff;
-        border-radius: 22px;
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+        box-shadow: var(--shadow-md);
+        color: var(--text-strong);
       }
-      .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #e5484d;
-        box-shadow: 0 0 10px rgba(229,72,77,0.7);
-        animation: blink 1s infinite;
-      }
-      .dot.paused { animation: none; background: #fbbf24; box-shadow: 0 0 10px rgba(251,191,36,0.6); }
-      @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.2; }
+      #label {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        font-weight: var(--fw-medium);
+        letter-spacing: var(--label-tracking, var(--letter-wider));
+        text-transform: uppercase;
+        color: var(--marker);
       }
       #time {
-        flex: 1;
+        font-family: var(--font-mono);
         font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        font-size: 14px;
-        letter-spacing: 0.01em;
+        font-size: var(--fs-xs);
+        letter-spacing: var(--label-tracking, var(--letter-wider));
+        color: var(--text-muted);
       }
       button {
-        width: 28px;
-        height: 28px;
-        border: 0;
-        border-radius: 14px;
-        background: rgba(255,255,255,0.08);
-        color: #fff;
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--border-hairline, var(--border-default));
+        border-radius: var(--radius-sm);
+        background: var(--bg-elevated);
+        color: var(--text-default);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        transition: background .15s ease-out, transform .1s ease-out;
+        transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
       }
-      button:hover { background: rgba(255,255,255,0.16); }
+      button:hover { background: var(--bg-hover); }
       button:active { transform: scale(0.94); }
-      .stop { background: rgba(229,72,77,0.25); }
-      .stop:hover { background: rgba(229,72,77,0.45); }
-      .icon {
-        display: inline-block;
-        width: 12px;
-        height: 12px;
+      button.stop {
+        border-color: transparent;
+        background: var(--chip-bad-bg, var(--danger-soft));
       }
-      .icon.pause { border-left: 3px solid #fff; border-right: 3px solid #fff; width: 10px; }
-      .icon.play { width: 0; height: 0; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
-      .icon.square { background: #fff; width: 10px; height: 10px; border-radius: 1px; }
+      button.stop:hover { background: color-mix(in srgb, var(--state-fail) 28%, transparent); }
+      .square { background: var(--state-fail); width: 9px; height: 9px; border-radius: 1px; }
+      .pill { --marker: var(--state-fail); }
+      #time { flex: 1; color: var(--text-strong); }
+      .dot {
+        width: 9px;
+        height: 9px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: var(--state-fail);
+        animation: blink 1s infinite;
+      }
+      .dot.paused { animation: none; background: var(--state-wait); }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
+      }
+      @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+      .icon { display: inline-block; width: 12px; height: 12px; }
+      .icon.pause { border-left: 3px solid currentColor; border-right: 3px solid currentColor; width: 10px; }
+      .icon.play { width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
+      .icon.square { background: var(--state-fail); width: 9px; height: 9px; border-radius: 1px; }
     </style>
   </head>
   <body>
