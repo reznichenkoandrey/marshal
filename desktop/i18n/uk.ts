@@ -470,7 +470,7 @@ export const uk: Record<MessageKey, string> = {
   "settings.update.phase.done": "Готово.",
   "settings.update.phase.error": "Помилка.",
   "home.hint.idle": "Натисни мікрофон і скажи команду для сесії Claude Code",
-  "home.hint.listening": "Слухаю… натисни ще раз, щоб надіслати",
+  "home.hint.listening": "Слухаю… надішлю після паузи або кліку",
   "home.hint.thinking": "Розпізнаю сказане",
   "home.hint.working": "Сесії працюють",
   "home.hint.waiting": "Сесія чекає на тебе",

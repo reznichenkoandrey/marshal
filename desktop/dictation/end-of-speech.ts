@@ -63,3 +63,15 @@ export function parseMeterLine(line: string): number | null {
   const match = /^level (-?\d+(?:\.\d+)?)$/.exec(line.trim());
   return match ? Number(match[1]) : null;
 }
+
+export type OpenMicState = { asleep: boolean; meeting: boolean; captions: boolean; onCall: () => Promise<boolean> };
+
+/**
+ * Whether Marshal may decide on its own when the mic closes (#375, #384):
+ * not asleep, not while a meeting recording or captions run, not on a call
+ * in another app (checked last: it runs a helper).
+ */
+export async function openMicAllowed(state: OpenMicState): Promise<boolean> {
+  if (state.asleep || state.meeting || state.captions) return false;
+  return !(await state.onCall());
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EndOfSpeech, parseMeterLine, type EndOfSpeechOptions } from "../desktop/dictation/end-of-speech.ts";
+import { EndOfSpeech, openMicAllowed, parseMeterLine, type EndOfSpeechOptions } from "../desktop/dictation/end-of-speech.ts";
 
 const OPTIONS: EndOfSpeechOptions = { speechDb: -38, silenceMs: 900, noSpeechMs: 6000, minSpeechMs: 250, maxMs: 20_000 };
 
@@ -45,5 +45,26 @@ describe("parseMeterLine", () => {
     expect(parseMeterLine("level -23.4")).toBe(-23.4);
     expect(parseMeterLine("level -160.0\n")).toBe(-160);
     expect(parseMeterLine("ready")).toBeNull();
+  });
+});
+
+describe("openMicAllowed", () => {
+  const free = { asleep: false, meeting: false, captions: false, onCall: async () => false };
+
+  it("lets the mic close itself when nothing else holds the owner", async () => {
+    expect(await openMicAllowed(free)).toBe(true);
+  });
+
+  it("keeps the mic manual asleep, while recording a meeting, under captions and on a call", async () => {
+    expect(await openMicAllowed({ ...free, asleep: true })).toBe(false);
+    expect(await openMicAllowed({ ...free, meeting: true })).toBe(false);
+    expect(await openMicAllowed({ ...free, captions: true })).toBe(false);
+    expect(await openMicAllowed({ ...free, onCall: async () => true })).toBe(false);
+  });
+
+  it("does not run the call probe when a cheaper gate already says no", async () => {
+    let probed = false;
+    await openMicAllowed({ ...free, asleep: true, onCall: async () => (probed = true) });
+    expect(probed).toBe(false);
   });
 });

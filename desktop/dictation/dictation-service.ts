@@ -244,8 +244,8 @@ export class DictationService extends EventEmitter {
    * tray menu's "Start Dictation" when the push-to-talk listener cannot fire
    * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
    */
-  startRecording(mode: DictationMode = "paste"): void {
-    this.handleHoldStart(mode);
+  startRecording(mode: DictationMode = "paste", options: { endOnPause?: boolean } = {}): void {
+    this.handleHoldStart(mode, options.endOnPause);
   }
 
   /**
@@ -276,15 +276,17 @@ export class DictationService extends EventEmitter {
    * Tray menu path — start if idle, stop if already recording. A menu click
    * is a single event, so push-to-talk can't be modelled with it.
    */
-  toggleRecording(mode: DictationMode = "paste"): void {
+  toggleRecording(mode: DictationMode = "paste", options: { endOnPause?: boolean } = {}): void {
     if (this.isCurrentlyRecording()) {
       this.stopRecording();
     } else {
-      this.startRecording(mode);
+      this.startRecording(mode, options);
     }
   }
 
-  private handleHoldStart(mode: DictationMode): void {
+  // endOnPause: no key to release, so a pause after speech ends the recording
+  // and nobody speaking discards it (#375 answers, #384 one-click commands).
+  private handleHoldStart(mode: DictationMode, endOnPause = mode === "answer"): void {
     debug("hold-start", mode);
     if (this.recorderProcess || this.isTranscribing) {
       debug("  skip — already recording or transcribing");
@@ -300,7 +302,7 @@ export class DictationService extends EventEmitter {
     // uses the system default input, same behavior as before.
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
     const recorderArgs = micUid ? [wavPath, "--device", micUid] : [wavPath];
-    if (mode === "answer") recorderArgs.push("--meter");
+    if (endOnPause) recorderArgs.push("--meter");
     debug("  spawn recorder:", this.recorderBin, "→", wavPath, micUid ? `(mic=${micUid})` : "");
 
     const child = spawn(this.recorderBin, recorderArgs, { stdio: ["ignore", "pipe", "pipe"] });
@@ -326,7 +328,7 @@ export class DictationService extends EventEmitter {
       if (this.isStopping) return;
       this.emit("recording-start");
     });
-    if (mode === "answer") this.watchForEndOfSpeech(child);
+    if (endOnPause) this.watchForEndOfSpeech(child, mode);
     child.stderr?.on("data", (chunk: Buffer) => {
       console.warn("[dictation] recorder stderr:", chunk.toString("utf8").trim());
     });
@@ -362,7 +364,7 @@ export class DictationService extends EventEmitter {
     });
   }
 
-  private watchForEndOfSpeech(child: ChildProcess): void {
+  private watchForEndOfSpeech(child: ChildProcess, mode: DictationMode): void {
     const detector = new EndOfSpeech(endOfSpeechOptions());
     let pending = "";
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -372,9 +374,9 @@ export class DictationService extends EventEmitter {
         const db = parseMeterLine(line);
         if (db === null || this.recorderProcess !== child || this.isStopping) continue;
         const verdict = detector.feed(db, Date.now());
-        debug("  answer level", db, verdict ?? "");
-        if (verdict === "answered") this.handleHoldEnd("answer");
-        else if (verdict === "silent") this.handleHoldCancel("answer");
+        debug("  end-of-speech level", db, verdict ?? "");
+        if (verdict === "answered") this.handleHoldEnd(mode);
+        else if (verdict === "silent") this.handleHoldCancel(mode);
       }
     });
   }
