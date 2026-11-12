@@ -142,9 +142,9 @@ describe("dispatcher files", () => {
     const script = terminalScript("/Users/me/it's \"here\"", "claude --name 'x'", "it's");
     expect(script).toContain("do script \"printf '\\\\033]0;%s\\\\007' 'it'\\\\''s'; cd '/Users/me/it'\\\\''s \\\"here\\\"' && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDECODE ");
     expect(script).toContain(" -u CLAUDE_CODE_CHILD_SESSION ");
-    expect(script).toContain(" -u CLAUDE_AGENT_SDK_VERSION claude --name 'x'\"");
+    expect(script).toContain(" -u CLAUDE_AGENT_SDK_VERSION claude --name 'x'; exit\"");
     expect(script).toContain("set miniaturized of front window to true");
-    expect(dispatcherCommandLine("", "bypass")).toBe("claude --name marshal-dispatcher --no-chrome --permission-mode bypassPermissions --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
+    expect(dispatcherCommandLine("", "bypass")).toBe("claude --name marshal-dispatcher --no-chrome --permission-mode bypassPermissions --settings '{\"skipDangerousModePermissionPrompt\":true}' --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
     expect(generalCommandLine("/a b/p.md", "auto")).toBe("claude --name general --no-chrome --permission-mode auto --append-system-prompt \"$(cat '/a b/p.md')\"");
     expect(generalCommandLine("/p.md", "default")).not.toContain("--permission-mode");
   });
