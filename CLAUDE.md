@@ -795,6 +795,10 @@
   (так було з історіями знімків і записів). Субтитри мають власні локальні
   токени (завжди темні поверх чужого екрана), а полотно редактора захоплення — нейтральне.
   Розширення Chrome показує дефолтний HUD blue: вибору теми там поки немає.
+  **Структура dashboard — спільна, `desktop/renderer/dashboard.css`** (#406): `.shell` (bar + основна колонка +
+  rail), `.bar`, `.icon-btn`, `.block`, `.metric-row`/`.metric`, таблиця `.commands`, `.ochip[data-tone]`, `.card`,
+  крапковий метр `.batt`, overflow-меню `.menu`. Її підключають home, Meeting Recordings і Capture history; нове вікно
+  в цьому стилі бере ці класи, а не копіює їх. Capture history отримує ще й `archive: { bytes, budget }` для метра архіву.
 - **Мова інтерфейсу — українська або англійська (#330).** Один перемикач на весь застосунок —
   `assistantLanguage` (`auto` = мова macOS через `app.getPreferredSystemLanguages()`, `uk`, `en`):
   Settings → Appearance → Language або «UK/EN» у strip вікна асистента. Він же керує вікнами, меню

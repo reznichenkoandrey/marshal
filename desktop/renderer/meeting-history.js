@@ -1,9 +1,13 @@
 // Meeting recordings renderer. Main pushes the list; a click on a row opens
-// its player inline. Only one player exists at a time so two recordings never
+// its player and notes in the right rail. Only one player exists at a time so two recordings never
 // play over each other. "Transcribe & summarize" (#271) runs in main; this
 // window only shows its progress and the notes it left next to the recording.
 
 const list = document.getElementById("list");
+const table = document.getElementById("table");
+const metrics = document.getElementById("metrics");
+const detailTitle = document.getElementById("detail-title");
+const detailBody = document.getElementById("detail-body");
 const empty = document.getElementById("empty");
 const folderLabel = document.getElementById("folder-path");
 const api = window.marshalMeetingHistory;
@@ -66,31 +70,58 @@ async function summarize(entry) {
 function render() {
   list.replaceChildren();
   empty.classList.toggle("hidden", entries.length > 0);
+  table.hidden = entries.length === 0;
   if (!entries.some((entry) => entry.id === openId)) openId = null;
   if (player && player.id !== openId) player = null;
   for (const entry of entries) list.append(renderEntry(entry));
+  renderMetrics();
+  renderDetail();
+  window.MarshalIcons?.apply();
+}
+
+function renderMetrics() {
+  const durationMs = entries.reduce((sum, entry) => sum + (entry.durationMs ?? 0), 0);
+  const bytes = entries.reduce((sum, entry) => sum + (entry.bytes ?? 0), 0);
+  const unfinished = entries.filter((entry) => entry.state === "error" || entry.state === "interrupted").length;
+  setMetric("count", String(entries.length));
+  setMetric("duration", durationMs > 0 ? formatDuration(durationMs) : "—");
+  setMetric("size", bytes > 0 ? formatBytes(bytes) : "—");
+  setMetric("unfinished", String(unfinished)).classList.toggle("over", unfinished > 0);
+}
+
+function setMetric(name, value) {
+  const node = metrics.querySelector(`[data-metric="${name}"]`);
+  node.querySelector(".num").textContent = value;
+  return node;
 }
 
 function renderEntry(entry) {
-  const item = el("li", "meeting");
-  const row = el("div", "meeting-row");
+  const row = el("tr", "meeting meeting-row");
   const media = entry.videoPath ?? entry.audioPath;
-
-  row.append(el("span", "meeting-kind", entry.mode === "screen" ? t("meetings.kindScreen") : t("meetings.kindAudio")));
-  const title = el("div", "meeting-title");
-  title.append(el("span", "meeting-date", formatDate(entry.startedAt)));
   const unfinished = entry.state === "error" || entry.state === "interrupted";
   const busy = finishing.has(entry.id);
   const transcribing = notesJob?.id === entry.id;
   const problem = unfinished && !busy;
-  const sub = el("span", problem ? "meeting-sub problem" : "meeting-sub", describe(entry));
-  if (problem) sub.title = describe(entry);
-  title.append(sub);
-  row.append(title);
+
+  const when = el("td", "meeting-title");
+  when.append(el("span", "meeting-date", formatDate(entry.startedAt)));
+  const detail = describe(entry);
+  const sub = el("span", problem ? "meeting-sub problem" : "meeting-sub", detail);
+  if (problem) sub.title = detail;
+  when.append(sub);
+  row.append(when);
+  row.append(el("td", "right mono", entry.durationMs !== null ? formatDuration(entry.durationMs) : "—"));
+  row.append(el("td", "right mono", entry.bytes ? formatBytes(entry.bytes) : "—"));
+  const mode = el("td");
+  mode.append(chip(entry.mode === "screen" ? t("meetings.modeScreen") : t("meetings.kindAudio"), "muted"));
+  row.append(mode);
+  const status = el("td");
+  status.append(chip(...statusChip(entry)));
+  row.append(status);
 
   const actions = el("div", "meeting-actions");
   if (unfinished) {
-    const finish = button(busy ? t("meetings.finishing") : t("meetings.finish"), async () => {
+    const finish = primary(busy ? t("meetings.finishing") : t("meetings.finish"), async () => {
       finishing.add(entry.id);
       render();
       const result = await api.finish(entry.id);
@@ -104,47 +135,79 @@ function renderEntry(entry) {
   }
   if (entry.state === "done" && entry.audioPath) {
     if (transcribing) {
-      actions.append(button(t("meetings.cancel"), () => void api.cancelNotes(entry.id)));
+      actions.append(primary(t("meetings.cancel"), () => void api.cancelNotes(entry.id)));
     } else if (!entry.notesPath) {
-      const make = button(t("meetings.summarize"), () => void summarize(entry));
+      const make = primary(t("meetings.summarize"), () => void summarize(entry));
       make.disabled = notesJob !== null;
       make.title = notesJob ? t("meetings.summarizeBusyTitle") : t("meetings.summarizeTitle");
       actions.append(make);
+    } else {
+      actions.append(primary(t("meetings.showNotes"), () => {
+        openId = entry.id;
+        render();
+      }));
     }
   }
-  actions.append(button(t("meetings.showInFinder"), () => void api.reveal(media ?? `${entry.folder}/manifest.json`)));
+  const more = [button(t("meetings.showInFinder"), () => void api.reveal(media ?? `${entry.folder}/manifest.json`))];
   if (entry.state !== "recording" && entry.state !== "finalizing" && !busy && !transcribing) {
-    actions.append(button(t("meetings.delete"), async () => {
+    const remove = button(t("meetings.delete"), async () => {
       if (!confirm(t("meetings.deleteConfirm", { date: formatDate(entry.startedAt) }))) return;
       const result = await api.trash(entry.id);
       if (!result?.ok) alert(result?.error ?? t("meetings.deleteFailed"));
-    }));
+    });
+    remove.classList.add("danger");
+    more.push(remove);
   }
-  row.append(actions);
-  item.append(row);
+  actions.append(overflow(more));
+  const cell = el("td", "right");
+  cell.append(actions);
+  row.append(cell);
 
   if (media) {
     row.addEventListener("click", (event) => {
-      if (event.target.closest("button")) return;
+      if (event.target.closest("button, details")) return;
       openId = openId === entry.id ? null : entry.id;
       render();
     });
   }
-  if (media && openId === entry.id) {
-    item.classList.add("open");
-    if (player?.id !== entry.id) {
-      const node = el("div", "meeting-player");
-      const tag = document.createElement(entry.videoPath ? "video" : "audio");
-      tag.controls = true;
-      tag.autoplay = true;
-      tag.src = `file://${encodeURI(media)}`;
-      node.append(tag);
-      player = { id: entry.id, node };
-    }
-    item.append(player.node);
-    if (entry.notesPath) item.append(renderNotes(entry));
+  if (media && openId === entry.id) row.classList.add("open");
+  return row;
+}
+
+/** The right rail: the open recording's player and its notes. */
+function renderDetail() {
+  const entry = entries.find((item) => item.id === openId);
+  detailTitle.textContent = entry ? formatDate(entry.startedAt) : t("meetings.detail");
+  if (!entry) {
+    detailBody.replaceChildren(el("p", "empty", t("meetings.pickRow")));
+    return;
   }
-  return item;
+  const media = entry.videoPath ?? entry.audioPath;
+  if (player?.id !== entry.id) {
+    const node = el("div", "meeting-player");
+    const tag = document.createElement(entry.videoPath ? "video" : "audio");
+    tag.controls = true;
+    tag.autoplay = true;
+    tag.src = `file://${encodeURI(media)}`;
+    node.append(tag);
+    player = { id: entry.id, node };
+  }
+  detailBody.replaceChildren(player.node);
+  if (entry.notesPath) detailBody.append(renderNotes(entry));
+}
+
+function statusChip(entry) {
+  if (entry.state === "recording") return [t("meetings.statusRecording"), "bad"];
+  if (entry.state === "finalizing") return [t("meetings.statusSaving"), "live"];
+  if (finishing.has(entry.id)) return [t("meetings.statusFinishing"), "live"];
+  if (notesJob?.id === entry.id) {
+    const pct = notesJob.total ? Math.round((notesJob.done / notesJob.total) * 100) : 0;
+    return [t("meetings.statusTranscribing", { pct }), "live"];
+  }
+  if (entry.state === "interrupted") return [t("meetings.statusInterrupted"), "warn"];
+  if (entry.state === "error") return [t("meetings.statusFailed"), "bad"];
+  if (entry.notesPath) return [t("meetings.statusNotes"), "ok"];
+  return [t("meetings.statusReady"), "muted"];
 }
 
 function renderNotes(entry) {
@@ -208,6 +271,7 @@ function appendList(box, heading, items) {
   box.append(list);
 }
 
+/** The row's second line: what is happening to it, or what went wrong. */
 function describe(entry) {
   if (entry.state === "recording") return t("meetings.stateRecording");
   if (entry.state === "finalizing") return t("meetings.stateSaving");
@@ -215,12 +279,7 @@ function describe(entry) {
   if (notesJob?.id === entry.id) return describeNotesJob(notesJob);
   if (entry.state === "interrupted") return t("meetings.stateInterrupted");
   if (entry.state === "error") return t("meetings.stateFailed", { error: entry.error ?? t("meetings.unknownError") });
-  const parts = [];
-  if (entry.durationMs !== null) parts.push(formatDuration(entry.durationMs));
-  parts.push(formatBytes(entry.bytes));
-  if (entry.warnings.length > 0) parts.push(t("meetings.warnings", { count: entry.warnings.length }));
-  if (entry.notesPath) parts.push(t("meetings.hasNotes"));
-  return parts.join(" · ");
+  return entry.warnings.length > 0 ? t("meetings.warnings", { count: entry.warnings.length }) : "";
 }
 
 function describeNotesJob(job) {
@@ -255,14 +314,42 @@ function formatBytes(bytes) {
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
-  node.className = className;
+  node.className = className ?? "";
   if (text !== undefined) node.textContent = text;
   return node;
 }
 
-function button(label, onClick) {
-  const node = el("button", "ghost-btn", label);
+function button(label, onClick, className = "ghost-btn") {
+  const node = el("button", className, label);
   node.type = "button";
   node.addEventListener("click", onClick);
   return node;
+}
+
+function primary(label, onClick) {
+  return button(label, onClick, "btn-primary");
+}
+
+function chip(label, tone) {
+  const node = el("span", "ochip", label);
+  node.dataset.tone = tone;
+  return node;
+}
+
+/** Secondary row actions behind a ⋯ button; picking one closes the menu. */
+function overflow(buttons) {
+  const menu = el("details", "menu");
+  const summary = el("summary", "icon-btn");
+  summary.dataset.icon = "ellipsis";
+  summary.dataset.iconSize = "16";
+  summary.title = t("meetings.more");
+  summary.setAttribute("aria-label", t("meetings.more"));
+  const listNode = el("div", "menu-list");
+  for (const node of buttons) {
+    node.className = `${node.className.replace("ghost-btn", "").trim()}`;
+    node.addEventListener("click", () => menu.removeAttribute("open"));
+    listNode.append(node);
+  }
+  menu.append(summary, listNode);
+  return menu;
 }

@@ -31,7 +31,7 @@ html, body {
 body {
   font-family: var(--font-sans);
   color: var(--text-default);
-  background: var(--bg-surface);
+  background: var(--bg-app);
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -92,7 +92,7 @@ input:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
+  background: var(--bg-app);
   border-bottom: 1px solid var(--tr-hairline);
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -104,10 +104,12 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  color: var(--text-strong);
-  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: var(--tr-tracking);
   flex-shrink: 0;
 }
 
@@ -168,9 +170,8 @@ input:focus-visible {
   grid-template-columns: 1fr auto 1fr auto;
   align-items: center;
   gap: var(--space-1);
-  padding: 6px var(--space-3);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--tr-hairline);
+  padding: var(--space-3) var(--space-3) 0;
+  background: var(--bg-app);
   flex-shrink: 0;
   -webkit-app-region: no-drag;
   user-select: none;
@@ -181,8 +182,11 @@ input:focus-visible {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 5px var(--space-2);
-  border-radius: var(--radius-sm);
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--tr-hairline);
+  border-radius: var(--tr-radius-chip);
+  background: var(--bg-surface);
   color: var(--text-default);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
@@ -267,6 +271,8 @@ input:focus-visible {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(var(--pane-min-width), 1fr) minmax(var(--pane-min-width), 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
   -webkit-app-region: no-drag;
 }
 
@@ -276,10 +282,7 @@ input:focus-visible {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 1fr;
   }
-  .pane + .pane {
-    border-left: none;
-    border-top: 1px solid var(--tr-hairline);
-  }
+
   .lang-bar {
     grid-template-columns: 1fr auto 1fr;
   }
@@ -294,18 +297,38 @@ input:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.pane + .pane {
-  border-left: 1px solid var(--tr-hairline);
-}
-
-.pane-source {
   background: var(--bg-surface);
+  border: 1px solid var(--tr-hairline);
+  border-radius: var(--tr-radius-card);
 }
 
-.pane-target {
-  background: var(--bg-app);
+/* Lumen card label: "SOURCE · AUTO", "TRANSLATION · UK". */
+.pane-label {
+  padding: var(--space-3) var(--space-4) 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-tracking);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.pane-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+}
+.pane-meta .lang-badge {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lang-badge:empty,
+.result-meta:empty {
+  display: none;
 }
 
 .input-textarea {
@@ -916,8 +939,8 @@ body[data-view="compact"] .panes {
   grid-template-rows: 1fr;
 }
 
-body[data-view="compact"] .pane + .pane {
-  border: none;
+body[data-view="compact"] .panes {
+  padding: var(--space-2);
 }
 
 /* Natural height, so the window can be sized to the text; scrolls past the cap. */

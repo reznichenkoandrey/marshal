@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { BrowserWindow, shell } from "electron";
 
 import { t } from "../i18n/ui-language.ts";
-import type { CaptureArchive } from "./capture-archive.ts";
+import { ARCHIVE_MAX_BYTES, type CaptureArchive } from "./capture-archive.ts";
 import {
   mergeHistoryEntries,
   type CaptureHistoryEntry,
@@ -58,8 +58,8 @@ export class CaptureHistoryWindow {
     }
 
     this.window = new BrowserWindow({
-      width: 880,
-      height: 620,
+      width: 1100,
+      height: 720,
       minWidth: 520,
       minHeight: 360,
       show: false,
@@ -145,8 +145,10 @@ export class CaptureHistoryWindow {
   private pushEntries(): void {
     if (!this.window || this.window.isDestroyed()) return;
     const folder = this.resolveFolder() || defaultFolder();
-    const entries = mergeHistoryEntries(listFolder(folder), this.listArchive());
-    this.window.webContents.send("marshal:capture-history-loaded", { folder, entries });
+    const archived = this.listArchive();
+    const entries = mergeHistoryEntries(listFolder(folder), archived);
+    const archive = { bytes: archived.reduce((sum, entry) => sum + entry.bytes, 0), budget: ARCHIVE_MAX_BYTES };
+    this.window.webContents.send("marshal:capture-history-loaded", { folder, entries, archive });
   }
 
   private listArchive(): CaptureHistoryEntry[] {

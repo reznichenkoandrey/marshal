@@ -121,8 +121,8 @@ async function main() {
   await fs.writeFile(preloadPath, preloadSource(), "utf8");
 
   const win = new BrowserWindow({
-    width: 900,
-    height: 640,
+    width: 1100,
+    height: 720,
     show: false,
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false }
   });

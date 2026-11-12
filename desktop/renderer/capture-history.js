@@ -22,11 +22,19 @@ const searchInput = document.getElementById("search");
 const refreshBtn = document.getElementById("refresh-btn");
 const revealFolderBtn = document.getElementById("reveal-folder-btn");
 const closeBtn = document.getElementById("close-btn");
+const metrics = document.getElementById("metrics");
+const archiveMeter = document.getElementById("archive-meter");
+const archiveLabel = document.getElementById("archive-label");
+const METER_CELLS = 10;
+
+window.MarshalIcons?.apply();
 
 const api = window.marshalHistory;
 
 /** Everything main sent us, unfiltered. The search view derives from this. */
 let allEntries = [];
+/** Unsaved-archive usage against its retention budget, as main measured it. */
+let archive = null;
 
 if (!api) {
   // The preload script is mandatory. Surface a useful message rather than a
@@ -36,6 +44,7 @@ if (!api) {
 } else {
   api.onLoaded((event, payload) => {
     allEntries = Array.isArray(payload?.entries) ? payload.entries : [];
+    archive = payload?.archive ?? null;
     folderLabel.textContent = payload?.folder ?? "";
     folderLabel.title = payload?.folder ?? "";
     renderView();
@@ -67,10 +76,34 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+function renderMetrics(now) {
+  const startOfDay = new Date(now).setHours(0, 0, 0, 0);
+  setMetric("today", String(allEntries.filter((entry) => entry.modifiedAt >= startOfDay).length));
+  setMetric("total", String(allEntries.length));
+  const share = archive?.budget ? Math.min(1, archive.bytes / archive.budget) : 0;
+  setMetric("archive", archive ? humanSize(archive.bytes) : "—");
+  archiveLabel.textContent = archive
+    ? t("history.metricArchiveOf", { budget: humanSize(archive.budget) })
+    : t("history.metricArchive");
+  const lit = Math.round(share * METER_CELLS);
+  archiveMeter.replaceChildren(
+    ...Array.from({ length: METER_CELLS }, (_, index) => {
+      const cell = document.createElement("i");
+      if (index < lit) cell.className = "on";
+      return cell;
+    })
+  );
+}
+
+function setMetric(name, value) {
+  metrics.querySelector(`[data-metric="${name}"] .num`).textContent = value;
+}
+
 function renderView() {
   const query = searchInput?.value ?? "";
   const now = Date.now();
   const labels = dayLabels();
+  renderMetrics(now);
   const matching = filterEntries(allEntries, query, now, labels);
   groups.innerHTML = "";
 
@@ -131,10 +164,6 @@ function buildTile(entry) {
     thumb.appendChild(placeholder);
   }
 
-  const badge = document.createElement("span");
-  badge.className = "tile-badge";
-  badge.textContent = kindLabel(entry.kind);
-
   const meta = document.createElement("div");
   meta.className = "tile-meta";
 
@@ -142,17 +171,27 @@ function buildTile(entry) {
   name.className = "tile-name";
   name.textContent = entry.name;
 
+  const saved = entry.source !== "archive";
+  const chip = document.createElement("span");
+  chip.className = saved ? "ochip" : "ochip tile-source";
+  chip.dataset.tone = saved ? "ok" : "warn";
+  chip.textContent = t(saved ? "history.saved" : "history.notSaved");
+  // An archived capture was never saved anywhere the user chose, so label it —
+  // otherwise "Reveal" landing in an app-support folder is a surprise.
+  if (!saved) chip.title = t("history.notSavedTitle");
+
+  const head = document.createElement("div");
+  head.className = "tile-head";
+  head.append(name, chip);
+
   const sub = document.createElement("div");
   sub.className = "tile-sub";
-
-  const date = document.createElement("span");
-  date.textContent = clockTime(entry.modifiedAt);
-
-  const size = document.createElement("span");
-  size.textContent = humanSize(entry.bytes);
-
-  sub.append(date, size);
-  meta.append(name, sub);
+  for (const text of [clockTime(entry.modifiedAt), kindLabel(entry.kind), humanSize(entry.bytes)]) {
+    const part = document.createElement("span");
+    part.textContent = text;
+    sub.append(part);
+  }
+  meta.append(head);
 
   const actions = document.createElement("div");
   actions.className = "tile-actions";
@@ -174,17 +213,7 @@ function buildTile(entry) {
   });
 
   actions.append(openBtn, revealBtn);
-  tile.append(thumb, badge, actions, meta);
-
-  // An archived capture was never saved anywhere the user chose, so label it —
-  // otherwise "Reveal" landing in an app-support folder is a surprise.
-  if (entry.source === "archive") {
-    const source = document.createElement("span");
-    source.className = "tile-source";
-    source.textContent = t("history.notSaved");
-    source.title = t("history.notSavedTitle");
-    tile.appendChild(source);
-  }
+  tile.append(thumb, actions, meta, sub);
 
   // Default click → primary action (edit images, open everything else).
   tile.addEventListener("click", () => void handleOpen(entry));

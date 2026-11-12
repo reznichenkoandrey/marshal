@@ -69,6 +69,7 @@
     <!-- Two panes: source on the left, translation on the right -->
     <div class="panes">
       <section class="pane pane-source">
+        <span class="pane-label" id="src-pane-label"></span>
         <textarea
           id="input-text"
           class="input-textarea"
@@ -92,6 +93,7 @@
       </section>
 
       <section class="pane pane-target">
+        <span class="pane-label" id="tgt-pane-label"></span>
         <div class="result-body">
           <div class="result-text" id="result-text"></div>
 
@@ -115,7 +117,10 @@
           <div class="notice-msg" id="notice-msg" hidden></div>
         </div>
         <div class="pane-footer">
-          <span class="lang-badge" id="lang-badge"></span>
+          <span class="pane-meta">
+            <span class="lang-badge" id="lang-badge"></span>
+            <span class="lang-badge result-meta" id="result-meta"></span>
+          </span>
           <div class="pane-actions">
             <button class="toolbar-btn" id="btn-insert" title="Paste into the app you came from (⌘⇧V)" data-i18n-title="translator.insertTitle" disabled>
               <span data-icon="corner-down-left" data-icon-size="12"></span>

@@ -1,286 +1,157 @@
-:root {
-  color-scheme: dark light;
-}
+/* Capture history (#406), also the base sheet of the meeting recordings window:
+   the shared dashboard shell, a metrics row and day-grouped card grids. */
 
-* {
-  box-sizing: border-box;
-}
-
-/* Lumen contract tokens (#397) with fallbacks until they land. */
-:root {
-  --hist-hairline: var(--border-hairline, var(--border-default));
-  --hist-radius-card: var(--radius-card, var(--radius-md));
-  --hist-radius-chip: var(--radius-chip, var(--radius-xs));
-  --hist-tracking: var(--label-tracking, var(--letter-wider));
-}
+:root { color-scheme: dark light; }
 
 html,
 body {
   margin: 0;
   padding: 0;
   height: 100%;
+  overflow: hidden;
   font-family: var(--font-sans);
   background: var(--bg-app);
   color: var(--text-default);
 }
 
-body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.history-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  -webkit-app-region: drag;
-  border-bottom: 1px solid var(--hist-hairline);
-  background: var(--bg-surface);
-  /* Leave room for the macOS traffic lights — same trick the editor uses. */
-  padding-left: 80px;
-}
-
-.history-title {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.history-title-label {
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-regular);
-  color: var(--text-strong);
-}
-.history-folder {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  letter-spacing: var(--hist-tracking);
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  -webkit-app-region: no-drag;
-}
-
-/* Search sits in the toolbar, so it has to opt out of the window drag region
-   or clicks in it would move the window instead of focusing the field. */
-.history-search {
-  -webkit-app-region: no-drag;
-  background: var(--bg-elevated);
-  border: 1px solid var(--hist-hairline);
-  color: var(--text-default);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-sm);
-  font-family: inherit;
-  width: 200px;
-  transition: border-color 0.15s ease, width 0.15s ease;
-}
-.history-search::placeholder {
-  color: var(--text-muted);
-}
-.history-search:focus {
-  outline: none;
-  border-color: var(--accent);
-  width: 260px;
-}
+/* hiddenInset windows: the bar leaves room for the traffic lights and drags the window. */
+.window .bar { padding-left: 84px; }
+.window .bar-actions,
+.window .bar input,
+.window .bar select { -webkit-app-region: no-drag; }
 
 .ghost-btn {
   -webkit-app-region: no-drag;
-  background: var(--bg-elevated);
-  border: 1px solid var(--hist-hairline);
-  color: var(--text-default);
-  padding: 6px 12px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-default);
+  font: inherit;
   font-size: var(--fs-sm);
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.ghost-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-}
+.ghost-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
 
-main {
-  flex: 1 1 auto;
-  overflow: auto;
-  padding: var(--space-4);
+/* Archive metric: its numeral, then the dotted meter against the retention budget. */
+.metric.archive .batt { margin: var(--space-1) 0; max-width: 220px; }
+
+/* Day sections: a mono heading, then that day's own grid. */
+.history-day + .history-day { margin-top: var(--space-6); }
+.history-day-label {
+  position: sticky;
+  top: calc(-1 * var(--space-6));
+  z-index: 1;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-app);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
 }
+.history-day-count { margin-left: var(--space-2); color: var(--text-subtle); }
 
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-3);
-}
-
-/* Day sections: one heading, then that day's own grid. */
-.history-day + .history-day {
-  margin-top: var(--space-5);
-}
-.history-day-label {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-  letter-spacing: var(--hist-tracking);
-  color: var(--text-muted);
-  margin: 0 0 var(--space-3);
-  position: sticky;
-  top: calc(-1 * var(--space-4));
-  background: var(--bg-app);
-  padding: var(--space-2) 0;
-  z-index: 1;
-}
-.history-day-count {
-  font-weight: var(--fw-regular);
-  text-transform: none;
-  letter-spacing: 0;
-  margin-left: var(--space-2);
 }
 
 .tile {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bg-elevated);
-  border: 1px solid var(--hist-hairline);
-  border-radius: var(--hist-radius-card);
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  background: var(--bg-surface);
   overflow: hidden;
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out);
 }
-.tile:hover {
-  border-color: var(--accent);
-}
+.tile:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--hairline)); }
 
 .tile-thumb {
-  background: var(--bg-muted);
-  aspect-ratio: 16 / 10;
   display: flex;
   align-items: center;
   justify-content: center;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-muted);
 }
-.tile-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
+.tile-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tile-thumb .placeholder {
-  font-size: var(--fs-xs);
   color: var(--text-muted);
-  text-transform: uppercase;
   font-family: var(--font-mono);
-  letter-spacing: var(--hist-tracking);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
 }
 
-.tile-meta {
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-top: 1px solid var(--hist-hairline);
-  min-width: 0;
-}
+.tile-meta { padding: var(--space-3) var(--space-3) var(--space-2); min-width: 0; }
+.tile-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
   font-size: var(--fs-sm);
   white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-default);
 }
+.tile-head .ochip { flex: none; }
+
 .tile-sub {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--hist-tracking);
-  text-transform: uppercase;
-  color: var(--text-muted);
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
-}
-
-/* Archive-only entries: the capture exists in history but was never saved to
-   a file the user chose, so say so rather than letting them assume otherwise. */
-.tile-source,
-.tile-badge {
-  position: absolute;
-  top: var(--space-2);
-  padding: 2px 6px;
-  border-radius: var(--hist-radius-chip);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  color: var(--text-default);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  letter-spacing: var(--hist-tracking);
-}
-/* Chips sit on a thumbnail: the tint is layered over an opaque card so the
-   image never shows through the text. */
-.tile-source {
-  left: var(--space-2);
-  background: linear-gradient(var(--chip-warn-bg, var(--warning-soft)), var(--chip-warn-bg, var(--warning-soft))), var(--bg-elevated);
-  color: color-mix(in srgb, var(--warning) 70%, var(--text-strong));
-}
-.tile-badge {
-  right: var(--space-2);
-  background: linear-gradient(var(--chip-info-bg, var(--accent-soft)), var(--chip-info-bg, var(--accent-soft))), var(--bg-elevated);
-  color: var(--accent-text);
+  letter-spacing: var(--tracking);
+  white-space: nowrap;
 }
 
 .tile-actions {
   position: absolute;
-  inset: auto var(--space-2) var(--space-2) auto;
+  top: var(--space-2);
+  right: var(--space-2);
   display: none;
-  gap: 4px;
+  gap: var(--space-1);
 }
-.tile:hover .tile-actions {
-  display: flex;
-}
+.tile:hover .tile-actions { display: flex; }
 .tile-action-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--chip-radius);
   background: var(--bg-elevated);
   color: var(--text-default);
-  border: 1px solid var(--hist-hairline);
-  border-radius: var(--hist-radius-chip);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: var(--hist-tracking);
-  padding: 3px 8px;
+  letter-spacing: var(--tracking);
   cursor: pointer;
 }
-.tile-action-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
+.tile-action-btn:hover { border-color: var(--accent); color: var(--accent-text); }
 
-.history-empty {
-  text-align: center;
-  color: var(--text-muted);
-  margin-top: 60px;
-}
+.history-empty { margin-top: var(--space-8); color: var(--text-muted); text-align: center; }
 .history-empty kbd {
-  font-family: var(--font-mono);
   padding: 1px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--chip-radius);
   background: var(--bg-elevated);
-  border: 1px solid var(--hist-hairline);
-  border-radius: var(--hist-radius-chip);
   color: var(--text-default);
+  font-family: var(--font-mono);
 }
-.history-empty-hint {
-  font-size: var(--fs-sm);
-  margin-top: 8px;
-}
+.history-empty-hint { margin-top: var(--space-2); font-size: var(--fs-sm); }
 
-.hidden {
-  display: none !important;
-}
+.hidden { display: none !important; }

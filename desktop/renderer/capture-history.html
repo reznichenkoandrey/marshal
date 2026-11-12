@@ -6,42 +6,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title data-i18n="history.windowTitle">Marshal — Captures</title>
   <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
   <link rel="stylesheet" href="./capture-history.css" />
   <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
   <script src="./locales.js"></script>
   <script src="./i18n.js"></script>
 </head>
 <body>
-  <header class="history-toolbar">
-    <div class="history-title">
-      <span class="history-title-label" data-i18n="history.title">Captures</span>
-      <span id="folder-path" class="history-folder"></span>
-    </div>
-    <div class="history-actions">
-      <input
-        id="search"
-        class="history-search"
-        type="search"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="Search captures…"
-        aria-label="Search captures by name, date or type"
-        data-i18n-placeholder="history.searchPlaceholder"
-        data-i18n-aria-label="history.searchLabel"
-      />
-      <button id="refresh-btn" type="button" class="ghost-btn" title="Re-read folder" data-i18n-title="history.refreshTitle" data-i18n="history.refresh">Refresh</button>
-      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the capture folder in Finder" data-i18n-title="history.openFolderTitle" data-i18n="history.openFolder">Open folder</button>
-      <button id="close-btn" type="button" class="ghost-btn" title="Close history" data-i18n-title="history.closeTitle" data-i18n="history.close">Close</button>
-    </div>
-  </header>
+  <div class="shell window no-side">
+    <header class="bar">
+      <div class="title">
+        <h1 data-i18n="history.title">Captures</h1>
+        <span id="folder-path" class="caps"></span>
+      </div>
+      <span></span>
+      <div class="bar-actions">
+        <input
+          id="search"
+          class="search"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Search captures…"
+          aria-label="Search captures by name, date or type"
+          data-i18n-placeholder="history.searchPlaceholder"
+          data-i18n-aria-label="history.searchLabel"
+        />
+        <button id="refresh-btn" type="button" class="icon-btn" data-icon="refresh-cw" data-icon-size="16" title="Re-read folder" aria-label="Refresh" data-i18n-title="history.refreshTitle" data-i18n-aria-label="history.refresh"></button>
+        <button id="reveal-folder-btn" type="button" class="icon-btn" data-icon="folder-open" data-icon-size="16" title="Open the capture folder in Finder" aria-label="Open folder" data-i18n-title="history.openFolderTitle" data-i18n-aria-label="history.openFolder"></button>
+        <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close history" aria-label="Close" data-i18n-title="history.closeTitle" data-i18n-aria-label="history.close"></button>
+      </div>
+    </header>
 
-  <main>
-    <div id="groups"></div>
-    <div id="empty" class="history-empty hidden">
-      <p data-i18n="history.empty">No Marshal captures yet.</p>
-      <p class="history-empty-hint" data-i18n-html="history.emptyHint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
-    </div>
-  </main>
+    <main class="dash">
+      <section class="block" aria-labelledby="overview-title">
+        <header class="block-head"><h2 id="overview-title" data-i18n="history.overview">At a glance</h2></header>
+        <div class="metric-row" id="metrics">
+          <div class="metric accent" data-metric="today"><b class="num">0</b><span class="label" data-i18n="history.metricToday">Today</span></div>
+          <div class="metric" data-metric="total"><b class="num">0</b><span class="label" data-i18n="history.metricTotal">In history</span></div>
+          <div class="metric archive" data-metric="archive">
+            <b class="num">—</b>
+            <span class="batt" id="archive-meter" aria-hidden="true"></span>
+            <span class="label" id="archive-label" data-i18n="history.metricArchive">Unsaved archive</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" aria-labelledby="captures-title">
+        <header class="block-head"><h2 id="captures-title" data-i18n="history.title">Captures</h2></header>
+        <div id="groups"></div>
+        <div id="empty" class="history-empty hidden">
+          <p data-i18n="history.empty">No Marshal captures yet.</p>
+          <p class="history-empty-hint" data-i18n-html="history.emptyHint">Hit <kbd>⌘⌥3</kbd> for an area screenshot, or use the tray menu.</p>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <script src="./capture-history.js" type="module"></script>
 </body>
