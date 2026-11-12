@@ -45,9 +45,21 @@ func probe() -> ProbeResult {
 
     let system = AXUIElementCreateSystemWide()
     var focusedRef: CFTypeRef?
-    let err = AXUIElementCopyAttributeValue(
+    var err = AXUIElementCopyAttributeValue(
         system, kAXFocusedUIElementAttribute as CFString, &focusedRef
     )
+    // Electron apps (Claude desktop) publish no tree until a client asks for it
+    // on the app element. Opt-in (`--app`): it keeps that tree built while the app runs (#394).
+    if err != .success, CommandLine.arguments.contains("--app"),
+       let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        for _ in 0..<5 {
+            err = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef)
+            if err == .success { break }
+            usleep(100_000)
+        }
+    }
     guard err == .success, let focusedRef = focusedRef else {
         return ProbeResult(
             isTextInput: false, role: "", subrole: "",
