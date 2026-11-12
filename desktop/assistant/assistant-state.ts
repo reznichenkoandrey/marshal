@@ -6,7 +6,7 @@ import path from "node:path";
 
 import type { ClaudeSession, SessionStatus } from "../claude-code/registry.ts";
 
-export const ASSISTANT_STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline"] as const;
+export const ASSISTANT_STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline", "sleeping"] as const;
 export type AssistantState = (typeof ASSISTANT_STATES)[number];
 
 export type AssistantInputs = {
@@ -17,6 +17,8 @@ export type AssistantInputs = {
   waitingSessions: number;
   // No speech-to-text available: nothing the user says can be heard.
   offline: boolean;
+  // "Маршал, спати" (#375): quiet until woken.
+  asleep: boolean;
 };
 
 export const IDLE_INPUTS: AssistantInputs = {
@@ -25,7 +27,8 @@ export const IDLE_INPUTS: AssistantInputs = {
   speaking: false,
   busySessions: 0,
   waitingSessions: 0,
-  offline: false
+  offline: false,
+  asleep: false
 };
 
 /**
@@ -37,6 +40,7 @@ export function deriveAssistantState(inputs: AssistantInputs): AssistantState {
   if (inputs.dictating) return "listening";
   if (inputs.transcribing) return "thinking";
   if (inputs.speaking) return "speaking";
+  if (inputs.asleep) return "sleeping";
   if (inputs.waitingSessions > 0) return "waiting";
   if (inputs.busySessions > 0) return "working";
   if (inputs.offline) return "offline";

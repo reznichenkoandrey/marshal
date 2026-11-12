@@ -33,7 +33,7 @@ const ROOT = path.resolve(here, "../..");
 const RENDERER = path.join(ROOT, "dist", "desktop", "renderer");
 const SHOTS = process.env.MARSHAL_E2E_SHOTS ?? "";
 
-const STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline"];
+const STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline", "sleeping"];
 const UK_LABELS = {
   idle: "Готовий",
   listening: "Слухаю",
@@ -41,7 +41,8 @@ const UK_LABELS = {
   speaking: "Говорю",
   working: "Працюю",
   waiting: "Чекає на тебе",
-  offline: "Офлайн"
+  offline: "Офлайн",
+  sleeping: "Сплю"
 };
 const STATE_TOKEN = {
   idle: "--state-idle",
@@ -50,7 +51,8 @@ const STATE_TOKEN = {
   speaking: "--state-speak",
   working: "--state-think",
   waiting: "--state-wait",
-  offline: "--state-fail"
+  offline: "--state-fail",
+  sleeping: "--state-idle"
 };
 
 const checks = {};

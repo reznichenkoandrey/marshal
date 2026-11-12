@@ -20,7 +20,7 @@ const recentList = document.getElementById("recent");
 
 const t = (key, params) => window.MarshalI18n?.t(key, params) ?? key;
 const lang = () => window.MarshalI18n?.language() ?? "en";
-const HINT_STATES = new Set(["idle", "listening", "thinking", "working", "waiting", "offline"]);
+const HINT_STATES = new Set(["idle", "listening", "thinking", "working", "waiting", "offline", "sleeping"]);
 const SESSION_STATUSES = new Set(["busy", "waiting", "shell", "idle"]);
 const DOCK_TITLES = {
   translator: "home.dock.translator",
@@ -43,7 +43,7 @@ let countdown = 0;
 const MEMORY_CELLS = 10;
 const COUNTDOWN_MS = 30_000;
 // The user's own speech gets its guidance; otherwise the last thing Marshal said.
-const HINT_FIRST = new Set(["listening", "thinking", "offline"]);
+const HINT_FIRST = new Set(["listening", "thinking", "offline", "sleeping"]);
 
 // ── Colour tokens → rgb for the canvas ──
 const probe = document.createElement("span");

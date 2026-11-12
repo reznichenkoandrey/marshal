@@ -11,7 +11,7 @@
 
 const TAU = Math.PI * 2;
 
-export const STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline"];
+export const STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline", "sleeping"];
 
 /**
  * Per-state look. `color` is a design token; `spin` scales ring rotation,
@@ -25,7 +25,8 @@ export const STATE_STYLE = {
   speaking: { color: "--state-speak", spin: 1.2, glow: 1, energy: 1, scan: 0 },
   working: { color: "--state-think", spin: 1.6, glow: 0.7, energy: 0.6, scan: 0 },
   waiting: { color: "--state-wait", spin: 0.8, glow: 0.9, energy: 0.7, scan: 0 },
-  offline: { color: "--state-fail", spin: 0.2, glow: 0.3, energy: 0.3, scan: 0 }
+  offline: { color: "--state-fail", spin: 0.2, glow: 0.3, energy: 0.3, scan: 0 },
+  sleeping: { color: "--state-idle", spin: 0.1, glow: 0.2, energy: 0.2, scan: 0 }
 };
 
 export const STATE_LABELS = {
@@ -36,7 +37,8 @@ export const STATE_LABELS = {
     speaking: "Говорю",
     working: "Працюю",
     waiting: "Чекає на тебе",
-    offline: "Офлайн"
+    offline: "Офлайн",
+    sleeping: "Сплю"
   },
   en: {
     idle: "Ready",
@@ -45,7 +47,8 @@ export const STATE_LABELS = {
     speaking: "Speaking",
     working: "Working",
     waiting: "Needs you",
-    offline: "Offline"
+    offline: "Offline",
+    sleeping: "Asleep"
   }
 };
 
@@ -119,6 +122,7 @@ export function ambientLevel(state, t, noise = 0.5) {
     case "waiting":
       return 0.18 + 0.14 * Math.max(0, Math.sin(t * 2.4));
     case "offline":
+    case "sleeping":
       return 0.02;
     default:
       return 0.06 + 0.03 * Math.sin(t * 1.2);

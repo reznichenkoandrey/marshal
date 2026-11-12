@@ -210,6 +210,8 @@ export type MarshalSettings = {
   assistantGlow: boolean;
   /** Mini assistant widget docked at a screen edge (#285). */
   assistantWidget: boolean;
+  /** "Маршал, спати" (#375): speaks and asks nothing unprompted until woken. */
+  assistantAsleep: boolean;
   /** Where the widget was dragged last; null = top-right of the primary display. */
   assistantWidgetPosition: { x: number; y: number } | null;
   /** Voice assistant (#318): a dispatcher session and `general` in background Terminal windows. */
@@ -280,6 +282,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantGlow: true,
   // Opt-in: an always-visible canvas costs a GPU pool while it animates (#310).
   assistantWidget: false,
+  assistantAsleep: false,
   assistantWidgetPosition: null,
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
@@ -609,6 +612,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.assistantWaitingBadge,
     assistantGlow: typeof input.assistantGlow === "boolean" ? input.assistantGlow : DEFAULT_SETTINGS.assistantGlow,
     assistantWidget: typeof input.assistantWidget === "boolean" ? input.assistantWidget : DEFAULT_SETTINGS.assistantWidget,
+    assistantAsleep: typeof input.assistantAsleep === "boolean" ? input.assistantAsleep : DEFAULT_SETTINGS.assistantAsleep,
     assistantWidgetPosition: normalizePoint(input.assistantWidgetPosition),
     assistantDispatcher: typeof input.assistantDispatcher === "boolean" ? input.assistantDispatcher : DEFAULT_SETTINGS.assistantDispatcher,
     assistantDispatcherModel: typeof input.assistantDispatcherModel === "string" && input.assistantDispatcherModel.trim() !== ""

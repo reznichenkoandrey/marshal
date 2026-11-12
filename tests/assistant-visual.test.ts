@@ -36,6 +36,12 @@ describe("deriveAssistantState", () => {
     expect(deriveAssistantState({ ...IDLE_INPUTS, offline: true })).toBe("offline");
     expect(deriveAssistantState({ ...IDLE_INPUTS, offline: true, busySessions: 1 })).toBe("working");
   });
+
+  it("sleeps over sessions, but not over the owner's own speech", () => {
+    expect(deriveAssistantState({ ...IDLE_INPUTS, asleep: true, waitingSessions: 1 })).toBe("sleeping");
+    expect(deriveAssistantState({ ...IDLE_INPUTS, asleep: true, dictating: true })).toBe("listening");
+    expect(deriveAssistantState({ ...IDLE_INPUTS, asleep: true, speaking: true })).toBe("speaking");
+  });
 });
 
 describe("state styles", () => {
