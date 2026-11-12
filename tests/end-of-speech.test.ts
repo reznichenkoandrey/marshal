@@ -35,6 +35,14 @@ describe("EndOfSpeech", () => {
     expect(run([...quiet(500), -20, ...quiet(7000)])).toEqual({ verdict: "silent", atMs: 6000 });
   });
 
+  it("tells a stop before any speech from a stop after it", () => {
+    const detector = new EndOfSpeech(OPTIONS);
+    [...quiet(1500), -20].forEach((db, i) => detector.feed(db, i * 100));
+    expect(detector.heard).toBe(false);
+    [-20, -20, -20].forEach((db, i) => detector.feed(db, 1700 + i * 100));
+    expect(detector.heard).toBe(true);
+  });
+
   it("stops a never-ending answer at the cap", () => {
     expect(run(loud(25_000)).verdict).toBe("answered");
   });
