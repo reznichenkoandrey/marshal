@@ -477,6 +477,7 @@ export const uk: Record<MessageKey, string> = {
   "home.hint.waiting": "Сесія чекає на тебе",
   "home.hint.sleeping": "Сплю — утримай правий ⌘ і скажи «Маршал, прокинься»",
   "home.hint.offline": "Розпізнавання мовлення недоступне — перевір Налаштування → Диктовка",
+  "home.overview": "Огляд",
   "home.sessions": "Сесії Claude Code",
   "home.recent": "Останнє",
   "home.noSessions": "Немає живих сесій",

@@ -134,19 +134,18 @@ const TOKEN_RGB = (token) => `(() => {
   return value;
 })()`;
 
-// Average colour of the core disc (inside the inner VU scale), skipping the
-// readout text band across the middle. The core fades out towards its edge, so
-// faint pixels count too: getImageData returns them unpremultiplied.
+// Average colour of the glow under the wave's crest: a disc at the canvas
+// centre. The glow fades out towards its edge, so faint pixels count too:
+// getImageData returns them unpremultiplied.
 const CORE_RGB = `(() => {
   const canvas = document.getElementById("visual");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const w = canvas.width, c = w / 2, R = w * 0.26 * 0.55;
-  const data = ctx.getImageData(0, 0, w, w).data;
+  const w = canvas.width, h = canvas.height, cx = w / 2, cy = h * 0.52, R = Math.min(w, h) * 0.2;
+  const data = ctx.getImageData(0, 0, w, h).data;
   let r = 0, g = 0, b = 0, n = 0;
-  for (let y = Math.floor(c - R); y < c + R; y += 2) {
-    if (y > c - w * 0.045 && y < c + w * 0.07) continue;
-    for (let x = Math.floor(c - R); x < c + R; x += 2) {
-      if (Math.hypot(x - c, y - c) > R) continue;
+  for (let y = Math.floor(cy - R); y < cy + R; y += 2) {
+    for (let x = Math.floor(cx - R); x < cx + R; x += 2) {
+      if (Math.hypot(x - cx, y - cy) > R) continue;
       const i = (y * w + x) * 4;
       const a = data[i + 3];
       if (a < 8) continue;
@@ -199,6 +198,18 @@ async function shoot(win, name) {
   await fs.mkdir(SHOTS, { recursive: true });
   const image = await win.webContents.capturePage();
   await fs.writeFile(path.join(SHOTS, `${name}.png`), image.toPNG());
+}
+
+// The overview at the three widths the layout switches on.
+async function shootWidths(win, prefix) {
+  if (!SHOTS) return;
+  for (const width of [520, 760, 1100]) {
+    win.setSize(width, 720);
+    await sleep(300);
+    await shoot(win, `${prefix}-${width}`);
+  }
+  win.setSize(1100, 720);
+  await sleep(250);
 }
 
 async function setAppearance(win, value) {
@@ -412,6 +423,7 @@ async function main() {
   record("over budget, a started meeting without a link and no hotkey read as such",
     over.over && over.when === "триває" && over.join && over.hotkey, JSON.stringify(over));
 
+  await shootWidths(win, "home-dark-overview");
   win.setSize(640, 600);
   await sleep(300);
   const narrow = await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector(".side")).display`);
@@ -517,6 +529,7 @@ async function main() {
     await sleep(1000);
     await shoot(win, `home-light-${state}`);
   }
+  await shootWidths(win, "home-light-overview");
   win.webContents.send("marshal:assistant-state", { state: "listening", lang: "uk" });
   await sleep(1000);
   const lightToken = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB("--state-listen")));

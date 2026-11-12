@@ -15,44 +15,48 @@
 </head>
 <body>
   <div class="home" id="home" data-state="idle">
-    <div class="scan" aria-hidden="true"></div>
     <header class="bar">
-      <span class="brand">Marshal</span>
-      <span class="chip" id="state-chip" role="status" aria-live="polite"></span>
-      <span class="spacer"></span>
-      <kbd class="hotkey" id="hotkey" hidden></kbd>
-      <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
+      <span class="brand"><span class="brand-mark" data-icon="sun" data-icon-size="20" aria-hidden="true"></span>marshal</span>
+      <nav class="tabs" role="tablist" aria-label="Marshal">
+        <button type="button" class="tab" role="tab" data-tab="home" aria-selected="true" data-i18n="home.overview">Overview</button>
+        <button type="button" class="tab" role="tab" data-tab="settings" aria-selected="false" data-i18n="settings.settings">Settings</button>
+      </nav>
+      <div class="bar-actions">
+        <kbd class="hotkey" id="hotkey" hidden></kbd>
+        <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
+      </div>
     </header>
 
-    <div class="strip" id="strip">
-      <div class="toggles">
-        <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
-        <button type="button" class="tog lang" data-action="toggle-language"></button>
-      </div>
-      <div class="mem" id="mem" hidden><span class="batt" id="batt" aria-hidden="true"></span><span id="mem-text"></span></div>
-      <div class="meeting" id="meeting" hidden>
-        <span class="meeting-text"><b id="meeting-title"></b> <span id="meeting-when"></span></span>
-        <button type="button" class="join" id="join" data-action="join-meeting"></button>
-      </div>
-    </div>
-
     <section class="core">
-    <main class="stage">
-      <canvas id="visual" class="visual" aria-hidden="true"></canvas>
-    </main>
+      <div class="hero">
+        <span class="chip" id="state-chip" role="status" aria-live="polite"></span>
+        <main class="stage">
+          <canvas id="visual" class="visual" aria-hidden="true"></canvas>
+        </main>
+        <p class="line" id="assistant-line" aria-live="polite"></p>
+        <div class="strip" id="strip">
+          <div class="toggles">
+            <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
+            <button type="button" class="tog lang" data-action="toggle-language"></button>
+          </div>
+          <div class="mem" id="mem" hidden><span class="batt" id="batt" aria-hidden="true"></span><span id="mem-text"></span></div>
+          <div class="meeting" id="meeting" hidden>
+            <span class="meeting-text"><b id="meeting-title"></b> <span id="meeting-when"></span></span>
+            <button type="button" class="join" id="join" data-action="join-meeting"></button>
+          </div>
+        </div>
+      </div>
 
-    <p class="line" id="assistant-line" aria-live="polite"></p>
-
-    <nav class="dock" aria-label="Dock" data-i18n-aria-label="settings.dock">
-      <button type="button" data-action="translator" data-icon="languages"></button>
-      <button type="button" data-action="captions" data-icon="captions"></button>
-      <button type="button" data-action="record-call" data-icon="circle-dot"></button>
-      <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="26"></button>
-      <button type="button" data-action="recordings" data-icon="history"></button>
-      <button type="button" data-action="capture" data-icon="crop"></button>
-      <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal"></button>
-      <button type="button" data-action="settings" data-icon="settings"></button>
-    </nav>
+      <nav class="dock" aria-label="Dock" data-i18n-aria-label="settings.dock">
+        <button type="button" data-action="translator" data-icon="languages"></button>
+        <button type="button" data-action="captions" data-icon="captions"></button>
+        <button type="button" data-action="record-call" data-icon="circle-dot"></button>
+        <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="22"></button>
+        <button type="button" data-action="recordings" data-icon="history"></button>
+        <button type="button" data-action="capture" data-icon="crop"></button>
+        <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal"></button>
+        <button type="button" data-action="settings" data-icon="settings"></button>
+      </nav>
     </section>
 
     <section class="settings" id="settings" aria-labelledby="settings-title" hidden>
@@ -735,12 +739,12 @@
 
     <aside class="side">
       <section class="card">
-        <h3 id="sessions-title"></h3>
+        <header class="card-head"><span data-icon="square-terminal" data-icon-size="16" aria-hidden="true"></span><h3 id="sessions-title"></h3></header>
         <ul class="sessions" id="sessions" aria-labelledby="sessions-title"></ul>
         <p class="empty" id="sessions-empty"></p>
       </section>
       <section class="card">
-        <h3 id="recent-title"></h3>
+        <header class="card-head"><span data-icon="bell" data-icon-size="16" aria-hidden="true"></span><h3 id="recent-title"></h3><span class="count" id="recent-count"></span></header>
         <ol class="recent" id="recent" aria-labelledby="recent-title"></ol>
       </section>
     </aside>

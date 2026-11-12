@@ -475,6 +475,7 @@ export const en = {
   "home.hint.waiting": "A session needs you",
   "home.hint.sleeping": "Asleep — hold right ⌘ and say “Marshal, wake up”",
   "home.hint.offline": "Speech recognition is unavailable — check Settings → Dictation",
+  "home.overview": "Overview",
   "home.sessions": "Claude Code sessions",
   "home.recent": "Recent",
   "home.noSessions": "No live sessions",

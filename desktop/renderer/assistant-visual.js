@@ -1,8 +1,8 @@
 // desktop/renderer/assistant-visual.js
 //
-// HUD voice visual of the assistant home (#284): a ticked outer scale, a
-// spectrum arc driven by the voice level, segmented rings turning against
-// each other, an amber VU ring and a core in the state colour.
+// Voice visual of the assistant home: a dotted particle wave whose height
+// follows the voice level, over a soft glow in the state colour (#398). The
+// mini widget (#285) keeps the round HUD: a wave is unreadable at its size.
 //
 // The top half is pure (state styles, parameter interpolation, colour mixing,
 // the fallback level) and covered by tests/assistant-visual.test.ts. The
@@ -302,6 +302,69 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels, mini 
   ctx.fillText(labels.footer, cx, cy + R * 1.62);
 }
 
+const WAVE_COLS = 96;
+const WAVE_ROWS = 22;
+// Brightness buckets: dots are batched into one path per bucket, so a frame
+// is WAVE_BUCKETS fills however many dots there are.
+const WAVE_BUCKETS = 4;
+
+/**
+ * One frame of the home wave on a `w`×`h` canvas. Rows run from the back
+ * (small, faint) to the front; a dot's height is a sum of two travelling
+ * sines under an envelope that flattens both ends. The crest takes the state
+ * colour, the rest the muted text colour. `params.scan` sweeps a lit band
+ * across while thinking.
+ */
+export function drawWave(ctx, w, h, t, level, params, colors) {
+  const spin = params.spin;
+  const lv = level * params.energy;
+  const unit = Math.min(w, h);
+  ctx.clearRect(0, 0, w, h);
+
+  // Glow under the crest: the "core" of the visual, in the state colour.
+  const cx = w / 2;
+  const cy = h * 0.52;
+  // Radius inside the canvas: a glow cut by the canvas edge shows a hard box.
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, unit * 0.48);
+  glow.addColorStop(0, rgba(colors.state, 0.32 + 0.4 * lv * params.glow));
+  glow.addColorStop(0.45, rgba(colors.state, 0.1 + 0.12 * lv));
+  glow.addColorStop(1, rgba(colors.state, 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  const crest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
+  const rest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
+  const amp = h * (0.1 + 0.26 * lv);
+  const sweep = ((t * 0.35) % 1.4) - 0.2;
+  for (let j = 0; j < WAVE_ROWS; j++) {
+    const z = j / (WAVE_ROWS - 1);
+    const spread = w * (0.56 + 0.36 * z);
+    const base = h * (0.28 + 0.5 * z);
+    const dot = Math.max(1, unit * (0.0035 + 0.004 * z));
+    const depth = Math.min(WAVE_BUCKETS - 1, Math.floor(z * WAVE_BUCKETS));
+    for (let i = 0; i < WAVE_COLS; i++) {
+      const x = i / (WAVE_COLS - 1);
+      const envelope = Math.sin(Math.PI * x) ** 1.6;
+      const wave =
+        0.65 * Math.sin(x * 5.2 + z * 2.4 - t * 0.7 * spin) +
+        0.35 * Math.sin(x * 11.5 - z * 4.1 + t * 1.6 * (0.4 + lv));
+      const lift = envelope * wave;
+      const px = cx + (x - 0.5) * spread;
+      const py = base - lift * amp * (0.6 + 0.4 * z);
+      const scanned = params.scan > 0.01 && Math.abs(x - sweep) < 0.05;
+      const target = lift > 0.32 || scanned ? crest : rest;
+      target[depth].rect(px - dot / 2, py - dot / 2, dot, dot);
+    }
+  }
+  for (let b = 0; b < WAVE_BUCKETS; b++) {
+    const alpha = 0.3 + (0.7 * (b + 1)) / WAVE_BUCKETS;
+    ctx.fillStyle = rgba(colors.muted, alpha * 0.75);
+    ctx.fill(rest[b]);
+    ctx.fillStyle = rgba(colors.state, alpha);
+    ctx.fill(crest[b]);
+  }
+}
+
 /**
  * Owns the canvas and the frame loop. `getLevel()` returns the live mic level
  * (0..1) or null when there is none; the ambient level fills in.
@@ -341,15 +404,16 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
     };
   }
 
+  // The mini HUD is square; the home wave fills whatever box CSS gives it.
   function size() {
     const dpr = window.devicePixelRatio || 1;
-    const css = Math.max(1, Math.round(canvas.clientWidth));
-    const px = Math.round(css * dpr);
-    if (canvas.width !== px || canvas.height !== px) {
-      canvas.width = px;
-      canvas.height = px;
+    const width = Math.round(Math.max(1, canvas.clientWidth) * dpr);
+    const height = mini ? width : Math.round(Math.max(1, canvas.clientHeight) * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
     }
-    return px;
+    return [width, height];
   }
 
   function render(now) {
@@ -363,7 +427,9 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
     smooth += (raw - smooth) * Math.min(1, dt * 10 || 1);
     const current = colors ?? readColors();
     const drawn = fromColor ? { ...current, state: mixRgb(fromColor, current.state, colorMix) } : current;
-    drawHud(ctx, size(), t, smooth, params, drawn, bars, { state: labelFor(state), footer }, mini);
+    const [width, height] = size();
+    if (mini) drawHud(ctx, width, t, smooth, params, drawn, bars, { state: labelFor(state), footer }, true);
+    else drawWave(ctx, width, height, t, smooth, params, drawn);
   }
 
   function frame(now) {

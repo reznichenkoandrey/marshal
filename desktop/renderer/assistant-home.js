@@ -98,8 +98,7 @@ function micLevel() {
 const visual = createHudVisual(canvas, {
   resolveColor,
   getLevel: () => (state === "listening" ? micLevel() : null),
-  labelFor: (value) => stateLabel(value, lang()),
-  footer: "VOX · UK/EN"
+  labelFor: (value) => stateLabel(value, lang())
 });
 
 // ── Rendering ──
@@ -153,6 +152,7 @@ function renderSide() {
     ])
   );
   recentList.replaceChildren(...lines.map((value) => Object.assign(document.createElement("li"), { textContent: value })));
+  document.getElementById("recent-count").textContent = lines.length ? String(lines.length) : "";
 }
 
 const SYMBOLS = { commandorcontrol: "⌘", cmdorctrl: "⌘", command: "⌘", cmd: "⌘", alt: "⌥", option: "⌥", shift: "⇧", control: "⌃", ctrl: "⌃" };
@@ -277,10 +277,18 @@ function settingsOpen() {
   return home.dataset.view === "settings";
 }
 
+const tabs = document.querySelector(".tabs");
+
+function syncTabs() {
+  const current = settingsOpen() ? "settings" : "home";
+  tabs.querySelectorAll(".tab").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === current)));
+}
+
 function showSettings() {
   if (!settingsOpen()) {
     home.dataset.view = "settings";
     settingsView.hidden = false;
+    syncTabs();
     void openSettings();
   }
 }
@@ -288,7 +296,15 @@ function showSettings() {
 function hideSettings() {
   delete home.dataset.view;
   settingsView.hidden = true;
+  syncTabs();
 }
+
+tabs.addEventListener("click", (event) => {
+  const tab = event.target.closest(".tab");
+  if (!tab) return;
+  if (tab.dataset.tab === "settings") showSettings();
+  else hideSettings();
+});
 
 function toggleSettings() {
   if (settingsOpen()) hideSettings();
