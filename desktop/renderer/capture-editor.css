@@ -272,18 +272,44 @@ body {
   gap: var(--space-1);
 }
 
+.size-label {
+  padding-right: var(--space-2);
+  margin-right: var(--space-1);
+  border-right: 1px solid var(--ce-hairline);
+  color: var(--text-default);
+}
+.size-label:empty { display: none; }
+
+/* Note + Send, laid out like the home window's command row. */
+.command {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: var(--space-2);
+  padding: 2px;
+  border: 1px solid var(--ce-hairline);
+  border-radius: var(--ce-radius-card);
+  background: var(--bg-elevated);
+}
+.command:focus-within { border-color: var(--accent); }
+
 #claude-note {
   width: 260px;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--ce-hairline);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
+  border: 0;
+  background: transparent;
   color: var(--text-default);
   font-size: var(--fs-sm);
 }
-#claude-note:focus { outline: none; border-color: var(--accent); }
+#claude-note:focus { outline: none; }
+.command #send-to-claude {
+  height: 28px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.command #send-to-claude:hover { background: var(--accent-hover); }
 
 .ghost {
   display: inline-flex;

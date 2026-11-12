@@ -97,6 +97,7 @@
     <!-- Bottom status/action bar -->
     <footer class="statusbar">
       <div class="zoom">
+        <span id="size-label" class="size-label"></span>
         <button class="ghost" id="zoom-out" title="Zoom out" data-i18n-title="capture.zoomOut">−</button>
         <span id="zoom-label">100%</span>
         <button class="ghost" id="zoom-in" title="Zoom in" data-i18n-title="capture.zoomIn">+</button>
@@ -108,11 +109,13 @@
         <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><circle cx="6" cy="10" r="1.4"/><circle cx="6" cy="14" r="1.4"/><circle cx="12" cy="10" r="1.4"/><circle cx="12" cy="14" r="1.4"/><circle cx="18" cy="10" r="1.4"/><circle cx="18" cy="14" r="1.4"/></svg>
       </div>
       <div class="actions">
+        <div class="command">
         <input id="claude-note" type="text" autocomplete="off" spellcheck="false" placeholder="Note for Claude (name a session to pick it)" data-i18n-placeholder="capture.claudeNote">
         <button class="ghost" id="send-to-claude" title="Send to a Claude Code session (Enter in the note)" data-i18n-title="capture.sendToClaudeTitle">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
           <span data-i18n="capture.sendToClaude">Send to Claude</span>
         </button>
+        </div>
         <button class="ghost" id="copy" title="Copy to clipboard (⌘C)" data-i18n-title="capture.copyTitle">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>
           <span data-i18n="capture.copy">Copy</span>

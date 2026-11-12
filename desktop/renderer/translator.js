@@ -101,6 +101,9 @@ const dom = {
   errorMsg: document.getElementById("error-msg"),
   noticeMsg: document.getElementById("notice-msg"),
   langBadge: document.getElementById("lang-badge"),
+  resultMeta: document.getElementById("result-meta"),
+  srcPaneLabel: document.getElementById("src-pane-label"),
+  tgtPaneLabel: document.getElementById("tgt-pane-label"),
   btnInsert: document.getElementById("btn-insert"),
   copyBtn: document.getElementById("copy-btn"),
   // Popovers
@@ -135,6 +138,8 @@ function renderLanguageBar() {
   dom.srcLangDetected.textContent =
     sourceLang === "auto" && detectedSourceLang ? `· ${languageName(detectedSourceLang)}` : "";
   dom.tgtLangLabel.textContent = languageName(targetLang);
+  dom.srcPaneLabel.textContent = `${t("translator.paneSource")} · ${(detectedSourceLang || sourceLang).toUpperCase()}`;
+  dom.tgtPaneLabel.textContent = `${t("translator.paneTarget")} · ${targetLang.toUpperCase()}`;
   // Swapping out of auto-detect needs a concrete language to swap to.
   dom.btnSwap.disabled = sourceLang === "auto" && !detectedSourceLang;
   dom.formalityLabel.textContent = t(FORMALITY_KEYS[formality]);
@@ -523,12 +528,13 @@ async function runTranslate() {
 
   const seq = ++requestSeq;
   setState("loading");
+  const startedAt = performance.now();
 
   try {
     const result = await api.translateText(text, { sourceLang, targetLang, formality });
     if (seq !== requestSeq) return; // a newer keystroke already took over
     lastRequest = { text, sourceLang, targetLang, formality };
-    applyResult({ ...result, text, mode: "text" });
+    applyResult({ ...result, text, mode: "text", latencyMs: performance.now() - startedAt });
     scheduleHistoryCommit({ ...result, text, mode: "text" });
   } catch (err) {
     if (seq !== requestSeq) return;
@@ -538,9 +544,11 @@ async function runTranslate() {
 
 function setBadge(next) {
   badge = next;
+  if (!badge) dom.resultMeta.textContent = "";
   if (!badge) dom.langBadge.textContent = "";
   else if (badge.mode === "image") dom.langBadge.textContent = t("translator.imageBadge", { lang: languageName(badge.to) });
-  else dom.langBadge.textContent = `${languageName(badge.from)} → ${languageName(badge.to)}`;
+  // The card labels already name the text pair; the badge only marks an image result.
+  else dom.langBadge.textContent = "";
 }
 
 /** Renders a finished translation into the target pane. */
@@ -555,6 +563,10 @@ function applyResult(result) {
     detectedSourceLang = detected && detected !== "auto" ? detected : "";
   }
   setBadge({ mode: result.mode, from: detectedSourceLang || "auto", to: result.targetLang });
+  const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  dom.resultMeta.textContent = typeof result.latencyMs === "number"
+    ? t("translator.resultMeta", { ms: Math.round(result.latencyMs), time })
+    : t("translator.resultTime", { time });
 
   renderLanguageBar();
   setResultActions(!!currentTranslation);

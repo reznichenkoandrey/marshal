@@ -41,8 +41,8 @@ export class MeetingHistoryWindow {
     }
 
     this.window = new BrowserWindow({
-      width: 820,
-      height: 600,
+      width: 1100,
+      height: 720,
       minWidth: 520,
       minHeight: 360,
       show: false,

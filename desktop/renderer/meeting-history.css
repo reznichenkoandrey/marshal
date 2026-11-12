@@ -1,67 +1,30 @@
-.meeting-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
+/* Meeting recordings (#406): the shared dashboard table, with the open recording's
+   player and notes in the right rail. */
 
-.meeting {
-  background: var(--bg-elevated);
-  border: 1px solid var(--hist-hairline);
-  border-radius: var(--hist-radius-card);
-  overflow: hidden;
-}
-.meeting.open {
-  border-color: var(--accent);
-}
+.meeting { cursor: pointer; }
+.meeting:hover td { background: var(--bg-surface); }
+.meeting.open td { background: var(--chip-info-bg, var(--accent-soft)); }
+.meeting.open td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
 /* Interrupted or failed recording reads as a Lumen alert row. */
-.meeting:has(.meeting-sub.problem) {
-  border-left: 2px solid var(--danger);
-}
+.meeting:has(.meeting-sub.problem) td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
 
-.meeting-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-}
-.meeting-row:hover {
-  background: var(--bg-hover);
-}
+.meeting-title { min-width: 0; }
 
-.meeting-kind {
-  flex: 0 0 auto;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-  letter-spacing: var(--hist-tracking);
-  color: var(--accent-text);
-  background: var(--chip-info-bg, var(--accent-soft));
-  border-radius: var(--hist-radius-chip);
-  padding: 2px 6px;
-}
-
-.meeting-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 .meeting-date {
-  font-size: var(--fs-base);
-  color: var(--text-default);
+  display: block;
+  color: var(--text-strong);
+  white-space: nowrap;
 }
+
 .meeting-sub {
+  display: block;
+  margin-top: 2px;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  letter-spacing: var(--hist-tracking);
+  letter-spacing: var(--tracking);
   color: var(--text-muted);
 }
+.meeting-sub:empty { display: none; }
 .meeting-sub.problem {
   color: var(--danger-text);
   /* A failed save can carry a long ffmpeg message; the full text is in the tooltip. */
@@ -72,87 +35,75 @@
   overflow-wrap: anywhere;
 }
 
+.meeting-table td { white-space: nowrap; }
+.meeting-table td.meeting-title { white-space: normal; }
+
 .meeting-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: var(--space-2);
-}
-.meeting-actions .ghost-btn {
-  white-space: nowrap;
-}
-.meeting-actions .ghost-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
 }
 
-.meeting-player {
-  padding: 0 var(--space-4) var(--space-4);
+.notes-language {
+  -webkit-app-region: no-drag;
+  height: 28px;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-default);
+  font: inherit;
+  font-size: var(--fs-sm);
 }
+
+.meeting-player { margin-bottom: var(--space-4); }
 .meeting-player video,
 .meeting-player audio {
   width: 100%;
   display: block;
   border-radius: var(--radius-sm);
-  background: var(--bg-muted);
 }
-.meeting-player audio {
-  background: transparent;
-}
-
-.notes-language {
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--text-default);
-  background: var(--bg-muted);
-  border: 1px solid var(--hist-hairline);
-  border-radius: var(--radius-sm);
-  padding: 2px var(--space-2);
-}
+.meeting-player video { background: var(--bg-muted); }
 
 .meeting-notes {
-  padding: 0 var(--space-4) var(--space-4);
-  font-size: var(--fs-base);
+  font-size: var(--fs-sm);
   color: var(--text-default);
 }
 .notes-title {
   margin: 0 0 var(--space-2);
   font-size: var(--fs-lg);
-  font-weight: var(--fw-regular);
+  font-weight: var(--fw-thin);
   color: var(--text-strong);
 }
 .notes-heading {
-  margin: var(--space-3) 0 var(--space-1);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  text-transform: uppercase;
+  margin: var(--space-4) 0 var(--space-2);
   font-family: var(--font-mono);
-  letter-spacing: var(--hist-tracking);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
   color: var(--text-muted);
 }
-.notes-list,
-.notes-tasks {
+.notes-list {
   margin: 0;
   padding-left: var(--space-4);
 }
-.notes-list li {
-  margin: 2px 0;
-}
+.notes-list li { margin: 2px 0; }
 .notes-tasks {
+  margin: 0;
+  padding: 0;
   list-style: none;
-  padding-left: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
 }
 .notes-task {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
 }
-.notes-task-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+.notes-task-text { flex: 1 1 auto; min-width: 0; }
 .notes-task-owner {
   flex: 0 0 auto;
   font-family: var(--font-mono);
@@ -161,32 +112,24 @@
 }
 .notes-task-mine {
   flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--chip-radius);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: var(--hist-tracking);
-  color: var(--accent-text);
-  background: var(--chip-info-bg, var(--accent-soft));
-  border-radius: var(--hist-radius-chip);
-  padding: 1px 6px;
+  letter-spacing: var(--tracking);
 }
-.notes-task .ghost-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
+.notes-task .ghost-btn { flex: 0 0 auto; white-space: nowrap; }
 .notes-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
 }
-.notes-actions .ghost-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+.notes-actions .ghost-btn:disabled { opacity: 0.6; cursor: default; }
 .notes-empty {
   margin: 0;
   color: var(--text-muted);
-}
-.history-actions .ghost-btn {
-  white-space: nowrap;
 }

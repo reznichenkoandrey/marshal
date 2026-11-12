@@ -6,37 +6,74 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title data-i18n="meetings.windowTitle">Marshal — Meeting Recordings</title>
   <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
   <link rel="stylesheet" href="./capture-history.css" />
   <link rel="stylesheet" href="./meeting-history.css" />
   <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
   <script src="./locales.js"></script>
   <script src="./i18n.js"></script>
 </head>
 <body>
-  <header class="history-toolbar">
-    <div class="history-title">
-      <span class="history-title-label" data-i18n="meetings.title">Meeting Recordings</span>
-      <span id="folder-path" class="history-folder"></span>
-    </div>
-    <div class="history-actions">
-      <select id="notes-language" class="notes-language" title="Language of the notes made by Transcribe &amp; summarize" data-i18n-title="meetings.notesLanguageTitle">
-        <option value="auto" data-i18n="meetings.notesAuto">Notes: Auto</option>
-        <option value="uk" data-i18n="meetings.notesUk">Notes: Українська</option>
-        <option value="en" data-i18n="meetings.notesEn">Notes: English</option>
-      </select>
-      <button id="refresh-btn" type="button" class="ghost-btn" data-i18n="meetings.refresh">Refresh</button>
-      <button id="reveal-folder-btn" type="button" class="ghost-btn" title="Open the recordings folder in Finder" data-i18n="meetings.openFolder" data-i18n-title="meetings.openFolderTitle">Open folder</button>
-      <button id="close-btn" type="button" class="ghost-btn" data-i18n="meetings.close">Close</button>
-    </div>
-  </header>
+  <div class="shell window">
+    <header class="bar">
+      <div class="title">
+        <h1 data-i18n="meetings.title">Meeting Recordings</h1>
+        <span id="folder-path" class="caps"></span>
+      </div>
+      <span></span>
+      <div class="bar-actions">
+        <select id="notes-language" class="notes-language" title="Language of the notes made by Transcribe &amp; summarize" data-i18n-title="meetings.notesLanguageTitle">
+          <option value="auto" data-i18n="meetings.notesAuto">Notes: Auto</option>
+          <option value="uk" data-i18n="meetings.notesUk">Notes: Українська</option>
+          <option value="en" data-i18n="meetings.notesEn">Notes: English</option>
+        </select>
+        <button id="refresh-btn" type="button" class="icon-btn" data-icon="refresh-cw" data-icon-size="16" title="Refresh" aria-label="Refresh" data-i18n-title="meetings.refresh" data-i18n-aria-label="meetings.refresh"></button>
+        <button id="reveal-folder-btn" type="button" class="icon-btn" data-icon="folder-open" data-icon-size="16" title="Open the recordings folder in Finder" aria-label="Open folder" data-i18n-title="meetings.openFolderTitle" data-i18n-aria-label="meetings.openFolder"></button>
+        <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close" aria-label="Close" data-i18n-title="meetings.close" data-i18n-aria-label="meetings.close"></button>
+      </div>
+    </header>
 
-  <main>
-    <ul id="list" class="meeting-list"></ul>
-    <div id="empty" class="history-empty hidden">
-      <p data-i18n="meetings.empty">No meeting recordings yet.</p>
-      <p class="history-empty-hint" data-i18n-html="meetings.emptyHint">Tray → Record Meeting (Audio) or (Audio + Screen), or <kbd>⌘⌥⇧M</kbd>.</p>
-    </div>
-  </main>
+    <main class="dash">
+      <section class="block" aria-labelledby="overview-title">
+        <header class="block-head"><h2 id="overview-title" data-i18n="meetings.overview">At a glance</h2></header>
+        <div class="metric-row" id="metrics">
+          <div class="metric accent" data-metric="count"><b class="num">0</b><span class="label" data-i18n="meetings.metricCount">Recordings</span></div>
+          <div class="metric" data-metric="duration"><b class="num">—</b><span class="label" data-i18n="meetings.metricDuration">Total length</span></div>
+          <div class="metric" data-metric="size"><b class="num">—</b><span class="label" data-i18n="meetings.metricSize">On disk</span></div>
+          <div class="metric" data-metric="unfinished"><b class="num">0</b><span class="label" data-i18n="meetings.metricUnfinished">Interrupted</span></div>
+        </div>
+      </section>
+
+      <section class="block" aria-labelledby="list-title">
+        <header class="block-head"><h2 id="list-title" data-i18n="meetings.recordings">Recordings</h2></header>
+        <table class="commands meeting-table" id="table">
+          <thead>
+            <tr>
+              <th data-i18n="meetings.colDate">Date</th>
+              <th class="right" data-i18n="meetings.colLength">Length</th>
+              <th class="right" data-i18n="meetings.colSize">Size</th>
+              <th data-i18n="meetings.colMode">Mode</th>
+              <th data-i18n="meetings.colStatus">Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="list"></tbody>
+        </table>
+        <div id="empty" class="history-empty hidden">
+          <p data-i18n="meetings.empty">No meeting recordings yet.</p>
+          <p class="history-empty-hint" data-i18n-html="meetings.emptyHint">Tray → Record Meeting (Audio) or (Audio + Screen), or <kbd>⌘⌥⇧M</kbd>.</p>
+        </div>
+      </section>
+    </main>
+
+    <aside class="side">
+      <section class="card" id="detail">
+        <header class="card-head"><span data-icon="message-square" data-icon-size="16" aria-hidden="true"></span><h3 id="detail-title" data-i18n="meetings.detail">Recording</h3></header>
+        <div id="detail-body"><p class="empty" data-i18n="meetings.pickRow">Select a recording to play it and read its notes.</p></div>
+      </section>
+    </aside>
+  </div>
 
   <script src="./meeting-history.js" type="module"></script>
 </body>

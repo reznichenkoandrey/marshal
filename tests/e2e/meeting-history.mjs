@@ -131,11 +131,13 @@ contextBridge.exposeInMainWorld("__meetingProbe", {
 `;
 }
 
-/** Per row: its id (by date), subtitle, button labels and their state. */
+/** Per row: its id (by date), subtitle, length and status cells, button labels and their state. */
 const ROWS = `[...document.querySelectorAll(".meeting")].map((item) => {
   const sub = item.querySelector(".meeting-sub");
   return {
     date: item.querySelector(".meeting-date").textContent,
+    length: item.cells[1].textContent,
+    status: item.cells[4].textContent,
     sub: sub.textContent,
     subTitle: sub.title,
     subHeight: sub.getBoundingClientRect().height,
@@ -143,6 +145,7 @@ const ROWS = `[...document.querySelectorAll(".meeting")].map((item) => {
     buttons: [...item.querySelectorAll(".meeting-actions button")].map((b) => ({
       label: b.textContent,
       disabled: b.disabled,
+      inMenu: Boolean(b.closest(".menu-list")),
       height: b.getBoundingClientRect().height
     }))
   };
@@ -169,8 +172,8 @@ async function main() {
   await fs.writeFile(preloadPath, preloadSource(), "utf8");
 
   const win = new BrowserWindow({
-    width: 820,
-    height: 600,
+    width: 1100,
+    height: 720,
     show: false,
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false }
   });
@@ -200,7 +203,7 @@ async function main() {
   );
   record("the full error stays in the tooltip", failed.subTitle === `Failed: ${LONG_ERROR}`);
   const toolbarHeight = await win.webContents.executeJavaScript(TOOLBAR_BUTTON_HEIGHT);
-  const tallest = Math.max(...failed.buttons.map((b) => b.height));
+  const tallest = Math.max(...failed.buttons.filter((b) => !b.inMenu).map((b) => b.height));
   record(
     "buttons beside a long error stay on one line",
     tallest <= toolbarHeight + 1,
@@ -247,7 +250,7 @@ async function main() {
   rows = await win.webContents.executeJavaScript(ROWS);
   const finished = rows[2];
   record("the finished row offers no Finish", !finished.buttons.some((b) => b.label === "Finish"), labels(finished));
-  record("the finished row shows its length", finished.sub.startsWith("09:55"), finished.sub);
+  record("the finished row shows its length", finished.length === "09:55", finished.length);
 
   // ── Transcribe & summarize (#271) ───────────────────────────────────────
   rows = await win.webContents.executeJavaScript(ROWS);
@@ -329,8 +332,8 @@ async function main() {
   rows = await win.webContents.executeJavaScript(ROWS);
   record(
     "with notes the row drops the button and says so",
-    !rows[0].buttons.some((b) => b.label === "Transcribe & summarize") && rows[0].sub.endsWith("notes"),
-    `${labels(rows[0])} | ${rows[0].sub}`
+    !rows[0].buttons.some((b) => b.label === "Transcribe & summarize") && rows[0].status === "Notes ready",
+    `${labels(rows[0])} | ${rows[0].status}`
   );
   record("the open row shows the notes", panel?.title === "Реліз 0.5", JSON.stringify(panel));
   record(

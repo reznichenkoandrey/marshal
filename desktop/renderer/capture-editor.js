@@ -55,6 +55,7 @@ const els = {
   draw: document.getElementById("draw-canvas"),
   textInput: document.getElementById("text-input"),
   zoomLabel: document.getElementById("zoom-label"),
+  sizeLabel: document.getElementById("size-label"),
   toast: document.getElementById("toast"),
   strokeColor: document.getElementById("stroke-color"),
   strokeChip: document.getElementById("stroke-chip")
@@ -600,6 +601,7 @@ function applyZoom() {
   }
 
   els.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+  els.sizeLabel.textContent = state.baseW ? `${state.baseW} × ${state.baseH}` : "";
 }
 
 function fitToWindow() {
