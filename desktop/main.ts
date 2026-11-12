@@ -53,10 +53,12 @@ import {
   deriveAssistantState,
   groupSessions,
   IDLE_INPUTS,
+  projectOf,
   pushLine,
   sessionCounts,
   type AssistantInputs
 } from "./assistant/assistant-state.ts";
+import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistant/waiting-speech.ts";
 import { reminderText } from "./calendar/reminders.ts";
 import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-window.ts";
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
@@ -198,6 +200,13 @@ const ANSWER_QUIET_WAIT_MS = 30_000;
 const PERMISSION_DEADLINE_MS = 50_000;
 // The prompt that follows an unanswered voice question needs no second announcement.
 const PERMISSION_ASKED_QUIET_MS = 60_000;
+const WAITING_COALESCE_MS = 2_000;
+const WAITING_SPEECH_KEY = "session:waiting";
+type WaitingSignalEntry = { project: string; confirmation: boolean; message: string };
+const waitingSignals = new Map<string, WaitingSignalEntry>();
+const lastWaitingSignal = new Map<string, WaitingSignalEntry>();
+const waitingProjectsUnspoken = new Set<string>();
+let waitingFlush: NodeJS.Timeout | null = null;
 let permissionTurn: Promise<unknown> = Promise.resolve();
 const permissionAskedAt = new Map<string, number>();
 // Voices, the first calendar sync and the mic probe settle before the greeting.
@@ -3122,8 +3131,42 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
     void speechService?.speak(event.name === GENERAL_NAME ? summary : `${event.name}: ${summary}`, { key: `session:${event.name}` });
     return;
   }
-  const what = event.confirmation ? (uk ? "чекає на дозвіл" : "needs your confirmation") : (uk ? "чекає на відповідь" : "needs your input");
-  void speechService?.speak(`${event.name} ${what}.`, { lang: uk ? "uk" : "en", key: `session:${event.name}` });
+  waitingSignals.set(event.sessionId, { project: projectOf(event.cwd), confirmation: event.confirmation, message: event.message });
+  waitingFlush ??= setTimeout(flushWaitingSpeech, WAITING_COALESCE_MS);
+}
+
+// One sentence per burst of waiting events, by project (#385). The registry has the
+// count and "input needed" for AskUserQuestion; it may lag the hook, so the burst's
+// own sessions count even before the registry lists them as waiting.
+function flushWaitingSpeech(): void {
+  waitingFlush = null;
+  const burst = new Map(waitingSignals);
+  waitingSignals.clear();
+  // A phrase still queued would be replaced by this one: keep its projects in.
+  if (!speechService?.isQueued(WAITING_SPEECH_KEY)) waitingProjectsUnspoken.clear();
+  for (const signal of burst.values()) waitingProjectsUnspoken.add(signal.project);
+  if (assistantInputs.asleep) return;
+  const now = Date.now();
+  const quiet = (sessionId: string) => now - (permissionAskedAt.get(sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS;
+  const waiting = listLiveSessions().filter((session) => session.status === "waiting");
+  for (const sessionId of lastWaitingSignal.keys()) {
+    if (!waiting.some((session) => session.sessionId === sessionId)) lastWaitingSignal.delete(sessionId);
+  }
+  const sessions = new Map<string, WaitingSession>();
+  for (const session of waiting) {
+    const project = projectOf(session.cwd);
+    if (!waitingProjectsUnspoken.has(project) || quiet(session.sessionId)) continue;
+    const signal = burst.get(session.sessionId) ?? lastWaitingSignal.get(session.sessionId);
+    const question = isQuestionWait({ confirmation: signal?.confirmation ?? true, message: signal?.message ?? "", waitingFor: session.waitingFor });
+    sessions.set(session.sessionId, { project, question });
+  }
+  for (const [sessionId, signal] of burst) {
+    lastWaitingSignal.set(sessionId, signal);
+    if (!sessions.has(sessionId) && !quiet(sessionId)) sessions.set(sessionId, { project: signal.project, question: isQuestionWait({ ...signal, waitingFor: null }) });
+  }
+  if (sessions.size === 0) return;
+  const lang = uiLanguage();
+  void speechService?.speak(describeWaiting([...sessions.values()], lang), { lang, key: WAITING_SPEECH_KEY });
 }
 
 async function assistantVoiceAction(action: string): Promise<string> {

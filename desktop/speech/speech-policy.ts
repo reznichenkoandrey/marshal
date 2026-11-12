@@ -254,6 +254,10 @@ export class SpeechQueue<T extends SpeechItem = SpeechItem> {
     if (this.items.length > MAX_QUEUED_ITEMS) this.items.shift();
   }
 
+  has(key: string): boolean {
+    return this.items.some((pending) => pending.key === key);
+  }
+
   take(): T | undefined {
     return this.items.shift();
   }

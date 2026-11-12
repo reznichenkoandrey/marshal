@@ -286,7 +286,7 @@ describe("spoken session events", () => {
     await notifier.handle({ type: "attention", sessionId: "s1", cwd: "/p", reason: "confirmation", message: "Allow Bash?" });
     expect(spoken).toEqual([
       { kind: "finished", sessionId: "s1", name: "marshal", summary: "Тести пройшли." },
-      { kind: "waiting", sessionId: "s1", name: "marshal", confirmation: true }
+      { kind: "waiting", sessionId: "s1", name: "marshal", cwd: "/p", message: "Allow Bash?", confirmation: true }
     ]);
   });
 });

@@ -12,7 +12,7 @@ import { translate, type UiLanguage } from "../i18n/catalog.ts";
 /** What the owner hears (#318): a finished turn's summary, or that a session waits. */
 export type SpokenSessionEvent =
   | { kind: "finished"; sessionId: string; name: string; summary: string | null }
-  | { kind: "waiting"; sessionId: string; name: string; confirmation: boolean };
+  | { kind: "waiting"; sessionId: string; name: string; cwd: string; message: string; confirmation: boolean };
 
 export type NotifierDeps = {
   notify: (title: string, body: string, onClick: () => void) => void;
@@ -51,7 +51,7 @@ export class SessionNotifier {
 
     const title = translate(lang, event.reason === "confirmation" ? "claude.needsConfirmation" : "claude.needsInput", { name });
     this.deps.notify(title, event.message, onClick);
-    this.deps.speak?.({ kind: "waiting", sessionId: event.sessionId, name, confirmation: event.reason === "confirmation" });
+    this.deps.speak?.({ kind: "waiting", sessionId: event.sessionId, name, cwd: event.cwd, message: event.message, confirmation: event.reason === "confirmation" });
     this.reminders.set(event.sessionId, this.setTimer(() => {
       this.reminders.delete(event.sessionId);
       // Answered from the terminal, the session no longer waits — and only

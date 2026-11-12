@@ -147,6 +147,11 @@ export class SpeechService {
     return { ok: true, lang, voice: voice.name };
   }
 
+  /** A phrase with this key waits in the queue, not yet spoken. */
+  isQueued(key: string): boolean {
+    return this.queue.has(key);
+  }
+
   /** Resolves once nothing is playing or queued: the moment to open the mic for an answer (#375). */
   whenQuiet(): Promise<void> {
     if (!this.current && this.queue.size === 0) return Promise.resolve();
