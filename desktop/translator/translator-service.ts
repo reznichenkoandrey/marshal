@@ -82,6 +82,9 @@ export class TranslatorService extends EventEmitter {
   private sourceLang: SourceLang;
   private targetLang: TargetLang;
   private formality: Formality;
+  /** Last translation's wall time and whether it failed, for the home dashboard (#398). */
+  lastLatencyMs: number | null = null;
+  lastFailed = false;
 
   constructor(init: TranslatorServiceInit = {}) {
     super();
@@ -221,6 +224,19 @@ export class TranslatorService extends EventEmitter {
    * to fix. See #160.
    */
   private async run<T>(call: (backend: TranslatorBackend) => Promise<T>): Promise<T> {
+    const started = Date.now();
+    try {
+      const result = await this.runWithFallback(call);
+      this.lastLatencyMs = Date.now() - started;
+      this.lastFailed = false;
+      return result;
+    } catch (err) {
+      this.lastFailed = true;
+      throw err;
+    }
+  }
+
+  private async runWithFallback<T>(call: (backend: TranslatorBackend) => Promise<T>): Promise<T> {
     try {
       return await call(this.backend);
     } catch (err) {

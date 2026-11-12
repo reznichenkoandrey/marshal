@@ -302,65 +302,61 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels, mini 
   ctx.fillText(labels.footer, cx, cy + R * 1.62);
 }
 
-const WAVE_COLS = 96;
-const WAVE_ROWS = 22;
-// Brightness buckets: dots are batched into one path per bucket, so a frame
-// is WAVE_BUCKETS fills however many dots there are.
+const WAVE_COLS = 110;
+const WAVE_ROWS = 18;
+// Fade buckets: dots are batched into one path per bucket and colour, so a
+// frame is 2 × WAVE_BUCKETS fills however many dots there are.
 const WAVE_BUCKETS = 4;
+// The ribbon runs over the left part of the hero and fades out before the metrics.
+const RIBBON_SPAN = 0.6;
 
 /**
- * One frame of the home wave on a `w`×`h` canvas. Rows run from the back
- * (small, faint) to the front; a dot's height is a sum of two travelling
- * sines under an envelope that flattens both ends. The crest takes the state
- * colour, the rest the muted text colour. `params.scan` sweeps a lit band
- * across while thinking.
+ * One frame of the home wave on a `w`×`h` canvas: a dotted ribbon seen in
+ * perspective that runs left to right and fades out at its right end. Each
+ * row is a travelling sine; the ribbon twists as the rows' phases drift. The
+ * crest takes the accent colour, the rest the muted text colour; the mic
+ * level raises the amplitude. `params.scan` sweeps a lit band while thinking.
  */
 export function drawWave(ctx, w, h, t, level, params, colors) {
   const spin = params.spin;
   const lv = level * params.energy;
-  const unit = Math.min(w, h);
+  const span = w * RIBBON_SPAN;
   ctx.clearRect(0, 0, w, h);
 
-  // Glow under the crest: the "core" of the visual, in the state colour.
-  const cx = w / 2;
-  const cy = h * 0.52;
-  // Radius inside the canvas: a glow cut by the canvas edge shows a hard box.
-  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, unit * 0.48);
-  glow.addColorStop(0, rgba(colors.state, 0.32 + 0.4 * lv * params.glow));
-  glow.addColorStop(0.45, rgba(colors.state, 0.1 + 0.12 * lv));
-  glow.addColorStop(1, rgba(colors.state, 0));
+  const glow = ctx.createRadialGradient(span * 0.45, h * 0.62, 0, span * 0.45, h * 0.62, Math.min(span, h) * 0.7);
+  glow.addColorStop(0, rgba(colors.accent, 0.16 + 0.12 * lv));
+  glow.addColorStop(1, rgba(colors.accent, 0));
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
 
   const crest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
   const rest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
-  const amp = h * (0.1 + 0.26 * lv);
+  const amp = h * (0.16 + 0.18 * lv);
   const sweep = ((t * 0.35) % 1.4) - 0.2;
+  const dot = Math.max(1, h * 0.008);
   for (let j = 0; j < WAVE_ROWS; j++) {
     const z = j / (WAVE_ROWS - 1);
-    const spread = w * (0.56 + 0.36 * z);
-    const base = h * (0.28 + 0.5 * z);
-    const dot = Math.max(1, unit * (0.0035 + 0.004 * z));
-    const depth = Math.min(WAVE_BUCKETS - 1, Math.floor(z * WAVE_BUCKETS));
     for (let i = 0; i < WAVE_COLS; i++) {
       const x = i / (WAVE_COLS - 1);
-      const envelope = Math.sin(Math.PI * x) ** 1.6;
+      // Rows fan out towards the middle of the ribbon and pinch at both ends.
+      const width = 0.18 + 0.82 * Math.sin(Math.PI * Math.min(1, x * 1.15)) ** 0.8;
       const wave =
-        0.65 * Math.sin(x * 5.2 + z * 2.4 - t * 0.7 * spin) +
-        0.35 * Math.sin(x * 11.5 - z * 4.1 + t * 1.6 * (0.4 + lv));
-      const lift = envelope * wave;
-      const px = cx + (x - 0.5) * spread;
-      const py = base - lift * amp * (0.6 + 0.4 * z);
-      const scanned = params.scan > 0.01 && Math.abs(x - sweep) < 0.05;
-      const target = lift > 0.32 || scanned ? crest : rest;
-      target[depth].rect(px - dot / 2, py - dot / 2, dot, dot);
+        Math.sin(x * 4.2 - t * 0.6 * spin + z * 1.3) * 0.7 +
+        Math.sin(x * 9 + z * 3.1 + t * 1.3 * (0.4 + lv)) * 0.3;
+      const twist = Math.sin(x * 3 - t * 0.25 + 0.6) * (z - 0.5);
+      const py = h * 0.62 + (twist * 0.5 + (z - 0.5) * 0.28) * h * width - wave * amp * width;
+      const px = x * span + z * span * 0.04;
+      const fade = Math.min(WAVE_BUCKETS - 1, Math.floor(x ** 1.4 * WAVE_BUCKETS));
+      const scanned = params.scan > 0.01 && Math.abs(x - sweep) < 0.04;
+      const target = wave > 0.55 || scanned ? crest : rest;
+      target[fade].rect(px - dot / 2, py - dot / 2, dot, dot);
     }
   }
   for (let b = 0; b < WAVE_BUCKETS; b++) {
-    const alpha = 0.3 + (0.7 * (b + 1)) / WAVE_BUCKETS;
-    ctx.fillStyle = rgba(colors.muted, alpha * 0.75);
+    const alpha = 1 - b / WAVE_BUCKETS;
+    ctx.fillStyle = rgba(colors.muted, alpha * 0.7);
     ctx.fill(rest[b]);
-    ctx.fillStyle = rgba(colors.state, alpha);
+    ctx.fillStyle = rgba(colors.accent, alpha);
     ctx.fill(crest[b]);
   }
 }
@@ -400,7 +396,8 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
       edge: resolveColor("--border-strong"),
       second: resolveColor("--accent-2"),
       fg: resolveColor("--text-strong"),
-      muted: resolveColor("--text-muted")
+      muted: resolveColor("--text-muted"),
+      accent: resolveColor("--accent")
     };
   }
 

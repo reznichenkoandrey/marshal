@@ -113,15 +113,16 @@ contextBridge.exposeInMainWorld("__homeProbe", {
 `;
 }
 
-// What the page shows: chip, state attribute, the panel's state colour as the
-// line's left border, and the line text.
+// What the page shows: chip text and colour, state attribute, the hero's
+// border (neutral in every state, #398) and the line text.
 const VIEW = `(() => {
   const home = document.getElementById("home");
   return {
     state: home.dataset.state,
     chip: document.getElementById("state-chip").textContent,
-    line: document.getElementById("assistant-line").textContent,
-    border: getComputedStyle(document.getElementById("assistant-line")).borderLeftColor
+    chipColor: getComputedStyle(document.getElementById("state-chip")).backgroundColor,
+    hero: getComputedStyle(document.querySelector(".hero")).borderTopColor,
+    line: document.getElementById("assistant-line").textContent
   };
 })()`;
 
@@ -134,25 +135,24 @@ const TOKEN_RGB = (token) => `(() => {
   return value;
 })()`;
 
-// Average colour of the glow under the wave's crest: a disc at the canvas
-// centre. The glow fades out towards its edge, so faint pixels count too:
-// getImageData returns them unpremultiplied.
-const CORE_RGB = `(() => {
+// The ribbon (#398): alpha painted in the left and right thirds of the canvas,
+// and the average colour of the left third's dots (unpremultiplied).
+const RIBBON = `(() => {
   const canvas = document.getElementById("visual");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const w = canvas.width, h = canvas.height, cx = w / 2, cy = h * 0.52, R = Math.min(w, h) * 0.2;
+  const w = canvas.width, h = canvas.height;
   const data = ctx.getImageData(0, 0, w, h).data;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let y = Math.floor(cy - R); y < cy + R; y += 2) {
-    for (let x = Math.floor(cx - R); x < cx + R; x += 2) {
-      if (Math.hypot(x - cx, y - cy) > R) continue;
+  let left = 0, right = 0, r = 0, g = 0, b = 0, n = 0;
+  for (let y = 0; y < h; y += 2) {
+    for (let x = 0; x < w; x += 2) {
       const i = (y * w + x) * 4;
       const a = data[i + 3];
-      if (a < 8) continue;
-      r += data[i] * a; g += data[i + 1] * a; b += data[i + 2] * a; n += a;
+      if (a < 40) continue;
+      if (x < w / 3) { left += a; r += data[i] * a; g += data[i + 1] * a; b += data[i + 2] * a; n += a; }
+      else if (x > (w * 2) / 3) right += a;
     }
   }
-  return n ? [r / n, g / n, b / n] : null;
+  return { left, right, rgb: n ? [r / n, g / n, b / n] : null };
 })()`;
 
 const CANVAS_STATS = `(() => {
@@ -212,6 +212,16 @@ async function shootWidths(win, prefix) {
   await sleep(250);
 }
 
+// The whole dashboard at 1100 px, for the side-by-side with the reference.
+async function shootFull(win, name) {
+  if (!SHOTS) return;
+  win.setSize(1100, 1400);
+  await sleep(400);
+  await shoot(win, name);
+  win.setSize(1100, 720);
+  await sleep(250);
+}
+
 async function setAppearance(win, value) {
   await win.webContents.executeJavaScript(
     `localStorage.setItem("marshal-appearance", ${JSON.stringify(value)}); window.dispatchEvent(new Event("focus"));`
@@ -267,35 +277,30 @@ async function main() {
   record("the visual animates while visible", second.hash !== first.hash, `${rafTicks} animation frames in 1 s`);
 
   // ── Every state ─────────────────────────────────────────────────────────
-  const borders = {};
+  const ribbon = await win.webContents.executeJavaScript(RIBBON);
+  record("the wave is a ribbon on the left that fades right", ribbon.left > ribbon.right * 3,
+    `left ${ribbon.left} vs right ${ribbon.right}`);
+  const hairline = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB("--border-hairline")));
+  const chips = {};
   for (const state of STATES) {
     win.webContents.send("marshal:assistant-state", { state, lang: "uk" });
     await sleep(1100);
     const view = await win.webContents.executeJavaScript(VIEW);
-    borders[state] = view.border;
+    chips[state] = view.chipColor;
     record(`${state}: page follows the state`, view.state === state && view.chip === UK_LABELS[state],
       `${view.state} / ${view.chip}`);
 
     const token = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB(STATE_TOKEN[state])));
-    const border = parseColor(view.border);
-    record(`${state}: panel takes the state colour`, token && border && distance(token, border) < 4,
-      `${view.border} vs ${STATE_TOKEN[state]}`);
-
-    const core = await win.webContents.executeJavaScript(CORE_RGB);
-    const others = STATES.filter((other) => STATE_TOKEN[other] !== STATE_TOKEN[state]);
-    let nearestOther = Infinity;
-    for (const other of others) {
-      const rgb = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB(STATE_TOKEN[other])));
-      if (rgb && core) nearestOther = Math.min(nearestOther, distance(core, rgb));
-    }
-    const own = core && token ? distance(core, token) : Infinity;
-    record(`${state}: canvas core is drawn in the state colour`, own < nearestOther,
-      core ? `own ${own.toFixed(0)} vs nearest other ${nearestOther.toFixed(0)}` : "no core pixels");
+    const chip = parseColor(view.chipColor);
+    record(`${state}: the LIVE chip takes the state colour`, token && chip && distance(token, chip) < 4,
+      `${view.chipColor} vs ${STATE_TOKEN[state]}`);
+    const hero = parseColor(view.hero);
+    record(`${state}: the hero stays neutral`, hairline && hero && distance(hairline, hero) < 4, view.hero);
     await shoot(win, `home-dark-${state}`);
   }
   record("listening, thinking and waiting look different",
-    new Set([borders.listening, borders.thinking, borders.waiting]).size === 3,
-    `${borders.listening} | ${borders.thinking} | ${borders.waiting}`);
+    new Set([chips.listening, chips.thinking, chips.waiting]).size === 3,
+    `${chips.listening} | ${chips.thinking} | ${chips.waiting}`);
 
   // ── The assistant's own line replaces the hint ──────────────────────────
   win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk" });
@@ -311,7 +316,7 @@ async function main() {
   await sleep(100);
   const guidance = (await win.webContents.executeJavaScript(VIEW)).line;
   record("listening shows its guidance over the last line", guidance !== lines[0] && guidance.length > 0, guidance);
-  const recent = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#recent li")].map((li) => li.textContent)`);
+  const recent = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#recent li b")].map((b) => b.textContent)`);
   record("recent lists what Marshal said, newest first", JSON.stringify(recent) === JSON.stringify(lines), recent.join(" | "));
 
   // ── Sessions panel (#308) ───────────────────────────────────────────────
@@ -356,8 +361,12 @@ async function main() {
   const failedLine = (await win.webContents.executeJavaScript(VIEW)).line;
   record("a failed focus is said, not swallowed", failedLine.includes("session is gone"), failedLine);
   // ── Status strip (#309) ─────────────────────────────────────────────────
-  const hidden = await win.webContents.executeJavaScript(`document.getElementById("strip").hidden`);
-  record("no strip until main sends one", hidden === true);
+  const blank = await win.webContents.executeJavaScript(`({
+    mem: document.getElementById("mem").hidden,
+    meeting: document.getElementById("meeting").hidden,
+    num: document.querySelector('.metric[data-metric="memory"] .num').textContent
+  })`);
+  record("no memory or meeting card until main sends a strip", blank.mem && blank.meeting && blank.num === "–", JSON.stringify(blank));
   const inTwelve = new Date(Date.now() + 12 * 60_000 - 5_000).toISOString();
   win.webContents.send("marshal:assistant-state", {
     state: "waiting",
@@ -365,7 +374,7 @@ async function main() {
     strip: {
       active: { dictation: true, captions: false, translator: true, recording: false },
       speech: true,
-      memory: { usedMb: 262, budgetMb: 300 },
+      memory: { usedMb: 262, budgetMb: 300, split: [{ group: "main", mb: 88 }, { group: "gpu", mb: 52 }], measuredAt: new Date().toISOString() },
       meeting: { title: "Daily", start: inTwelve, joinable: true },
       hotkey: "CommandOrControl+Alt+A"
     }
@@ -379,8 +388,10 @@ async function main() {
       litTitle: document.querySelector('.dock [data-action="translator"]').title,
       speech: strip.querySelector('[data-action="toggle-speech"]').getAttribute("aria-pressed"),
       lang: strip.querySelector('[data-action="toggle-language"]').textContent,
-      mem: document.getElementById("mem-text").textContent,
-      cells: strip.querySelectorAll(".batt i.on").length,
+      mem: document.getElementById("mem-used").textContent + document.getElementById("mem-budget").textContent,
+      metric: document.querySelector('.metric[data-metric="memory"] .num').textContent,
+      split: [...document.querySelectorAll("#mem-split li")].map((li) => li.dataset.group).join(),
+      cells: document.querySelectorAll("#batt i.on").length,
       meeting: document.getElementById("meeting-title").textContent + " " + document.getElementById("meeting-when").textContent,
       join: !document.getElementById("join").hidden,
       hotkey: document.getElementById("hotkey").textContent
@@ -390,14 +401,15 @@ async function main() {
     stripView.visible && stripView.lit.join() === "translator" && stripView.litTitle.endsWith("· увімкнено"),
     `${stripView.lit.join()} — ${stripView.litTitle}`);
   record("toggles show their state", stripView.speech === "true" && stripView.lang === "UK", `${stripView.speech} / ${stripView.lang}`);
-  record("memory reads against the idle budget", stripView.mem === "mem 262/300" && stripView.cells === 9,
-    `${stripView.mem}, ${stripView.cells} cells`);
+  record("memory reads against the idle budget, split by process",
+    stripView.mem === "262/ 300 MB" && stripView.metric === "262" && stripView.cells === 9 && stripView.split === "main,gpu",
+    `${stripView.mem}, ${stripView.cells} cells, ${stripView.split}`);
   record("the next meeting counts down with Join", stripView.meeting === "Daily за 12 хв" && stripView.join, stripView.meeting);
   record("the hotkey is shown as keys", stripView.hotkey === "⌘⌥A", stripView.hotkey);
   await shoot(win, "home-dark-strip");
   const before = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
   await win.webContents.executeJavaScript(
-    `["toggle-speech", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('#strip [data-action="' + name + '"]').click())`
+    `["toggle-speech", "toggle-language", "join-meeting"].forEach((name) => document.querySelector('[data-action="' + name + '"]').click())`
   );
   await sleep(100);
   const stripSent = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).slice(before);
@@ -423,11 +435,82 @@ async function main() {
   record("over budget, a started meeting without a link and no hotkey read as such",
     over.over && over.when === "триває" && over.join && over.hotkey, JSON.stringify(over));
 
+  // ── Features and recent commands (#398) ────────────────────────────────
+  const now = Date.now();
+  const dashboard = (state) => ({
+    state,
+    lang: "uk",
+    sessions: [
+      { project: "marshal", sessions: [{ pid: 101, name: "assistant-sessions", status: "waiting", waitingFor: "permission prompt" }] },
+      { project: "snoriq", sessions: [{ pid: 999, name: "docs", status: "busy", waitingFor: null }] }
+    ],
+    lines: ["Сесія marshal завершила: тести зелені", "Зустріч «Daily» за 12 хв"],
+    features: [
+      { id: "dictation", state: "ready", stats: ["large-v3-turbo-q8_0", "resident"] },
+      { id: "captions", state: "running", stats: ["whisper.cpp"] },
+      { id: "translator", state: "error", stats: ["claude-cli", "1.2s"] },
+      { id: "speech", state: "off", stats: ["say"] },
+      { id: "calendar", state: "no_model", stats: ["–"] }
+    ],
+    commands: {
+      rows: [
+        { text: "перекладач", at: now - 60_000, target: "translator", kind: "feature", outcome: "answered", durationMs: 840 },
+        { text: "що там по сесіях", at: now - 5 * 60_000, target: "marshal", kind: "general", outcome: "answered", durationMs: 4200 },
+        { text: "запусти тести в marshal", at: now - 9 * 60_000, target: "marshal", kind: "session", outcome: "sent", durationMs: null },
+        { text: "відкрий snoriq", at: now - 30 * 60_000, target: "snoriq", kind: "session", outcome: "failed", durationMs: 1500 },
+        { text: "архівуй", at: now - 50 * 60_000, target: null, kind: null, outcome: "no_answer", durationMs: null }
+      ],
+      day: { current: 5, previous: 3 },
+      week: { current: 21, previous: 30 }
+    },
+    strip: {
+      active: { dictation: false, captions: true, translator: false, recording: false },
+      speech: true,
+      memory: { usedMb: 214, budgetMb: 300, split: [
+        { group: "main", mb: 88 }, { group: "renderer", mb: 55 }, { group: "gpu", mb: 41 }, { group: "service", mb: 22 }, { group: "helpers", mb: 8 }
+      ], measuredAt: new Date().toISOString() },
+      meeting: { title: "Daily", start: inTwelve, joinable: true },
+      hotkey: "CommandOrControl+Alt+A"
+    }
+  });
+  win.webContents.send("marshal:assistant-state", dashboard("idle"));
+  await sleep(200);
+  const dash = await win.webContents.executeJavaScript(`(() => ({
+    features: [...document.querySelectorAll("#features .feature")].map((card) => card.dataset.feature + ":" + card.dataset.state),
+    errorBorder: getComputedStyle(document.querySelector('.feature[data-state="error"]')).borderTopColor,
+    readyBorder: getComputedStyle(document.querySelector('.feature[data-state="ready"]')).borderTopColor,
+    note: document.getElementById("features-note").textContent,
+    outcomes: [...document.querySelectorAll("#commands tr")].map((tr) => tr.dataset.outcome),
+    chip: document.querySelector("#commands tr .ochip").textContent,
+    took: document.querySelector("#commands tr td:last-child").textContent,
+    commands: document.querySelector('.metric[data-metric="commands"]').textContent,
+    alerts: [...document.querySelectorAll("#recent li")].map((li) => li.dataset.level)
+  }))()`);
+  record("every feature gets a card with its state",
+    dash.features.join() === "dictation:ready,captions:running,translator:error,speech:off,calendar:no_model" && dash.note.length > 0,
+    `${dash.features.join()} — ${dash.note}`);
+  record("an erroring feature card has a red border", dash.errorBorder !== dash.readyBorder, `${dash.errorBorder} vs ${dash.readyBorder}`);
+  record("recent commands show the outcome, newest first",
+    dash.outcomes.join() === "answered,answered,sent,failed,no_answer" && dash.chip.length > 0 && dash.took === "0.8s",
+    `${dash.outcomes.join()} — ${dash.chip}, ${dash.took}`);
+  record("the commands metric compares with yesterday", dash.commands.includes("5") && dash.commands.includes("+2"), dash.commands);
+  await win.webContents.executeJavaScript(`document.querySelector('#range [data-range="7"]').click()`);
+  await sleep(50);
+  const week = await win.webContents.executeJavaScript(`document.querySelector('.metric[data-metric="commands"]').textContent`);
+  record("7D switches the commands metric to the week", week.includes("21") && week.includes("-9"), week);
+  await win.webContents.executeJavaScript(`document.querySelector('#range [data-range="1"]').click()`);
+  record("a permission wait is a critical alert", dash.alerts[0] === "critical" && dash.alerts.includes("info"), dash.alerts.join());
+
   await shootWidths(win, "home-dark-overview");
+  await shootFull(win, "home-dark-full");
   win.setSize(640, 600);
   await sleep(300);
-  const narrow = await win.webContents.executeJavaScript(`getComputedStyle(document.querySelector(".side")).display`);
-  record("a narrow window drops the side panel, not the visual", narrow === "none", narrow);
+  const narrow = await win.webContents.executeJavaScript(`(() => {
+    const side = document.querySelector(".side").getBoundingClientRect();
+    const dash = document.querySelector(".dash > .block:last-of-type").getBoundingClientRect();
+    return { side: side.top >= dash.bottom - 1 && side.width > 0, visual: document.getElementById("visual").getBoundingClientRect().width > 0 };
+  })()`);
+  record("a narrow window moves the rail under the main column", narrow.side && narrow.visual, JSON.stringify(narrow));
   win.setSize(1100, 720);
   await sleep(300);
   const RAIL = `document.querySelector("#settings-rail [data-section='dictation']").textContent`;
@@ -445,7 +528,7 @@ async function main() {
   const dock = await win.webContents.executeJavaScript(
     `[...document.querySelectorAll(".dock [data-action]")].map((b) => ({ action: b.dataset.action, title: b.title, icon: !!b.querySelector("svg") }))`
   );
-  record("every dock button has a title and an icon", dock.length === 8 && dock.every((b) => b.title && b.icon),
+  record("every dock button has a title and an icon", dock.length === 7 && dock.every((b) => b.title && b.icon),
     dock.map((b) => b.action).join(", "));
   record("the dock has no agent chat (#317)", !dock.some((b) => b.action === "agent"));
   const earlier = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;
@@ -462,13 +545,13 @@ async function main() {
     view: document.getElementById("home").dataset.view,
     shown: !document.getElementById("settings").hidden,
     side: getComputedStyle(document.querySelector(".side")).display,
-    visual: getComputedStyle(document.querySelector(".core")).display,
+    dash: getComputedStyle(document.querySelector(".dash")).display,
     sections: document.querySelectorAll("#settings-form .settings-section").length,
     rail: document.querySelectorAll("#settings-rail .rail-btn").length,
     bridge: document.getElementById("settings-bridge-mode").value
   }))()`);
   record("Settings in the dock opens settings inside the home, not another window",
-    opened.view === "settings" && opened.shown && opened.side === "none" && opened.visual !== "none",
+    opened.view === "settings" && opened.shown && opened.side === "none" && opened.dash === "none",
     JSON.stringify(opened));
   record("every section has a rail entry and the form is filled from main",
     opened.sections === 9 && opened.rail === 9 && opened.bridge === "claude-cli", `${opened.sections}/${opened.rail}, ${opened.bridge}`);
@@ -529,13 +612,16 @@ async function main() {
     await sleep(1000);
     await shoot(win, `home-light-${state}`);
   }
+  win.webContents.send("marshal:assistant-state", dashboard("waiting"));
+  await sleep(1000);
   await shootWidths(win, "home-light-overview");
+  await shootFull(win, "home-light-full");
   win.webContents.send("marshal:assistant-state", { state: "listening", lang: "uk" });
   await sleep(1000);
-  const lightToken = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB("--state-listen")));
-  const lightCore = await win.webContents.executeJavaScript(CORE_RGB);
-  record("light theme redraws the canvas in light tokens", lightCore && lightToken && distance(lightCore, lightToken) < 120,
-    lightCore ? `distance ${distance(lightCore, lightToken).toFixed(0)}` : "no core pixels");
+  const lightToken = parseColor(await win.webContents.executeJavaScript(TOKEN_RGB("--text-muted")));
+  const lightRibbon = (await win.webContents.executeJavaScript(RIBBON)).rgb;
+  record("light theme redraws the canvas in light tokens", lightRibbon && lightToken && distance(lightRibbon, lightToken) < 120,
+    lightRibbon ? `distance ${distance(lightRibbon, lightToken).toFixed(0)}` : "no ribbon pixels");
 
   // ── Hidden window stops drawing (#281) ──────────────────────────────────
   win.hide();

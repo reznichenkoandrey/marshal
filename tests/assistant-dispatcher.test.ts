@@ -248,6 +248,26 @@ describe("dispatcher over the hook receiver", () => {
     execFile("/bin/sh", [file, ...args], (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 
+  it("logs where each voice command went (#398)", async () => {
+    const live = [session({ name: "marshal", cwd: "/htdocs/marshal", socketPath: "/s/m" })];
+    const routes: string[] = [];
+    const added: string[] = [];
+    const { dispatcher, service, hookDir } = setup(live, {
+      commands: { add: (text) => added.push(text), route: (route) => routes.push(`${route.kind}:${route.target}:${route.outcome}`) }
+    });
+    await service.start();
+    try {
+      dispatcher.submit("відкрий перекладач");
+      expect(added).toEqual(["відкрий перекладач"]);
+      await helper(hookDir, ["do", "translator"]);
+      await helper(hookDir, ["sent", "marshal"]);
+      await helper(hookDir, ["say", "Готово"]);
+      expect(routes).toEqual(["feature:translator:answered", "session:marshal:sent", "general:marshal:answered"]);
+    } finally {
+      service.stop();
+    }
+  });
+
   it("answers the real helper script: sessions, say with quotes, do", async () => {
     const live = [session({ name: "marshal", cwd: "/htdocs/marshal", socketPath: "/s/m" })];
     const { dispatcher, service, said, actions, inserted, hookDir } = setup(live);

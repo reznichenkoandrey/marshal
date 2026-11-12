@@ -26,8 +26,8 @@ import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
 import { SpeechService } from "./speech/speech-service.ts";
-import { installPiper } from "./speech/piper.ts";
-import { installHolos } from "./speech/holos.ts";
+import { installPiper, isPiperInstalled } from "./speech/piper.ts";
+import { installHolos, isHolosInstalled } from "./speech/holos.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -35,7 +35,7 @@ import { openMicAllowed, type OpenMicState } from "./dictation/end-of-speech.ts"
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
-import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
+import { isSharedWhisperServerRunning, stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
 import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
@@ -62,7 +62,7 @@ import {
 } from "./assistant/assistant-state.ts";
 import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistant/waiting-speech.ts";
 import { reminderText } from "./calendar/reminders.ts";
-import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-window.ts";
+import { AssistantHomeWindow, type AssistantCommands, type AssistantStrip } from "./assistant/home-window.ts";
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
@@ -102,7 +102,9 @@ import { runPostInstallPermissionCheck } from "./permissions/post-install-check.
 import { applySettingsToEnv, loadSettings, saveSettings, type MarshalSettings } from "./settings-store.ts";
 import { legacyUserDataPath, migrateLegacyUserData } from "./user-data-migration.ts";
 import { buildSetupHealth, type BuildInfo, type SetupHealthSummary } from "./setup-health.ts";
-import { IDLE_BUDGET_BYTES, measureFootprint } from "./perf/footprint.ts";
+import { IDLE_BUDGET_BYTES, groupFootprint, measureFootprint } from "./perf/footprint.ts";
+import { CommandLog, commandCounts, commandRows } from "./assistant/command-log.ts";
+import { featureCards, type FeatureCard } from "./assistant/features.ts";
 import { ClipboardMonitor, DEDICATED_HOTKEY as TRANSLATOR_HOTKEY } from "./translator/clipboard-monitor.ts";
 import { TranslatorHistoryStore, type HistoryItem } from "./translator/history-store.ts";
 import {
@@ -218,6 +220,7 @@ const GREETING_DELAY_MS = 8_000;
 let waitingSessionCount = 0;
 // One footprint measurement per opening of the home window (#309).
 let assistantMemory: AssistantStrip["memory"] = null;
+let commandLog: CommandLog | null = null;
 let assistantHotkey: string | null = null;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
@@ -2814,14 +2817,66 @@ function assistantStrip(): AssistantStrip {
 
 function pushAssistantStrip(): void {
   if (!assistantHome?.isOpen()) return;
-  assistantHome.update({ lang: uiLanguage(), strip: assistantStrip() });
+  assistantHome.update({ lang: uiLanguage(), strip: assistantStrip(), commands: assistantCommands(), features: assistantFeatures() });
+}
+
+function assistantCommandLog(): CommandLog {
+  commandLog ??= new CommandLog(path.join(app.getPath("userData"), "assistant", "command-log.json"), pushAssistantStrip);
+  return commandLog;
+}
+
+function assistantCommands(): AssistantCommands {
+  const log = assistantCommandLog().list();
+  const now = Date.now();
+  return { rows: commandRows(log, now), day: commandCounts(log, now, 1), week: commandCounts(log, now, 7) };
+}
+
+function assistantFeatures(): FeatureCard[] {
+  const settings = loadSettings();
+  const whisper = resolveWhisperAssetPaths();
+  const calendar = calendarService?.status();
+  const engine = settings.speechEngine;
+  return featureCards({
+    dictation: {
+      enabled: settings.dictationEnabled,
+      modelPath: fs.existsSync(whisper.model) ? whisper.model : null,
+      resident: isSharedWhisperServerRunning(),
+      active: isDictating,
+      backend: settings.dictationBackend
+    },
+    captions: { running: captionsService?.isRunning() ?? false, stt: settings.captionsSttBackend },
+    translator: {
+      available: translatorService !== null,
+      backend: translatorService?.backendId ?? null,
+      open: translatorWindow?.isVisible() ?? false,
+      lastLatencyMs: translatorService?.lastLatencyMs ?? null,
+      lastFailed: translatorService?.lastFailed ?? false
+    },
+    speech: {
+      enabled: settings.speechEnabled,
+      speaking: assistantInputs.speaking,
+      engine,
+      engineInstalled: engine === "piper" ? isPiperInstalled() : engine === "holos" ? isHolosInstalled() : true
+    },
+    calendar: {
+      enabled: settings.calendarEnabled,
+      configured: calendar?.configured ?? false,
+      lastError: calendar?.lastError ?? null,
+      lastSyncAt: calendar?.lastSyncAt ?? null
+    }
+  });
 }
 
 async function measureAssistantMemory(): Promise<void> {
   if (process.platform !== "darwin") return;
   const summary = await measureFootprint(process.pid).catch(() => null);
   assistantMemory = summary
-    ? { usedMb: Math.round(summary.appBytes / 1024 ** 2), budgetMb: Math.round(IDLE_BUDGET_BYTES / 1024 ** 2) }
+    ? {
+        usedMb: Math.round(summary.appBytes / 1024 ** 2),
+        budgetMb: Math.round(IDLE_BUDGET_BYTES / 1024 ** 2),
+        split: groupFootprint(summary.processes),
+        measuredAt: new Date().toISOString()
+      }
     : null;
   pushAssistantStrip();
 }
@@ -2955,7 +3010,8 @@ function initAssistantDispatcher(): void {
       await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     },
     processList: listProcesses,
-    log: (message) => console.log(message)
+    log: (message) => console.log(message),
+    commands: assistantCommandLog()
   });
   hooks.setAssistantRoutes(assistantDispatcher);
   void syncAssistantDispatcher();
@@ -3141,6 +3197,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   assistantDispatcher?.noteSessionEvent(event.sessionId, event.kind);
   // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
+  if (asked && event.kind === "finished") assistantCommandLog().answered(event.name);
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
   if (event.kind === "waiting" && assistantInputs.asleep) return;
   if (event.kind === "waiting" && Date.now() - (permissionAskedAt.get(event.sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS) return;

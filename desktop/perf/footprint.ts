@@ -97,3 +97,28 @@ export async function measureFootprint(rootPid: number): Promise<FootprintSummar
     tree.filter((row) => bytes.has(row.pid)).map((row) => ({ pid: row.pid, name: row.name, bytes: bytes.get(row.pid) as number }))
   );
 }
+
+export type FootprintGroup = "main" | "renderer" | "gpu" | "service" | "helpers";
+export type FootprintShare = { group: FootprintGroup; mb: number };
+
+const GROUP_ORDER: readonly FootprintGroup[] = ["main", "renderer", "gpu", "service", "helpers"];
+
+/** Electron's helper names carry their role; Swift helpers (ptt-monitor…) are "helpers". */
+export function footprintGroup(name: string): FootprintGroup {
+  if (/\(Renderer\)/u.test(name)) return "renderer";
+  if (/\(GPU\)/u.test(name)) return "gpu";
+  if (/ Helper\b/u.test(name)) return "service";
+  if (/^(Electron|Marshal)$/u.test(name)) return "main";
+  return "helpers";
+}
+
+/** Per-role split of the idle footprint for the home dashboard (#398); the speech model is left out. */
+export function groupFootprint(processes: readonly ProcessFootprint[]): FootprintShare[] {
+  const totals = new Map<FootprintGroup, number>();
+  for (const entry of processes) {
+    if (entry.name === SPEECH_MODEL_PROCESS) continue;
+    const group = footprintGroup(entry.name);
+    totals.set(group, (totals.get(group) ?? 0) + entry.bytes);
+  }
+  return GROUP_ORDER.filter((group) => totals.has(group)).map((group) => ({ group, mb: Math.round((totals.get(group) ?? 0) / 1024 ** 2) }));
+}

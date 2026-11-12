@@ -18,6 +18,8 @@ body {
   --hairline: var(--border-hairline, var(--border-default));
   --card-radius: var(--radius-card, var(--radius-md));
   --chip-radius: var(--radius-chip, var(--radius-xs));
+  --fs-metric: 40px;
+  --fw-thin: 300;
   --tracking: var(--label-tracking, 0.12em);
   position: relative;
   box-sizing: border-box;
@@ -46,18 +48,28 @@ body {
 /* Mono uppercase letter-spaced labels: the Lumen readout voice. */
 .chip,
 .hotkey,
-.strip,
 .tag,
 .project,
-.recent li::before,
-.count {
+.count,
+.seg button,
+.updated,
+.tog,
+.fchip,
+.ochip,
+.feature-foot,
+.commands th,
+.level,
+.split,
+.big span,
+.sub,
+.metric .delta {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking);
 }
 
-/* ── Top bar: logo, tabs, actions ── */
+/* ── Top bar: logo, tabs, compact actions ── */
 .bar {
   grid-column: 1 / -1;
   display: grid;
@@ -155,35 +167,122 @@ body {
   background: var(--bg-surface);
 }
 
-/* ── Main column: hero with the wave, then the dock ── */
-.core,
-.side { grid-row: 2; }
-
-.core {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: var(--space-5);
-  min-height: 0;
-  min-width: 0;
-  padding: var(--space-6);
+/* ── Compact feature actions in the top bar; the mic stays in the hero ── */
+.dock {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: var(--space-2);
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--hairline);
+  -webkit-app-region: no-drag;
 }
 
+.dock button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--dur-base), background var(--dur-base);
+}
+
+.dock button:hover { color: var(--text-strong); background: var(--bg-surface); border-color: var(--hairline); }
+.dock button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+
+/* A running feature lights its button (#341). */
+.dock button.on {
+  color: var(--accent-text);
+  background: var(--chip-info-bg, var(--accent-soft));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ── Main column: scrolls; blocks with a large light title ── */
+.dash,
+.side { grid-row: 2; }
+
+.dash {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-6) var(--space-8);
+}
+
+.block + .block { margin-top: var(--space-8); }
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.block-head h2 {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-thin);
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+
+.block-note { font-size: var(--fs-sm); color: var(--text-muted); }
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.seg button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--chip-radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.seg button[aria-selected="true"] { background: var(--bg-muted); color: var(--text-strong); }
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-default);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.link:hover { color: var(--accent-text); }
+
+/* ── Hero: the ribbon on the left, 2×2 metrics on the right, a footer strip ── */
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 38%);
-  grid-template-rows: minmax(0, 1fr) auto;
-  min-height: 0;
-  border: 1px solid color-mix(in srgb, var(--state) 45%, var(--hairline));
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 46%);
+  grid-template-rows: minmax(200px, auto) auto;
+  border: 1px solid var(--hairline);
   border-radius: var(--card-radius);
   background:
-    linear-gradient(180deg, transparent 40%, color-mix(in srgb, var(--state) 7%, transparent)),
+    radial-gradient(120% 90% at 35% 100%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
     var(--bg-surface);
   overflow: hidden;
-  transition: border-color var(--dur-slow) var(--ease-out);
 }
 
-/* The state sits on the hero's corner like the reference's LIVE STREAM tab. */
+/* The state sits on the hero's corner like the reference's LIVE STREAM tab;
+   it is the only place the hero carries the state colour. */
 .chip {
   position: absolute;
   top: 0;
@@ -194,9 +293,9 @@ body {
   gap: var(--space-2);
   padding: 6px 10px;
   border-bottom-right-radius: var(--chip-radius);
-  background: var(--chip-state-bg, color-mix(in srgb, var(--state) 16%, var(--bg-surface)));
-  color: color-mix(in srgb, var(--state) 75%, var(--text-strong));
-  transition: color var(--dur-slow), background var(--dur-slow);
+  background: var(--state);
+  color: var(--bg-surface);
+  transition: background var(--dur-slow);
 }
 
 .chip::before {
@@ -204,12 +303,13 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--state);
+  background: currentColor;
 }
 
 .stage {
+  grid-column: 1 / -1;
+  grid-row: 1;
   position: relative;
-  min-width: 0;
   min-height: 0;
 }
 
@@ -218,46 +318,122 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
 }
 
-/* The assistant's line is the hero's "metric": large and light, set off by
-   a divider in the state colour. */
-.line {
-  align-self: center;
-  margin: var(--space-6) var(--space-6) var(--space-6) 0;
-  padding: var(--space-1) 0 var(--space-1) var(--space-5);
-  border-left: 2px solid var(--state);
-  font-size: var(--fs-2xl);
-  font-weight: var(--fw-regular);
-  line-height: var(--lh-tight);
-  letter-spacing: -0.01em;
+.metrics {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: var(--space-6) 0;
+  padding: var(--space-6) var(--space-6) var(--space-5) 0;
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.metric:nth-child(even) { border-left: 1px solid var(--hairline); }
+
+.metric .num {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-thin);
+  line-height: 1;
+  letter-spacing: -0.02em;
   color: var(--text-strong);
-  overflow-wrap: anywhere;
-  transition: border-color var(--dur-slow);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* ── Hero footer: toggles, memory, next meeting (#309) ── */
+.metric.accent .num { color: var(--accent-text); }
+.metric.over .num { color: var(--danger-text, var(--state-fail)); }
+
+.metric .label {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.metric.accent .label { color: var(--accent-text); }
+
+.metric .delta {
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--hairline);
+  color: var(--text-default);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .strip {
   grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-5);
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--hairline);
   background: var(--bg-surface);
   color: var(--text-muted);
 }
 
-.strip[hidden],
 .strip [hidden] { display: none; }
 
-.toggles,
-.mem,
-.meeting {
+/* The mic is the primary action: the one filled control on the page. */
+.mic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-surface);
+  cursor: pointer;
+  transition: background var(--dur-base), box-shadow var(--dur-base);
+}
+
+.mic:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text-strong)); }
+.mic:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.home[data-state="listening"] .mic { background: var(--state-listen); box-shadow: 0 0 0 4px var(--chip-info-bg, var(--accent-soft)); }
+
+.line {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--fs-md);
+  color: var(--text-default);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.toggles {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.updated {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.updated::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .tog,
@@ -314,134 +490,163 @@ body {
   background: var(--accent);
 }
 
-/* Memory as a dotted bar meter, like the reference's model mix. */
-.batt {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, 3px);
-  gap: 2px;
-}
 
-.batt i {
-  grid-row: span 2;
-  width: 3px;
-  height: 8px;
-  background: radial-gradient(circle, var(--border-strong) 1px, transparent 1.5px) 0 0 / 3px 3px;
-}
-
-.batt i.on { background-image: radial-gradient(circle, var(--accent) 1.2px, transparent 1.6px); }
-.mem.over .batt i.on { background-image: radial-gradient(circle, var(--state-fail) 1.2px, transparent 1.6px); }
-.mem.over { color: var(--state-fail); }
-
-.meeting { margin-left: auto; }
-
-.meeting b {
-  display: inline-block;
-  max-width: 180px;
-  overflow: hidden;
-  vertical-align: bottom;
-  color: var(--text-default);
-  font-family: var(--font-sans);
-  font-weight: var(--fw-semibold);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.join {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: var(--chip-info-bg, var(--accent-soft));
-  color: var(--accent-text);
-}
-
-/* ── Dock: hairline tiles, the mic in the state colour ── */
-.dock {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.dock button {
+/* ── Features: one card per feature, chip + dotted ring + footer stats ── */
+.features {
   display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.feature {
+  --c: var(--accent);
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  min-width: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--card-radius);
   background: var(--bg-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: border-color var(--dur-base), color var(--dur-base), background var(--dur-base);
 }
 
-.dock button:hover,
-.dock button:focus-visible {
-  outline: none;
-  color: var(--accent-text);
-  border-color: var(--accent);
-}
+.feature[data-state="running"] { --c: var(--state-listen); }
+.feature[data-state="off"] { --c: var(--text-subtle); }
+.feature[data-state="no_model"] { --c: var(--state-wait); }
+.feature[data-state="error"] { --c: var(--state-fail); border-color: color-mix(in srgb, var(--state-fail) 45%, var(--hairline)); }
 
-.dock button.on {
-  color: var(--accent-text);
-  border-color: var(--accent);
-  background: var(--chip-info-bg, var(--accent-soft));
-}
-
-.dock button:disabled {
-  color: var(--text-disabled);
-  cursor: default;
-}
-
-.dock .mic {
-  width: 56px;
-  height: 56px;
-  margin: 0 var(--space-3);
-  border-color: color-mix(in srgb, var(--state) 60%, var(--hairline));
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--state) 10%, var(--bg-surface));
-  color: var(--state);
-}
-
-.home[data-state="listening"] .dock .mic {
-  background: color-mix(in srgb, var(--state) 22%, var(--bg-surface));
-}
-
-/* ── Right rail of cards: sessions (#308) and what Marshal said last ── */
-.side {
+.ring {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  place-items: center;
+  border-right: 1px solid var(--hairline);
+  background: radial-gradient(circle, color-mix(in srgb, var(--c) 22%, transparent) 0 6px, transparent 22px);
+  position: relative;
+}
+
+.ring::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.ring svg { width: 48px; height: 48px; }
+
+.ring circle {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0 4.1;
+  opacity: 0.85;
+}
+
+.feature[data-state="off"] .ring circle { opacity: 0.4; }
+
+.feature-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.feature-body h4 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--text-strong);
+}
+
+.feature-body p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-tight);
+  color: var(--text-muted);
+}
+
+.fchip,
+.ochip {
+  justify-self: start;
+  padding: 2px 6px;
+  border-radius: var(--chip-radius);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.feature[data-state="running"] .fchip { background: var(--chip-ok-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-done) 75%, var(--text-strong)); }
+.feature[data-state="off"] .fchip { background: var(--bg-muted); color: var(--text-muted); }
+.feature[data-state="no_model"] .fchip { background: var(--chip-warn-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-wait) 75%, var(--text-strong)); }
+.feature[data-state="error"] .fchip { background: var(--chip-bad-bg, var(--accent-soft)); color: var(--danger-text, var(--state-fail)); }
+
+.feature-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  color: var(--text-default);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.feature-foot .stat { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.feature-foot .stat:first-of-type { flex: 1; }
+.feature-icon { flex: none; display: inline-flex; color: var(--text-muted); }
+
+/* ── Recent commands table ── */
+.commands {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.commands[hidden] { display: none; }
+
+.commands th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-muted);
+  font-weight: var(--fw-regular);
+  text-align: left;
+}
+
+.commands td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-default);
+  vertical-align: middle;
+}
+
+.commands .right { text-align: right; }
+.commands .mono { font-family: var(--font-mono); white-space: nowrap; }
+
+.commands .time { margin-right: var(--space-3); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-subtle); }
+.commands q { overflow-wrap: anywhere; color: var(--text-strong); }
+.commands .routed { color: var(--text-muted); white-space: nowrap; }
+
+tr[data-outcome="answered"] .ochip { background: var(--chip-ok-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-done) 75%, var(--text-strong)); }
+tr[data-outcome="pending"] .ochip { background: var(--bg-muted); color: var(--text-muted); }
+tr[data-outcome="no_answer"] .ochip { background: var(--chip-warn-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-wait) 75%, var(--text-strong)); }
+tr[data-outcome="failed"] .ochip { background: var(--chip-bad-bg, var(--accent-soft)); color: var(--danger-text, var(--state-fail)); }
+
+/* ── Right rail: sessions, alerts, memory, next meeting ── */
+.side {
   min-height: 0;
+  overflow-y: auto;
   border-left: 1px solid var(--hairline);
 }
 
-/* Too narrow for two columns: the visual and the dock win. */
-@container (max-width: 760px) {
-  .home { grid-template-columns: minmax(0, 1fr); }
-  .side { display: none; }
-}
-
-@container (max-width: 600px) {
-  .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(120px, 1fr) auto auto; }
-  .line { margin: 0 var(--space-5) var(--space-4); }
-}
-
-.card {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: 0;
-  padding: var(--space-6) var(--space-6) var(--space-4);
-}
-
+.card { padding: var(--space-5) var(--space-6); }
+.card[hidden] { display: none; }
 .card + .card { border-top: 1px solid var(--hairline); }
 
 .card-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
   color: var(--text-strong);
 }
 
@@ -454,6 +659,11 @@ body {
 .count {
   padding: 2px 6px;
   border-radius: var(--chip-radius);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.count[data-urgent="true"] {
   background: var(--chip-bad-bg, color-mix(in srgb, var(--state-fail) 14%, transparent));
   color: var(--danger-text, var(--state-fail));
 }
@@ -544,39 +754,118 @@ body {
 .empty:empty,
 .sessions:empty { display: none; }
 
-/* Alerts list: a coloured left border, the newest one tinted. */
-.recent { counter-reset: line; }
-
+/* Alerts: critical / warning / info, each with its colour on the left border. */
 .recent li {
-  counter-increment: line;
+  --c: var(--accent);
+  display: grid;
+  gap: 2px;
   margin-bottom: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-left: 2px solid var(--border-strong);
+  border-left: 2px solid var(--c);
   font-size: var(--fs-sm);
   line-height: var(--lh-tight);
-  color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 
-.recent li::before {
-  content: counter(line, decimal-leading-zero);
-  display: block;
-  margin-bottom: 2px;
-  color: var(--text-subtle);
+.recent li[data-level="critical"] { --c: var(--state-fail); background: var(--chip-bad-bg, var(--accent-soft)); }
+.recent li[data-level="warning"] { --c: var(--state-wait); }
+.recent li.none { border-left-color: var(--hairline); color: var(--text-muted); }
+
+.recent .level { color: color-mix(in srgb, var(--c) 80%, var(--text-strong)); }
+.recent b { font-weight: var(--fw-regular); color: var(--text-strong); }
+.recent small { color: var(--text-muted); }
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
 }
 
-.recent li:first-child {
-  border-left-color: var(--accent);
-  background: var(--chip-info-bg, var(--accent-soft));
+.big b {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-thin);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.big span { color: var(--text-muted); }
+
+/* Memory as a dotted bar meter, like the reference's budget. */
+.batt {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+  height: 18px;
+}
+
+.batt i { background: radial-gradient(circle, var(--border-strong) 1px, transparent 1.5px) 0 0 / 4px 4px; }
+.batt i.on { background-image: radial-gradient(circle, var(--accent) 1.3px, transparent 1.7px); }
+#mem.over .batt i.on { background-image: radial-gradient(circle, var(--state-fail) 1.3px, transparent 1.7px); }
+
+.sub { margin: var(--space-2) 0 var(--space-3); color: var(--text-muted); }
+
+.split {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.split li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
   color: var(--text-default);
 }
 
-.recent li:first-child::before { color: var(--accent-text); }
+.split .meter {
+  height: 2px;
+  background: linear-gradient(90deg, var(--c, var(--accent)) calc(var(--share) * 100%), var(--hairline) 0);
+}
+
+.split li[data-group="renderer"] { --c: var(--text-strong); }
+.split li[data-group="gpu"] { --c: var(--state-fail); }
+.split li[data-group="service"] { --c: var(--state-wait); }
+.split li[data-group="helpers"] { --c: var(--text-subtle); }
+
+.meeting-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-md);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.join {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.join[hidden] { display: none; }
+
+/* Too narrow for two columns: the rail goes under the main column. A media query,
+   not @container: the container is .home itself, which its own query cannot restyle. */
+@media (max-width: 760px) {
+  .home { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
+  .dash { min-height: auto; overflow: visible; }
+  .home:not([data-view="settings"]) { overflow-y: auto; }
+  .side { grid-row: 3; min-height: auto; overflow: visible; border-left: 0; border-top: 1px solid var(--hairline); }
+  .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: 160px auto auto; }
+  .stage { grid-row: 1; }
+  .metrics { grid-column: 1; grid-row: 2; padding: var(--space-4) var(--space-5); }
+  .strip { grid-row: 3; flex-wrap: wrap; }
+  .tabs { gap: var(--space-4); }
+  .bar { grid-template-columns: auto 1fr auto; }
+  .dock { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .hero,
   .chip,
-  .line,
+  .mic,
   .sw::after,
   .dock button { transition: none; }
 }
