@@ -3,7 +3,7 @@
 // the assistant home (#317) change it through `set` / `setAppearance`; every
 // other open window follows over the BroadcastChannel.
 (() => {
-  const LOOKS = ["hud", "classic", "liquid", "signal", "soft"];
+  const LOOKS = ["lumen", "hud", "classic", "liquid", "signal", "soft"];
   const PALETTES = ["blue", "teal", "green", "amber"];
   const APPEARANCES = ["system", "light", "dark"];
   const KEYS = { look: "marshal-look", palette: "marshal-palette", appearance: "marshal-appearance" };
