@@ -64,8 +64,8 @@ import { AssistantHomeWindow, type AssistantStrip } from "./assistant/home-windo
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
-import { AssistantDispatcher } from "./assistant/dispatcher.ts";
-import { GENERAL_NAME, screenshotCommand } from "./assistant/dispatcher-files.ts";
+import { AssistantDispatcher, listProcesses } from "./assistant/dispatcher.ts";
+import { GENERAL_NAME, screenshotCommand, withoutHostSessionEnv } from "./assistant/dispatcher-files.ts";
 import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
 import {
   classifyPermissionAnswer,
@@ -132,8 +132,9 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const desktopDistDir = path.dirname(currentFilePath);
 const projectRootDir = path.resolve(desktopDistDir, "..", "..");
 const envPath = path.join(projectRootDir, ".env");
-// What Marshal was started with, before its .env: apps it launches (Terminal) inherit this, not its keys (#322).
-const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+// What Marshal was started with, before its .env: apps it launches (Terminal) inherit this, not its keys (#322),
+// and not the session env of a Claude desktop session that started Marshal (#388).
+const launchEnv: NodeJS.ProcessEnv = withoutHostSessionEnv(process.env);
 loadDotenv({ path: envPath, override: false });
 process.env.PATH = withUserBinDirs(process.env.PATH, app.getPath("home"));
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
@@ -1332,6 +1333,8 @@ async function performTeardown(): Promise<void> {
   dictationService?.stop();
   // The resident whisper model (#218) holds ~1.5 GB; it goes with the app.
   stopSharedWhisperServer();
+  // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
+  assistantDispatcher?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
@@ -2936,7 +2939,9 @@ function initAssistantDispatcher(): void {
     insert: async (text) => (dictationService ? dictationService.insert(text) : "not running"),
     runAppleScript: async (script) => {
       await execFileAsync("osascript", ["-e", script], { env: launchEnv });
-    }
+    },
+    processList: listProcesses,
+    log: (message) => console.log(message)
   });
   hooks.setAssistantRoutes(assistantDispatcher);
   void syncAssistantDispatcher();
@@ -3119,6 +3124,7 @@ function sayAsAssistant(text: string): void {
 }
 
 function speakSessionEvent(event: SpokenSessionEvent): void {
+  assistantDispatcher?.noteSessionEvent(event.sessionId, event.kind);
   // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;

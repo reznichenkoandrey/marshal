@@ -696,7 +696,18 @@
   питати щоразу у вікні), модель диспетчера (`haiku`). **Режим однаковий для диспетчера й `general` і
   має збігатися з режимом сесій власника:** Claude Code затримує `SendMessage` від сесії з іншим
   permission mode і чекає підтвердження, а desktop-сесія його дати не може — повідомлення протухає
-  недоставленим. Deny-правила диспетчера (Edit/Write/Web/Agent) у `bypassPermissions` діють (перевірено). Вимкнули — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
+  недоставленим. Deny-правила диспетчера (Edit/Write/Web/Agent) у `bypassPermissions` діють (перевірено). Вимкнули асистента або закрили Marshal — диспетчер отримує SIGTERM, `general` лишається (там може бути робота).
+  **Один диспетчер і один `general`** (#388): перед запуском `start()` шукає їх не лише в registry, а й
+  у таблиці процесів (`ps`, argv `claude … --name <ім'я>`, `findNamedClaudePids`). Сесію, якої немає в
+  registry, адресує сокет `/tmp/cc-socks/<pid>.sock` (`unregisteredOwnSessions`), якщо він існує. Зайві
+  диспетчери отримують SIGTERM, бо два читали б один стрім команд. Зайвий `general` лишається.
+  **Сесія з `./marshal spawn` закривається після 30 хв простою** (`MARSHAL_ASSISTANT_SESSION_IDLE_MIN`,
+  `0` = ніколи). Таймер є лише в такої сесії. Його перезапускає кожен Stop hook (`noteSessionEvent`), а
+  подія «чекає» зупиняє. Коли час минув, сесія закривається (SIGTERM) лише тоді, коли в registry вона
+  `idle` і не чекає відповіді на голосову команду. Сесія, що працює чи чекає власника, лишається, і
+  її таймер перезапустить наступний Stop. Наступна команда в цей проєкт відкриє сесію заново через
+  `./marshal spawn`. Сесії власника таймера не мають і ніколи не закриваються. Вкладка Terminal після
+  закриття лишається з shell.
   Terminal без дозволу Automation → асистент каже, куди в System Settings.
   **Terminal не отримує ключі Marshal** (#322): `osascript` запускається з env, з яким стартував
   сам Marshal (знімок до `.env`), бо LaunchServices віддає його Terminal, а з ним і кожній вкладці.
@@ -704,6 +715,15 @@
   з ключем у середовищі Claude Code питає «use this API key?» у вікні, якого ніхто не бачить, і
   диспетчер стоїть мовчки. З тієї ж причини кожна сесія асистента стартує з `--no-chrome`: інакше
   перше ж питання «Claude in Chrome extension detected» зупиняє її так само.
+  **Terminal не отримує й session env Claude desktop** (#388). Якщо Marshal запущено з сесії Claude
+  desktop (`npm run desktop`, `npm run install:local`), він успадковує `CLAUDE_CODE_CHILD_SESSION=1`,
+  `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, сокет і токен батьківської сесії, `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
+  Claude Code вважає сесію з `CLAUDE_CODE_CHILD_SESSION` помічником хоста і **не пише
+  `~/.claude/sessions/<pid>.json`** (`Obt()` у 2.1.322, перевірено A/B-запуском). Через це асистент не
+  бачив власних сесій: `spawn` чекав 45 с, `general` і диспетчер запускались удруге. Тепер `launchEnv`
+  проходить `withoutHostSessionEnv`, а команда вкладки додає `env -u` для кожного імені з
+  `HOST_SESSION_ENV` (`dispatcher-files.ts`). `env -u` у вкладці потрібен окремо: Terminal, уже
+  запущений з таким env, роздає його кожній новій вкладці.
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1 ГБ з q8_0, вантажиться на
@@ -788,7 +808,9 @@
   знятий з реальних файлів 2.1.317): `kind` (`interactive` / `bg` / `daemon` / `daemon-worker`),
   `status` (`busy` / `shell` / `idle` / `waiting`) і `waitingFor` («permission prompt», «input
   needed»…) уже лежать у файлі. Live = `kind: "interactive"` + pid живий + сокет існує; файл,
-  що не збігся з форматом, пропускається з одним рядком у лог. Читається **лише на вимогу**
+  що не збігся з форматом, пропускається з одним рядком у лог. **Файлу немає в child-сесії**
+  (`CLAUDE_CODE_CHILD_SESSION`, #388): є лише `<pid>.<hash>.key` (peer-токен) і сокет. Тому
+  асистент знаходить свої сесії ще й за процесами. Читається **лише на вимогу**
   (tray → «Claude Sessions» будує список у момент відкриття меню), без watcher-а (#281).
   `focus.ts`: клік по сесії — вкладка Terminal/iTerm за tty через AppleScript, desktop-сесія
   (tty немає) — `claude://code/continue?session=<hostSessionId>` (#357), інакше `open -a`
