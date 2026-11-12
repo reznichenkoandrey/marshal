@@ -8,8 +8,6 @@
     <script src="./locales.js"></script>
     <script src="./i18n.js"></script>
     <style>
-      /* Dictation indicator in the assistant's visual language (#285): tokens
-         only, the listening colour, the label font of the active look. */
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body {
         width: 100vw;
@@ -19,6 +17,8 @@
         user-select: none;
         font-family: var(--font-sans);
       }
+      /* Lumen indicator (#399): hairline card, mono uppercase readouts, the
+         state colour only on the marker and the label. */
       .pill {
         width: 100%;
         height: 100%;
@@ -26,18 +26,59 @@
         align-items: center;
         gap: var(--space-2);
         padding: 0 var(--space-2) 0 var(--space-3);
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--state-listen) 55%, transparent);
-        background: color-mix(in srgb, var(--bg-app) 92%, transparent);
-        box-shadow: inset 0 0 18px color-mix(in srgb, var(--state-listen) 18%, transparent);
+        border-radius: var(--radius-card, var(--radius-lg));
+        border: 1px solid var(--border-hairline, var(--border-default));
+        border-left: 2px solid var(--marker);
+        background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: var(--shadow-md);
         color: var(--text-strong);
       }
+      #label {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        font-weight: var(--fw-medium);
+        letter-spacing: var(--label-tracking, var(--letter-wider));
+        text-transform: uppercase;
+        color: var(--marker);
+      }
+      #time {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: var(--fs-xs);
+        letter-spacing: var(--label-tracking, var(--letter-wider));
+        color: var(--text-muted);
+      }
+      button {
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--border-hairline, var(--border-default));
+        border-radius: var(--radius-sm);
+        background: var(--bg-elevated);
+        color: var(--text-default);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+      }
+      button:hover { background: var(--bg-hover); }
+      button:active { transform: scale(0.94); }
+      button.stop {
+        border-color: transparent;
+        background: var(--chip-bad-bg, var(--danger-soft));
+      }
+      button.stop:hover { background: color-mix(in srgb, var(--state-fail) 28%, transparent); }
+      .square { background: var(--state-fail); width: 9px; height: 9px; border-radius: 1px; }
+      .pill { --marker: var(--state-listen); }
       .ring {
-        width: 14px;
-        height: 14px;
+        width: 12px;
+        height: 12px;
         flex-shrink: 0;
         border-radius: 50%;
-        border: 2px solid var(--state-listen);
+        border: 1.5px solid var(--state-listen);
         background: radial-gradient(circle, var(--state-listen) 0 35%, transparent 40%);
         animation: pulse 1.2s ease-in-out infinite;
       }
@@ -46,36 +87,6 @@
         50% { opacity: 0.55; transform: scale(0.85); }
       }
       @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
-      #label {
-        flex: 1;
-        font-family: var(--font-label);
-        font-size: var(--fs-xs);
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--state-listen);
-      }
-      #time {
-        font-family: var(--font-mono);
-        font-variant-numeric: tabular-nums;
-        font-size: var(--fs-xs);
-        color: var(--text-muted);
-      }
-      button.stop {
-        width: 28px;
-        height: 28px;
-        border: 1px solid color-mix(in srgb, var(--state-fail) 45%, transparent);
-        border-radius: 50%;
-        background: color-mix(in srgb, var(--state-fail) 18%, transparent);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-      }
-      button.stop:hover { background: color-mix(in srgb, var(--state-fail) 35%, transparent); }
-      button.stop:active { transform: scale(0.94); }
-      .square { background: var(--state-fail); width: 10px; height: 10px; border-radius: 2px; }
     </style>
   </head>
   <body>

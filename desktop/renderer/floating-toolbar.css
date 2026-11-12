@@ -17,9 +17,10 @@ body {
   height: 40px;
   margin: 4px;
   padding: 4px 8px;
-  background: rgba(28, 28, 32, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  border: 1px solid var(--border-hairline, var(--border-default));
+  border-radius: var(--radius-card, var(--radius-lg));
+  box-shadow: var(--shadow-md);
   /* Whole bar acts as a drag handle except interactive children. */
   -webkit-app-region: drag;
   backdrop-filter: saturate(140%) blur(18px);
@@ -28,8 +29,8 @@ body {
 
 .grip {
   -webkit-app-region: drag;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 14px;
+  color: var(--text-subtle);
+  font-size: var(--fs-md);
   letter-spacing: -2px;
   padding: 0 4px 0 2px;
   cursor: grab;
@@ -40,7 +41,7 @@ body {
   display: inline-block;
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-hairline, var(--border-default));
   margin: 0 2px;
 }
 
@@ -53,35 +54,35 @@ body {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-default);
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 .toolbar-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--accent-text);
 }
 .toolbar-btn:active {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--bg-pressed);
 }
 .toolbar-btn.ghost {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-subtle);
 }
 .toolbar-btn.ghost:hover {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-default);
 }
 
 .toolbar-btn.record {
   color: var(--danger);
 }
 .toolbar-btn.record.recording {
-  color: #fff;
-  background: color-mix(in srgb, var(--danger) 85%, transparent);
+  color: var(--danger-text);
+  background: var(--chip-bad-bg, var(--danger-soft));
 }
 .toolbar-btn.record.recording:hover {
-  background: var(--danger);
+  background: color-mix(in srgb, var(--danger) 24%, transparent);
 }
 
 .hidden {

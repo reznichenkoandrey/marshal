@@ -52,14 +52,21 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--state-wait) 55%, transparent);
-  border-left: 3px solid var(--state-wait);
-  background: color-mix(in srgb, var(--bg-app) 94%, transparent);
+  /* Lumen alert row: tinted fill and a coloured left rule, no outline. */
+  border-radius: var(--radius-xs);
+  border: 0;
+  border-left: 2px solid var(--state-wait);
+  background:
+    linear-gradient(var(--chip-warn-bg, var(--warning-soft)), var(--chip-warn-bg, var(--warning-soft))),
+    color-mix(in srgb, var(--bg-elevated) 96%, transparent);
   cursor: pointer;
 }
 
-.card:hover { background: var(--bg-elevated); }
+.card:hover {
+  background:
+    linear-gradient(var(--chip-warn-bg, var(--warning-soft)), var(--chip-warn-bg, var(--warning-soft))),
+    var(--bg-hover);
+}
 
 .card b,
 .card small {
@@ -70,13 +77,15 @@ body {
 
 .card b {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--text-strong);
 }
 
 .card small {
-  font-family: var(--font-label);
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking, var(--letter-wider));
   /* Not the amber of the border: small amber text on light glass misses AA. */
   color: var(--text-muted);
 }
