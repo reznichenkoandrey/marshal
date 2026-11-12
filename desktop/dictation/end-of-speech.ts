@@ -41,6 +41,11 @@ export class EndOfSpeech {
 
   constructor(private readonly options: EndOfSpeechOptions) {}
 
+  /** Whether anything long enough to be speech came in so far. */
+  get heard(): boolean {
+    return this.speechMs >= this.options.minSpeechMs;
+  }
+
   /** One meter reading; returns a verdict once the answer is over. */
   feed(db: number, atMs: number): EndOfSpeechVerdict {
     this.startedAt ??= atMs;
@@ -50,7 +55,7 @@ export class EndOfSpeech {
       this.speechMs += step;
       this.lastSpeechAt = atMs;
     }
-    const heard = this.speechMs >= this.options.minSpeechMs;
+    const heard = this.heard;
     if (atMs - this.startedAt >= this.options.maxMs) return heard ? "answered" : "silent";
     if (heard && this.lastSpeechAt !== null && atMs - this.lastSpeechAt >= this.options.silenceMs) return "answered";
     if (!heard && atMs - this.startedAt >= this.options.noSpeechMs) return "silent";

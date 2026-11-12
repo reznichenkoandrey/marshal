@@ -146,6 +146,8 @@ export class DictationService extends EventEmitter {
   private recorderProcess: ChildProcess | null = null;
   private currentWavPath: string | null = null;
   private isStopping = false;
+  /** Meter of the current open-mic recording; null when the recording has none. */
+  private endOfSpeech: EndOfSpeech | null = null;
   private isTranscribing = false;
   private safetyTimer: NodeJS.Timeout | null = null;
   // True once audio-recorder has printed "ready" — AVCaptureSession armed,
@@ -253,7 +255,9 @@ export class DictationService extends EventEmitter {
    * startRecording().
    */
   stopRecording(): void {
-    this.handleHoldEnd(this.mode);
+    // A second click before anyone spoke: whisper would invent text from the silence (#392).
+    if (this.endOfSpeech && !this.endOfSpeech.heard) this.handleHoldCancel(this.mode);
+    else this.handleHoldEnd(this.mode);
   }
 
   /**
@@ -293,6 +297,7 @@ export class DictationService extends EventEmitter {
       return;
     }
     this.mode = mode;
+    this.endOfSpeech = null;
     if (mode === "talk") this.talkTarget = probeFocusedElement().then((focus) => focus.frontmostApp);
 
     const wavPath = path.join(os.tmpdir(), `marshal-dict-${randomUUID()}.wav`);
@@ -366,6 +371,7 @@ export class DictationService extends EventEmitter {
 
   private watchForEndOfSpeech(child: ChildProcess, mode: DictationMode): void {
     const detector = new EndOfSpeech(endOfSpeechOptions());
+    this.endOfSpeech = detector;
     let pending = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       const lines = (pending + chunk.toString("utf8")).split("\n");
