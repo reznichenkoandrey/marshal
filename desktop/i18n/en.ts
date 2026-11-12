@@ -468,7 +468,7 @@ export const en = {
   "settings.update.phase.done": "Done.",
   "settings.update.phase.error": "Failed.",
   "home.hint.idle": "Press the mic and say a command for a Claude Code session",
-  "home.hint.listening": "Listening… press again to send",
+  "home.hint.listening": "Listening… a pause or a click sends it",
   "home.hint.thinking": "Recognising what you said",
   "home.hint.working": "Sessions are working",
   "home.hint.waiting": "A session needs you",

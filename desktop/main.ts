@@ -31,6 +31,7 @@ import { installHolos } from "./speech/holos.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
+import { openMicAllowed, type OpenMicState } from "./dictation/end-of-speech.ts";
 import { detectMacOSDictationEnabled } from "./dictation/macos-dictation-detect.ts";
 import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
@@ -2982,10 +2983,22 @@ function enableAssistantOnce(): void {
   void syncAssistantDispatcher();
 }
 
-function talkToAssistant(): void {
+function openMicState(): OpenMicState {
+  return { asleep: assistantInputs.asleep, meeting: isMeetingRecording, captions: captionsService?.isRunning() ?? false, onCall: isOnCall };
+}
+
+// One click (#384): a pause ends the command, nobody speaking drops it, a
+// second click still stops at once. Where the open mic is not allowed the
+// click stays a plain toggle, so "Маршал, прокинься" still works asleep.
+async function talkToAssistant(): Promise<void> {
   if (!dictationService) return;
-  if (!dictationService.isCurrentlyRecording()) enableAssistantOnce();
-  dictationService.toggleRecording("assistant");
+  if (dictationService.isCurrentlyRecording()) {
+    dictationService.stopRecording();
+    return;
+  }
+  enableAssistantOnce();
+  const endOnPause = await openMicAllowed(openMicState());
+  dictationService.startRecording("assistant", { endOnPause });
 }
 
 // Once per launch, at most once per 30 min (#360); silent on a call, and then the next launch greets.
@@ -3031,7 +3044,7 @@ async function listenAfterSpeech(): Promise<string | null> {
     speechService.whenQuiet().then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
   ]);
-  if (!quiet || assistantInputs.asleep || isMeetingRecording || captionsService?.isRunning() || (await isOnCall())) return null;
+  if (!quiet || !(await openMicAllowed(openMicState()))) return null;
   return dictationService.listenForAnswer();
 }
 
