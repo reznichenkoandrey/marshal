@@ -9,6 +9,10 @@ import path from "node:path";
 
 export const HOOK_SCRIPT_NAME = "marshal-claude-hook.sh";
 export const HOOK_EVENTS = ["Stop", "Notification"] as const;
+// Synchronous, unlike the others: Claude Code waits for a voice answer (#375).
+export const PERMISSION_EVENT = "PermissionRequest";
+const PERMISSION_TIMEOUT_S = 60;
+const ALL_EVENTS = [...HOOK_EVENTS, PERMISSION_EVENT];
 
 type HookCommand = { type?: unknown; command?: unknown; [key: string]: unknown };
 type HookGroup = { matcher?: unknown; hooks?: unknown; [key: string]: unknown };
@@ -34,13 +38,20 @@ function groupsOf(settings: Settings, event: string): unknown[] {
   return Array.isArray(groups) ? groups : [];
 }
 
+function hasMarshalHook(settings: Settings, event: string): boolean {
+  return groupsOf(settings, event).some((group) => {
+    const hooks = (group as HookGroup)?.hooks;
+    return Array.isArray(hooks) && hooks.some(isMarshalHook);
+  });
+}
+
 export function hasMarshalHooks(settings: Settings): boolean {
-  return HOOK_EVENTS.every((event) =>
-    groupsOf(settings, event).some((group) => {
-      const hooks = (group as HookGroup)?.hooks;
-      return Array.isArray(hooks) && hooks.some(isMarshalHook);
-    })
-  );
+  return HOOK_EVENTS.every((event) => hasMarshalHook(settings, event));
+}
+
+/** Installed before #375: Stop and Notification without the permission hook. */
+export function needsPermissionHook(settings: Settings): boolean {
+  return hasMarshalHooks(settings) && !hasMarshalHook(settings, PERMISSION_EVENT);
 }
 
 /** Drop Marshal's commands; a group left with no commands goes with them. */
@@ -49,7 +60,7 @@ export function removeMarshalHooks(settings: Settings): Settings {
     return settings;
   }
   const hooks: Record<string, unknown> = { ...(settings.hooks as Record<string, unknown>) };
-  for (const event of HOOK_EVENTS) {
+  for (const event of ALL_EVENTS) {
     if (!Array.isArray(hooks[event])) continue;
     const kept = (hooks[event] as unknown[]).flatMap((group) => {
       const commands = (group as HookGroup)?.hooks;
@@ -76,6 +87,8 @@ export function addMarshalHooks(settings: Settings, command: string): Settings {
     // Marshal never delays the session.
     hooks[event] = [...groups, { hooks: [{ type: "command", command, async: true }] }];
   }
+  const permission = Array.isArray(hooks[PERMISSION_EVENT]) ? (hooks[PERMISSION_EVENT] as unknown[]) : [];
+  hooks[PERMISSION_EVENT] = [...permission, { hooks: [{ type: "command", command: `${command} permission`, timeout: PERMISSION_TIMEOUT_S }] }];
   return { ...base, hooks };
 }
 
@@ -110,6 +123,14 @@ function writeSettings(filePath: string, settings: Settings, indent: string): vo
 export function readHooksInstalled(filePath = defaultClaudeSettingsPath()): boolean {
   try {
     return hasMarshalHooks(readSettings(filePath).settings);
+  } catch {
+    return false;
+  }
+}
+
+export function readNeedsPermissionHook(filePath = defaultClaudeSettingsPath()): boolean {
+  try {
+    return needsPermissionHook(readSettings(filePath).settings);
   } catch {
     return false;
   }

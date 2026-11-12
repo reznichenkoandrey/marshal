@@ -12,6 +12,7 @@ import {
   hasMarshalHooks,
   hookCommand,
   installHooks,
+  needsPermissionHook,
   removeMarshalHooks,
   uninstallHooks
 } from "../desktop/claude-code/hook-installer.ts";
@@ -70,6 +71,18 @@ describe("hook installer", () => {
   it("uninstall keeps a user command that shares a group with Marshal's", () => {
     const shared = { hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }, { type: "command", command }] }] } };
     expect(removeMarshalHooks(shared)).toEqual({ hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } });
+  });
+
+  it("adds a synchronous PermissionRequest hook and upgrades an older install (#375)", () => {
+    const next = addMarshalHooks(userSettings, command);
+    expect((next.hooks as Record<string, unknown>).PermissionRequest).toEqual([
+      { hooks: [{ type: "command", command: `${command} permission`, timeout: 60 }] }
+    ]);
+    expect(needsPermissionHook(next)).toBe(false);
+    const older = structuredClone(next);
+    delete (older.hooks as Record<string, unknown>).PermissionRequest;
+    expect(needsPermissionHook(older)).toBe(true);
+    expect(needsPermissionHook(userSettings)).toBe(false);
   });
 
   it("install then uninstall on a file with no hooks leaves no hooks key", () => {

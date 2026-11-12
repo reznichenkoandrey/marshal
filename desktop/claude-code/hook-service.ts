@@ -11,6 +11,7 @@ import { HOOK_SCRIPT_NAME } from "./hook-installer.ts";
 import { buildHookScript, EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, type HookEvent } from "./hook-events.ts";
 
 export const HOOK_PATH = "/claude-code/hook";
+export const PERMISSION_PATH = "/claude-code/permission";
 export const ASSISTANT_PATH_PREFIX = "/assistant/";
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -37,7 +38,7 @@ export interface AssistantRoutes {
  * our own loopback address means DNS rebinding; neither may inject events.
  */
 export function rejectHookRequest(req: HookRequest, port: number, token: string, assistant = false): number | null {
-  const isHook = req.method === "POST" && req.url === HOOK_PATH;
+  const isHook = req.method === "POST" && (req.url === HOOK_PATH || req.url === PERMISSION_PATH);
   const isAssistant = assistant && (req.method === "GET" || req.method === "POST") && req.url?.startsWith(ASSISTANT_PATH_PREFIX) === true;
   if (!isHook && !isAssistant) return 404;
   if (req.origin !== undefined) return 403;
@@ -55,7 +56,9 @@ export class ClaudeHookService {
 
   constructor(
     private readonly hookDir: string,
-    private readonly onEvent: (event: HookEvent) => void
+    private readonly onEvent: (event: HookEvent) => void,
+    // The hook's stdout for a PermissionRequest; "" leaves the prompt to the session (#375).
+    private readonly onPermission: (raw: string) => Promise<string> = async () => ""
   ) {}
 
   setAssistantRoutes(routes: AssistantRoutes | null): void {
@@ -143,6 +146,15 @@ export class ClaudeHookService {
       const body = Buffer.concat(chunks).toString("utf8");
       if (req.url !== HOOK_PATH && this.assistant) {
         this.assistant.respond(req.method ?? "GET", req.url!.slice(ASSISTANT_PATH_PREFIX.length), body, res);
+        return;
+      }
+      if (req.url === PERMISSION_PATH) {
+        void this.onPermission(body)
+          .catch((err: unknown) => {
+            console.warn("[claude-hooks] permission handler failed:", err instanceof Error ? err.message : err);
+            return "";
+          })
+          .then((reply) => res.writeHead(200, { "Content-Type": "application/json" }).end(reply));
         return;
       }
       res.writeHead(204).end();

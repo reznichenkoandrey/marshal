@@ -13,7 +13,7 @@ import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
 import { isUnderRoots, parseRoutingRoots } from "./context-router.ts";
 import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
-import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, uninstallHooks } from "./hook-installer.ts";
+import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, readNeedsPermissionHook, uninstallHooks } from "./hook-installer.ts";
 import { ClaudeHookService, type AssistantRoutes } from "./hook-service.ts";
 import { listLiveSessions, type ClaudeSession } from "./registry.ts";
 import { SessionNotifier, type SpokenSessionEvent } from "./session-notifier.ts";
@@ -47,7 +47,9 @@ export class ClaudeHooksController {
     // Any hook event may change which sessions wait: the tray badge recounts (#309).
     private readonly onSessionEvent: () => void = () => {},
     // Session results read aloud for the voice assistant (#318).
-    speak: (event: SpokenSessionEvent) => void = () => {}
+    speak: (event: SpokenSessionEvent) => void = () => {},
+    // Permission prompts answered by voice (#375): the hook's stdout, "" = the usual prompt.
+    askPermission: (raw: string) => Promise<string> = async () => ""
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -73,12 +75,13 @@ export class ClaudeHooksController {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
         if (session && inRoutingRoots(session)) void this.dossiers.refresh(session);
       }
-    });
+    }, askPermission);
   }
 
   /** On app start: listen only if the user installed the hooks. */
   async startIfInstalled(): Promise<void> {
     if (!readHooksInstalled()) return;
+    this.upgrade();
     await this.service.start().catch((err: unknown) => {
       console.warn("[claude-hooks] receiver failed to start:", err instanceof Error ? err.message : err);
     });
@@ -92,6 +95,7 @@ export class ClaudeHooksController {
   /** The voice assistant needs the receiver and the Stop hook: installing them is part of turning it on. */
   async ensureInstalled(): Promise<ClaudeHooksState> {
     if (readHooksInstalled()) {
+      this.upgrade();
       await this.service.start();
       return this.state();
     }
@@ -109,6 +113,16 @@ export class ClaudeHooksController {
       folder: path.basename(session.cwd),
       dossier: dossiers.get(session.sessionId) ?? null
     })));
+  }
+
+  // Hooks installed before #375 lack PermissionRequest; adding it is the same merge as an install.
+  private upgrade(): void {
+    if (!readNeedsPermissionHook()) return;
+    try {
+      installHooks(this.service.writeScript());
+    } catch (err) {
+      console.warn("[claude-hooks] permission hook not added:", err instanceof Error ? err.message : err);
+    }
   }
 
   get hookDir(): string {
