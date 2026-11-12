@@ -77,6 +77,7 @@ export class SpeechService {
   private voices: Promise<SystemVoice[]> | null = null;
   private gateTimer: NodeJS.Timeout | null = null;
   private readonly holos = new HolosServer();
+  private readonly quietWaiters: Array<() => void> = [];
 
   constructor(
     private readonly settings: () => SpeechSettings,
@@ -146,6 +147,16 @@ export class SpeechService {
     return { ok: true, lang, voice: voice.name };
   }
 
+  /** Resolves once nothing is playing or queued: the moment to open the mic for an answer (#375). */
+  whenQuiet(): Promise<void> {
+    if (!this.current && this.queue.size === 0) return Promise.resolve();
+    return new Promise((resolve) => this.quietWaiters.push(resolve));
+  }
+
+  private settleQuiet(): void {
+    for (const resolve of this.quietWaiters.splice(0)) resolve();
+  }
+
   /** Drops the phrase being spoken and moves on to the next one. */
   skip(): void {
     this.cut(false);
@@ -156,6 +167,7 @@ export class SpeechService {
     this.queue.clear();
     this.cut(false);
     this.stopGate();
+    this.settleQuiet();
     this.holos.stop();
   }
 
@@ -185,6 +197,7 @@ export class SpeechService {
     if (this.current) return;
     if (this.queue.size === 0) {
       this.stopGate();
+      this.settleQuiet();
       return;
     }
     this.startGate();

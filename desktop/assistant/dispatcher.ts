@@ -58,6 +58,8 @@ export type DispatcherDeps = {
   context: () => Promise<string>;
   /** Spoken and shown in the home line. */
   say: (text: string) => void;
+  /** Speaks a question and listens for the reply without a key (#375); null when nobody answered. */
+  ask: (question: string) => Promise<string | null>;
   /** Runs one of Marshal's own features; returns what was said about it. */
   runAction: (action: string) => Promise<string>;
   /** Shown in the home line only: the owner's own command, echoed. */
@@ -220,6 +222,11 @@ export class AssistantDispatcher implements AssistantRoutes {
       const text = args.join(" ");
       if (text) this.deps.say(text);
       return "ok";
+    }
+    if (route === "ask") {
+      const question = args.join(" ");
+      if (!question) return "usage: marshal ask <question>";
+      return (await this.deps.ask(question)) ?? "(no answer)";
     }
     if (route === "do") {
       const [action] = args;
