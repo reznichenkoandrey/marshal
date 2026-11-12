@@ -162,6 +162,7 @@ describe("saveSettings", () => {
       assistantLanguage: "en",
       assistantWaitingBadge: false,
       assistantGlow: false,
+      assistantAsleep: false,
       assistantWidget: true,
       assistantWidgetPosition: { x: 1500, y: 40 },
       assistantDispatcher: true,

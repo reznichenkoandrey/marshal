@@ -76,6 +76,7 @@ import {
   shouldGreet,
   writeLastGreeted
 } from "./assistant/greeting.ts";
+import { matchSleepCommand } from "./assistant/sleep.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -170,7 +171,7 @@ let meetingHistoryWindow: MeetingHistoryWindow | null = null;
 let assistantHome: AssistantHomeWindow | null = null;
 let glowFrame: GlowFrame | null = null;
 let miniWidget: MiniWidget | null = null;
-let assistantInputs: AssistantInputs = { ...IDLE_INPUTS };
+let assistantInputs: AssistantInputs = { ...IDLE_INPUTS, asleep: loadSettings().assistantAsleep };
 let assistantLines: string[] = [];
 let sessionsWatcher: fs.FSWatcher | null = null;
 let sessionsRefresh: NodeJS.Timeout | null = null;
@@ -1591,6 +1592,11 @@ function initDictation(): void {
     void toggleMeetingRecording("audio");
   });
   dictationService.on("assistant-command", (text: string) => {
+    const sleep = matchSleepCommand(text);
+    if (sleep) {
+      setAssistantAsleep(sleep === "sleep");
+      return;
+    }
     enableAssistantOnce();
     assistantDispatcher?.submit(text);
     speechService?.warmUp();
@@ -2382,6 +2388,7 @@ function buildTrayMenu(): Electron.Menu {
   return Menu.buildFromTemplate([
     ...(nextMeetingItem ? [nextMeetingItem, { type: "separator" as const }] : []),
     { label: t("tray.openMarshal"), click: () => openAssistantHome() },
+    { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
@@ -2970,7 +2977,7 @@ function talkToAssistant(): void {
 
 // Once per launch, at most once per 30 min (#360); silent on a call, and then the next launch greets.
 async function greetOnLaunch(): Promise<void> {
-  if (!speechService || !loadSettings().speechEnabled) return;
+  if (!speechService || !loadSettings().speechEnabled || assistantInputs.asleep) return;
   const file = path.join(app.getPath("userData"), "greeted.json");
   if (!shouldGreet(Date.now(), readLastGreeted(file))) return;
   const now = new Date();
@@ -2990,6 +2997,19 @@ async function greetOnLaunch(): Promise<void> {
   writeLastGreeted(file, Date.now());
 }
 
+// Asleep (#375): nothing is spoken unless the owner asked for it; push-to-talk still works.
+function setAssistantAsleep(asleep: boolean): void {
+  const uk = uiLanguage() === "uk";
+  if (asleep) {
+    speechService?.stop();
+    sayAsAssistant(uk ? "Добре, сплю." : "Okay, going to sleep.");
+  }
+  saveSettings({ assistantAsleep: asleep });
+  setAssistantInputs({ asleep });
+  if (!asleep) sayAsAssistant(uk ? "Я тут." : "I'm here.");
+  void refreshTrayState();
+}
+
 function sayAsAssistant(text: string): void {
   announceToAssistant(text);
   void speechService?.speak(text);
@@ -2998,7 +3018,8 @@ function sayAsAssistant(text: string): void {
 function speakSessionEvent(event: SpokenSessionEvent): void {
   // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
-  if (event.kind === "finished" && !asked && event.name !== GENERAL_NAME) return;
+  if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
+  if (event.kind === "waiting" && assistantInputs.asleep) return;
   const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
