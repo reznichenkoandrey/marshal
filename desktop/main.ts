@@ -63,7 +63,14 @@ import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher } from "./assistant/dispatcher.ts";
 import { GENERAL_NAME, screenshotCommand } from "./assistant/dispatcher-files.ts";
-import { parseRoutingRoots } from "./claude-code/context-router.ts";
+import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
+import {
+  classifyPermissionAnswer,
+  describePermission,
+  parsePermissionRequest,
+  permissionHookOutput,
+  type PermissionDecision
+} from "./claude-code/permission-voice.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
 import { completeOnce } from "./claude-code/answer-summary.ts";
@@ -182,6 +189,12 @@ const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
 const isOnCall = createCallPresence();
 // A question queued behind other phrases (or held by captions) is stale after this.
 const ANSWER_QUIET_WAIT_MS = 30_000;
+// The hook gives up at 58 s (curl) / 60 s (Claude Code); answer well before that.
+const PERMISSION_DEADLINE_MS = 50_000;
+// The prompt that follows an unanswered voice question needs no second announcement.
+const PERMISSION_ASKED_QUIET_MS = 60_000;
+let permissionTurn: Promise<unknown> = Promise.resolve();
+const permissionAskedAt = new Map<string, number>();
 // Voices, the first calendar sync and the mic probe settle before the greeting.
 const GREETING_DELAY_MS = 8_000;
 // Counted on hook events and while the home window is open, never polled (#281).
@@ -312,7 +325,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent);
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice);
       void claudeHooks.startIfInstalled();
       initCalendar();
       initSpeech();
@@ -3026,6 +3039,31 @@ async function askOwner(question: string): Promise<string | null> {
   return listenAfterSpeech();
 }
 
+// A PermissionRequest hook waits on this (#375): one question at a time, "" = the usual prompt.
+async function answerPermissionByVoice(raw: string): Promise<string> {
+  const request = parsePermissionRequest(raw);
+  const settings = loadSettings();
+  if (!request || !settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
+  if (!isUnderRoots(request.cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return "";
+  const startedAt = Date.now();
+  const late = () => Date.now() - startedAt > PERMISSION_DEADLINE_MS;
+  const turn = permissionTurn.then(async (): Promise<PermissionDecision | null> => {
+    if (late() || assistantInputs.asleep) return null;
+    const name = listLiveSessions().find((session) => session.sessionId === request.sessionId)?.name ?? path.basename(request.cwd);
+    const lang = uiLanguage();
+    permissionAskedAt.set(request.sessionId, Date.now());
+    const answer = await askOwner(describePermission(name, request, lang));
+    const decision = answer ? classifyPermissionAnswer(answer) : null;
+    if (late()) return null;
+    if (decision) sayAsAssistant(lang === "uk" ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
+    else if (answer) sayAsAssistant(lang === "uk" ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+    return decision;
+  });
+  permissionTurn = turn.catch(() => null);
+  const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), PERMISSION_DEADLINE_MS - (Date.now() - startedAt)));
+  return permissionHookOutput(await Promise.race([turn, deadline]));
+}
+
 // Asleep (#375): nothing is spoken unless the owner asked for it; push-to-talk still works.
 function setAssistantAsleep(asleep: boolean): void {
   const uk = uiLanguage() === "uk";
@@ -3049,6 +3087,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
   if (event.kind === "waiting" && assistantInputs.asleep) return;
+  if (event.kind === "waiting" && event.confirmation && Date.now() - (permissionAskedAt.get(event.sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS) return;
   const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
