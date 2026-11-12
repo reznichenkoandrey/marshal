@@ -3,8 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   classifyPermissionAnswer,
   describePermission,
+  describeQuestion,
+  isVoicePermission,
+  matchQuestionAnswer,
   parsePermissionRequest,
   permissionHookOutput,
+  questionHookOutput,
+  voiceQuestion,
   type PermissionRequest
 } from "../desktop/claude-code/permission-voice.ts";
 
@@ -81,5 +86,99 @@ describe("permissionHookOutput", () => {
     });
     expect(JSON.parse(permissionHookOutput("deny")).hookSpecificOutput.decision.behavior).toBe("deny");
     expect(permissionHookOutput(null)).toBe("");
+  });
+});
+
+const ask = (questions: unknown[]): PermissionRequest => request("AskUserQuestion", { questions });
+const colour = {
+  question: "Which colour do you prefer for the badge?",
+  header: "Colour",
+  multiSelect: false,
+  options: [{ label: "Red", description: "warm" }, { label: "Blue sky" }, { label: "Blue" }]
+};
+
+describe("voiceQuestion", () => {
+  it("takes one single-select choice question", () => {
+    expect(voiceQuestion(ask([colour]))).toEqual({ question: colour.question, labels: ["Red", "Blue sky", "Blue"] });
+  });
+
+  it("leaves several questions, multi-select and free text to the session", () => {
+    expect(voiceQuestion(ask([colour, colour]))).toBeNull();
+    expect(voiceQuestion(ask([{ ...colour, multiSelect: true }]))).toBeNull();
+    expect(voiceQuestion(ask([{ question: "Name?", kind: "text" }]))).toBeNull();
+    expect(voiceQuestion(request("Bash", { command: "ls" }))).toBeNull();
+  });
+
+  it("keeps question tools out of the yes/no permission path", () => {
+    expect(isVoicePermission(ask([colour]))).toBe(false);
+    expect(isVoicePermission(request("ExitPlanMode", {}))).toBe(false);
+    expect(isVoicePermission(request("Bash", { command: "ls" }))).toBe(true);
+  });
+});
+
+describe("describeQuestion", () => {
+  it("says the question and numbered options briefly", () => {
+    const q = { question: colour.question, labels: ["Red", "Blue"] };
+    expect(describeQuestion("marshal", q, "en")).toBe("marshal asks: Which colour do you prefer for the badge? Options — 1: Red, 2: Blue.");
+    expect(describeQuestion("marshal", q, "uk")).toContain("marshal питає:");
+  });
+
+  it("clips a long question", () => {
+    const long = { question: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen", labels: ["a", "b"] };
+    expect(describeQuestion("s", long, "en")).toContain("twelve…");
+  });
+});
+
+describe("matchQuestionAnswer", () => {
+  const labels = ["Red", "Blue sky", "Blue"];
+
+  it("matches a number or an ordinal in either language", () => {
+    expect(matchQuestionAnswer("два", labels)).toBe(1);
+    expect(matchQuestionAnswer("Давай варіант 3.", labels)).toBe(2);
+    expect(matchQuestionAnswer("the first one", labels)).toBe(0);
+    expect(matchQuestionAnswer("перший", labels)).toBe(0);
+  });
+
+  it("matches a label, longest first", () => {
+    expect(matchQuestionAnswer("Blue sky please", labels)).toBe(1);
+    expect(matchQuestionAnswer("blue", labels)).toBe(2);
+    expect(matchQuestionAnswer("red", labels)).toBe(0);
+  });
+
+  it("agrees when the number and the label name the same option", () => {
+    expect(matchQuestionAnswer("перший, red", labels)).toBe(0);
+  });
+
+  it("never guesses", () => {
+    expect(matchQuestionAnswer("", labels)).toBeNull();
+    expect(matchQuestionAnswer("red or blue", labels)).toBeNull();
+    expect(matchQuestionAnswer("не перший", labels)).toBeNull();
+    expect(matchQuestionAnswer("не знаю", labels)).toBeNull();
+    expect(matchQuestionAnswer("так", labels)).toBeNull();
+    expect(matchQuestionAnswer("п'ятий", labels)).toBeNull();
+    expect(matchQuestionAnswer("four", labels)).toBeNull();
+    expect(matchQuestionAnswer("I think maybe we should go with red here", labels)).toBeNull();
+  });
+
+  it("lets a label that is itself a no be chosen", () => {
+    expect(matchQuestionAnswer("no", ["Yes", "No"])).toBe(1);
+  });
+});
+
+describe("questionHookOutput", () => {
+  it("answers the same call through updatedInput", () => {
+    const req = ask([colour]);
+    const q = voiceQuestion(req)!;
+    expect(JSON.parse(questionHookOutput(req, q, 1))).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: { behavior: "allow", updatedInput: { questions: [colour], answers: { [colour.question]: "Blue sky" } } }
+      }
+    });
+  });
+
+  it("prints nothing without an answer", () => {
+    const req = ask([colour]);
+    expect(questionHookOutput(req, voiceQuestion(req)!, null)).toBe("");
   });
 });

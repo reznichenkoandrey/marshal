@@ -99,3 +99,97 @@ export function permissionHookOutput(decision: PermissionDecision | null): strin
     : { behavior: "deny", message: "The owner declined this by voice." };
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: body } });
 }
+
+// AskUserQuestion and ExitPlanMode reach the same hook, but "allow" alone does
+// not answer them: Claude Code turns an allow without updatedInput into a deny
+// for tools whose dialog is the answer. Plan approval stays in the session.
+export const QUESTION_TOOL = "AskUserQuestion";
+const SESSION_ONLY_TOOLS = new Set(["ExitPlanMode"]);
+
+export function isVoicePermission(request: PermissionRequest): boolean {
+  return request.toolName !== QUESTION_TOOL && !SESSION_ONLY_TOOLS.has(request.toolName);
+}
+
+/** The one question of an AskUserQuestion call Marshal can ask aloud; null = leave it to the session. */
+export type VoiceQuestion = { question: string; labels: string[] };
+
+export function voiceQuestion(request: PermissionRequest): VoiceQuestion | null {
+  if (request.toolName !== QUESTION_TOOL) return null;
+  const questions = request.toolInput.questions;
+  // Several questions, multi-select or a free-text box take longer to say than to click.
+  if (!Array.isArray(questions) || questions.length !== 1) return null;
+  const q = questions[0] as Record<string, unknown>;
+  if (typeof q !== "object" || q === null || q.multiSelect === true) return null;
+  if (q.kind !== undefined && q.kind !== "choice") return null;
+  const question = str(q.question);
+  const labels = Array.isArray(q.options) ? q.options.map((option) => str((option as Record<string, unknown>)?.label)) : [];
+  if (!question || labels.length < 2 || labels.some((label) => !label)) return null;
+  return { question, labels };
+}
+
+const MAX_SPOKEN_QUESTION_WORDS = 12;
+const MAX_SPOKEN_LABEL_WORDS = 4;
+
+function clip(text: string, maxWords: number): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ");
+  return words.length <= maxWords ? words.join(" ") : `${words.slice(0, maxWords).join(" ")}…`;
+}
+
+export function describeQuestion(name: string, q: VoiceQuestion, lang: UiLanguage): string {
+  const options = q.labels.map((label, i) => `${i + 1}: ${clip(label, MAX_SPOKEN_LABEL_WORDS)}`).join(", ");
+  return lang === "uk"
+    ? `${name} питає: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Варіанти — ${options}.`
+    : `${name} asks: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Options — ${options}.`;
+}
+
+const ORDINALS: ReadonlyArray<ReadonlySet<string>> = [
+  new Set(["1", "один", "одна", "одну", "перший", "перша", "першу", "перше", "першого", "one", "first"]),
+  new Set(["2", "два", "дві", "другий", "друга", "другу", "друге", "другого", "two", "second"]),
+  new Set(["3", "три", "третій", "третя", "третю", "третє", "третього", "three", "third"]),
+  new Set(["4", "чотири", "четвертий", "четверта", "четверту", "четверте", "четвертого", "four", "fourth"])
+];
+// Words that may surround the choice without changing it ("давай варіант два").
+const MAX_EXTRA_WORDS = 4;
+
+function words(text: string): string[] {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s'’]/gu, " ").replace(/’/g, "'").split(/\s+/).filter(Boolean);
+}
+
+function indexOfRun(haystack: readonly string[], needle: readonly string[]): number {
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    if (needle.every((word, j) => haystack[i + j] === word)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Index of the option the owner named, by number or by label, or null.
+ * Conservative: two different options named, a "no" outside a label, or a
+ * long answer all mean no answer — the session keeps its own dialog.
+ */
+export function matchQuestionAnswer(text: string, labels: readonly string[]): number | null {
+  let rest = words(text);
+  if (rest.length === 0) return null;
+  const chosen = new Set<number>();
+  // Longest labels first, so "Blue sky" is not read as "Blue".
+  const byLength = labels.map((label, i) => ({ i, run: words(label) })).sort((a, b) => b.run.length - a.run.length);
+  for (const { i, run } of byLength) {
+    const at = run.length > 0 ? indexOfRun(rest, run) : -1;
+    if (at < 0) continue;
+    chosen.add(i);
+    rest = [...rest.slice(0, at), ...rest.slice(at + run.length)];
+  }
+  ORDINALS.slice(0, labels.length).forEach((set, i) => {
+    if (rest.some((word) => set.has(word))) chosen.add(i);
+  });
+  rest = rest.filter((word) => !ORDINALS.some((set) => set.has(word)));
+  if (chosen.size !== 1 || rest.some((word) => NO.has(word)) || rest.length > MAX_EXTRA_WORDS) return null;
+  return [...chosen][0];
+}
+
+/** stdout of the hook: the same call, answered — Claude Code then shows no dialog. */
+export function questionHookOutput(request: PermissionRequest, q: VoiceQuestion, index: number | null): string {
+  if (index === null) return "";
+  const updatedInput = { ...request.toolInput, answers: { [q.question]: q.labels[index] } };
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput } } });
+}
