@@ -263,6 +263,7 @@ describe("dispatcher over the hook receiver", () => {
     expect(scripts[0]).toContain("--name marshal-dispatcher");
     expect(scripts[1]).toContain("--name general");
     expect(fs.readFileSync(path.join(dispatcher.dispatcherDir, "CLAUDE.md"), "utf8")).toContain("./marshal watch");
+    expect(fs.readFileSync(path.join(dispatcher.dispatcherDir, "CLAUDE.md"), "utf8")).toContain("режим дозволів асистента інший");
     expect(fs.statSync(path.join(dispatcher.dispatcherDir, "marshal")).mode & 0o777).toBe(0o700);
     const trusted = JSON.parse(fs.readFileSync(path.join(path.dirname(dispatcher.dispatcherDir), "..", ".claude.json"), "utf8")) as { projects: Record<string, unknown> };
     expect(Object.keys(trusted.projects)).toEqual([dispatcher.dispatcherDir, dispatcher.generalDir()]);
