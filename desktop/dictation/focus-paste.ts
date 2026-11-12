@@ -52,6 +52,8 @@ export interface FocusProbeResult {
   // NSWorkspace.frontmostApplication's localizedName, e.g. "Claude" or
   // "Finder". Used as a fallback signal when AX silently fails.
   frontmostApp: string;
+  /** Bundle path of the frontmost app; unlike its name, not localized. */
+  frontmostPath?: string;
 }
 
 const FALLBACK: FocusProbeResult = {
@@ -96,7 +98,8 @@ export function parseFocusProbe(stdout: string): FocusProbeResult {
       subrole: typeof record.subrole === "string" ? record.subrole : "",
       axError: typeof record.axError === "number" ? record.axError : -1,
       axTrusted: record.axTrusted === true,
-      frontmostApp: typeof record.frontmostApp === "string" ? record.frontmostApp : ""
+      frontmostApp: typeof record.frontmostApp === "string" ? record.frontmostApp : "",
+      ...(typeof record.frontmostPath === "string" ? { frontmostPath: record.frontmostPath } : {})
     };
   } catch {
     return FALLBACK;

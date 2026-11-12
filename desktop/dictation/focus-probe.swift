@@ -134,6 +134,8 @@ let json = "{\"isTextInput\":\(result.isTextInput ? "true" : "false")," +
     "\"subrole\":\"\(escape(result.subrole))\"," +
     "\"axError\":\(result.axError)," +
     "\"axTrusted\":\(result.axTrusted ? "true" : "false")," +
-    "\"frontmostApp\":\"\(escape(result.frontmostApp))\"}"
+    "\"frontmostApp\":\"\(escape(result.frontmostApp))\"," +
+    // localizedName is translated ("Термінал"); the bundle path is not (#394).
+    "\"frontmostPath\":\"\(escape(NSWorkspace.shared.frontmostApplication?.bundleURL?.path ?? ""))\"}"
 print(json)
 exit(0)
