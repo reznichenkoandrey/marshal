@@ -178,6 +178,10 @@ let sessionsRefresh: NodeJS.Timeout | null = null;
 let calendarService: CalendarService | null = null;
 let isMeetingRecording = false;
 const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
+// Shared by speech and the open mic (#359, #375): the probe caches its answer for 2 s.
+const isOnCall = createCallPresence();
+// A question queued behind other phrases (or held by captions) is stale after this.
+const ANSWER_QUIET_WAIT_MS = 30_000;
 // Voices, the first calendar sync and the mic probe settle before the greeting.
 const GREETING_DELAY_MS = 8_000;
 // Counted on hook events and while the home window is open, never polled (#281).
@@ -1591,16 +1595,7 @@ function initDictation(): void {
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
   });
-  dictationService.on("assistant-command", (text: string) => {
-    const sleep = matchSleepCommand(text);
-    if (sleep) {
-      setAssistantAsleep(sleep === "sleep");
-      return;
-    }
-    enableAssistantOnce();
-    assistantDispatcher?.submit(text);
-    speechService?.warmUp();
-  });
+  dictationService.on("assistant-command", handleVoiceCommand);
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
     const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text;
@@ -1812,7 +1807,7 @@ function initSpeech(): void {
     // Our own recording or captions; a call in another app is caught by the mic probe (#359).
     () => (isDictating ? "dictation" : isMeetingRecording ? "meeting" : captionsService?.isRunning() ? "captions" : null),
     (speaking) => setAssistantInputs({ speaking }),
-    createCallPresence()
+    isOnCall
   );
   handleIpc("marshal:speech-voices", () => speechService!.describeVoices());
   let piperInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
@@ -2905,6 +2900,7 @@ function initAssistantDispatcher(): void {
     liveSessions: () => listLiveSessions(),
     context: () => hooks.routingContext(ownSessions()),
     say: sayAsAssistant,
+    ask: askOwner,
     runAction: assistantVoiceAction,
     announce: announceToAssistant,
     focus: (pid) => {
@@ -2995,6 +2991,39 @@ async function greetOnLaunch(): Promise<void> {
   if (!result.ok) return;
   announceToAssistant(text);
   writeLastGreeted(file, Date.now());
+  // The greeting ends with "що робимо сьогодні?": listen for the answer.
+  const answer = await listenAfterSpeech();
+  if (answer) handleVoiceCommand(answer);
+}
+
+function handleVoiceCommand(text: string): void {
+  const sleep = matchSleepCommand(text);
+  if (sleep) {
+    setAssistantAsleep(sleep === "sleep");
+    return;
+  }
+  enableAssistantOnce();
+  assistantDispatcher?.submit(text);
+  speechService?.warmUp();
+}
+
+// Opens the mic once Marshal stops talking, no key needed (#375); null when nobody answered.
+async function listenAfterSpeech(): Promise<string | null> {
+  if (!speechService || !dictationService || assistantInputs.asleep) return null;
+  const quiet = await Promise.race([
+    speechService.whenQuiet().then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
+  ]);
+  if (!quiet || assistantInputs.asleep || isMeetingRecording || captionsService?.isRunning() || (await isOnCall())) return null;
+  return dictationService.listenForAnswer();
+}
+
+async function askOwner(question: string): Promise<string | null> {
+  if (!speechService || assistantInputs.asleep) return null;
+  const spoken = await speechService.speak(question, { key: "assistant:ask" });
+  if (!spoken.ok) return null;
+  announceToAssistant(question);
+  return listenAfterSpeech();
 }
 
 // Asleep (#375): nothing is spoken unless the owner asked for it; push-to-talk still works.

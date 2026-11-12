@@ -163,6 +163,7 @@ describe("dispatcher over the hook receiver", () => {
       liveSessions: () => live,
       context: async () => "off",
       say: (text) => said.push(text),
+      ask: async (question) => (question.includes("якій") ? "у маршалі" : null),
       runAction: async (action) => {
         actions.push(action);
         return `ran ${action}`;
@@ -199,6 +200,8 @@ describe("dispatcher over the hook receiver", () => {
       expect(sessions.map((s) => s.address)).toEqual(["uds:/s/m"]);
       expect(await helper(hookDir, ["say", "Передав \"marshal\"; $(rm -rf /)"])).toBe("ok\n");
       expect(said).toEqual(["Передав \"marshal\"; $(rm -rf /)"]);
+      expect(await helper(hookDir, ["ask", "В якій сесії?"])).toBe("у маршалі\n");
+      expect(await helper(hookDir, ["ask", "Що далі?"])).toBe("(no answer)\n");
       expect(await helper(hookDir, ["do", "skip"])).toBe("ran skip\n");
       expect(actions).toEqual(["skip"]);
       expect(await helper(hookDir, ["insert", "Буду за 5 хвилин"])).toBe("pasted\n");

@@ -30,6 +30,7 @@ import {
   buildDictationPrompt,
   type WhisperBackend
 } from "./whisper-backend.ts";
+import { EndOfSpeech, endOfSpeechOptions, parseMeterLine } from "./end-of-speech.ts";
 
 // Hold to talk to Marshal (#361); this key also carries the right-⌘ gestures (#239, #242).
 const DEFAULT_TALK_HOTKEY = "RightCmd";
@@ -59,7 +60,8 @@ function debug(...args: unknown[]): void {
 
 // paste = into the frontmost app; talk = the held talk key, assistant = the
 // home mic toggle: both are a command for the voice dispatcher (#318, #361).
-export type DictationMode = "paste" | "talk" | "assistant";
+// answer = the mic Marshal opens after asking something; it closes on a pause (#375).
+export type DictationMode = "paste" | "talk" | "assistant" | "answer";
 
 export type DictationEvents = {
   "recording-start": [];
@@ -152,6 +154,7 @@ export class DictationService extends EventEmitter {
   // handshake before sending SIGTERM, otherwise a quick tap produces a
   // 44-byte header-only WAV and the user sees "Audio file is empty". #82.
   private recorderReady = false;
+  private answerResolve: ((text: string | null) => void) | null = null;
 
   constructor(private readonly glossaryTerms: () => readonly string[] = () => []) {
     super();
@@ -218,6 +221,25 @@ export class DictationService extends EventEmitter {
   }
 
   /**
+   * Opens the mic without a key and resolves with what the owner said, or
+   * null when nobody answered or the mic is busy (#375).
+   */
+  listenForAnswer(): Promise<string | null> {
+    if (this.recorderProcess || this.isTranscribing) return Promise.resolve(null);
+    const answer = new Promise<string | null>((resolve) => {
+      this.answerResolve = resolve;
+    });
+    this.handleHoldStart("answer");
+    return answer;
+  }
+
+  private settleAnswer(text: string | null): void {
+    const resolve = this.answerResolve;
+    this.answerResolve = null;
+    resolve?.(text);
+  }
+
+  /**
    * Manual entry point that mirrors a push-to-talk down event. Used by the
    * tray menu's "Start Dictation" when the push-to-talk listener cannot fire
    * (e.g. Input Monitoring revoked after a self-signed bundle replace — #84).
@@ -278,6 +300,7 @@ export class DictationService extends EventEmitter {
     // uses the system default input, same behavior as before.
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
     const recorderArgs = micUid ? [wavPath, "--device", micUid] : [wavPath];
+    if (mode === "answer") recorderArgs.push("--meter");
     debug("  spawn recorder:", this.recorderBin, "→", wavPath, micUid ? `(mic=${micUid})` : "");
 
     const child = spawn(this.recorderBin, recorderArgs, { stdio: ["ignore", "pipe", "pipe"] });
@@ -290,7 +313,7 @@ export class DictationService extends EventEmitter {
     this.safetyTimer = setTimeout(() => {
       debug("safety timeout — forcing hold-end after", MAX_RECORDING_MS, "ms");
       // The assistant mic is a toggle, not a held key: no hotkey to end.
-      if (mode === "assistant") this.stopRecording();
+      if (mode === "assistant" || mode === "answer") this.stopRecording();
       else (mode === "talk" ? this.talkHotkey : this.pasteHotkey)?.forceEnd();
     }, MAX_RECORDING_MS);
 
@@ -303,10 +326,12 @@ export class DictationService extends EventEmitter {
       if (this.isStopping) return;
       this.emit("recording-start");
     });
+    if (mode === "answer") this.watchForEndOfSpeech(child);
     child.stderr?.on("data", (chunk: Buffer) => {
       console.warn("[dictation] recorder stderr:", chunk.toString("utf8").trim());
     });
     child.on("error", (err) => {
+      this.settleAnswer(null);
       this.recorderProcess = null;
       this.currentWavPath = null;
       this.clearSafetyTimer();
@@ -316,6 +341,7 @@ export class DictationService extends EventEmitter {
       debug("  recorder exited, code=", code, "isStopping=", this.isStopping);
       this.recorderProcess = null;
       if (!this.isStopping) {
+        this.settleAnswer(null);
         this.clearSafetyTimer();
         // Recorder died unexpectedly — clean up without transcribing (partial
         // WAV files usually have no valid header).
@@ -332,6 +358,23 @@ export class DictationService extends EventEmitter {
             )
           );
         }
+      }
+    });
+  }
+
+  private watchForEndOfSpeech(child: ChildProcess): void {
+    const detector = new EndOfSpeech(endOfSpeechOptions());
+    let pending = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const lines = (pending + chunk.toString("utf8")).split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        const db = parseMeterLine(line);
+        if (db === null || this.recorderProcess !== child || this.isStopping) continue;
+        const verdict = detector.feed(db, Date.now());
+        debug("  answer level", db, verdict ?? "");
+        if (verdict === "answered") this.handleHoldEnd("answer");
+        else if (verdict === "silent") this.handleHoldCancel("answer");
       }
     });
   }
@@ -361,6 +404,7 @@ export class DictationService extends EventEmitter {
     const child = this.recorderProcess;
     const wavPath = this.currentWavPath;
     if (!child || this.isStopping || mode !== this.mode) return;
+    this.settleAnswer(null);
     this.isStopping = true;
     this.clearSafetyTimer();
     this.currentWavPath = null;
@@ -468,6 +512,13 @@ export class DictationService extends EventEmitter {
       const stat = await fs.stat(wavPath).catch(() => null);
       debug("WAV size:", stat?.size ?? "missing");
       // WAV header is 44 bytes; anything smaller means we captured nothing.
+      if (this.mode === "answer") {
+        if (!stat || stat.size < 1024) return;
+        const result = await this.backend.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+        const text = transcriptToDeliver(result.text).trim();
+        this.settleAnswer(text || null);
+        return;
+      }
       if (!stat || stat.size < 1024) {
         this.emit(
           "error",
@@ -510,6 +561,7 @@ export class DictationService extends EventEmitter {
         );
       }
     } finally {
+      this.settleAnswer(null);
       this.isTranscribing = false;
       this.emit("transcribe-end");
       await fs.unlink(wavPath).catch(() => undefined);
