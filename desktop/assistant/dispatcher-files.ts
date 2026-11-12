@@ -19,8 +19,11 @@ export type GeneralPermissionMode = "bypass" | "auto" | "default";
 
 // Claude Code holds a cross-session message whose sender runs in another
 // permission mode, so the assistant's sessions run in the owner's mode (#322).
+// Bypass is the owner's choice in Settings. Without the skip flag the session
+// stops on Claude Code's bypass warning in a minimised window: the dispatcher
+// starts with project settings only and never sees the owner's own skip (#390).
 function permissionArgs(mode: GeneralPermissionMode): string[] {
-  if (mode === "bypass") return ["--permission-mode", "bypassPermissions"];
+  if (mode === "bypass") return ["--permission-mode", "bypassPermissions", "--settings", `'{"skipDangerousModePermissionPrompt":true}'`];
   return mode === "auto" ? ["--permission-mode", "auto"] : [];
 }
 
@@ -242,10 +245,10 @@ export function findNamedClaudePids(psOutput: string, name: string): number[] {
   return pids;
 }
 
-/** `do terminal script` for a new Terminal window, minimised so it stays out of the way. */
+/** `do script` for a new Terminal window, minimised so it stays out of the way; it closes when the session ends (#390). */
 
 export function terminalScript(cwd: string, commandLine: string, title: string, minimised = true): string {
-  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}`;
+  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}; exit`;
   const appleString = `"${command.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
   return [
     "tell application \"Terminal\"",
