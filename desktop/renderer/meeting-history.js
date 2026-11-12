@@ -277,7 +277,8 @@ function describe(entry) {
   if (entry.state === "finalizing") return t("meetings.stateSaving");
   if (finishing.has(entry.id)) return t("meetings.stateFinishing");
   if (notesJob?.id === entry.id) return describeNotesJob(notesJob);
-  if (entry.state === "interrupted") return t("meetings.stateInterrupted");
+  // The status chip already says Interrupted; Finish explains the raw chunks in its tooltip.
+  if (entry.state === "interrupted") return "";
   if (entry.state === "error") return t("meetings.stateFailed", { error: entry.error ?? t("meetings.unknownError") });
   return entry.warnings.length > 0 ? t("meetings.warnings", { count: entry.warnings.length }) : "";
 }

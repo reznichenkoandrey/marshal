@@ -682,7 +682,6 @@ export const en = {
   "meetings.stateRecording": "Recording…",
   "meetings.stateSaving": "Saving…",
   "meetings.stateFinishing": "Building the audio file…",
-  "meetings.stateInterrupted": "Interrupted — raw chunks are in the folder",
   "meetings.stateFailed": "Failed: {error}",
   "meetings.unknownError": "unknown error",
   "meetings.warnings": "{count} warning(s)",

@@ -85,7 +85,7 @@ function renderMetrics(now) {
   archiveLabel.textContent = archive
     ? t("history.metricArchiveOf", { budget: humanSize(archive.budget) })
     : t("history.metricArchive");
-  const lit = Math.round(share * METER_CELLS);
+  const lit = Math.ceil(share * METER_CELLS);
   archiveMeter.replaceChildren(
     ...Array.from({ length: METER_CELLS }, (_, index) => {
       const cell = document.createElement("i");

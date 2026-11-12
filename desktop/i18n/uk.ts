@@ -684,7 +684,6 @@ export const uk: Record<MessageKey, string> = {
   "meetings.stateRecording": "Запис…",
   "meetings.stateSaving": "Зберігаю…",
   "meetings.stateFinishing": "Збираю аудіофайл…",
-  "meetings.stateInterrupted": "Перервано — сирі чанки лежать у теці",
   "meetings.stateFailed": "Не вдалося: {error}",
   "meetings.unknownError": "невідома помилка",
   "meetings.warnings": "попереджень: {count}",
