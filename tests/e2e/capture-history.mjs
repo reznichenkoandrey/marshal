@@ -135,7 +135,8 @@ async function main() {
   await win.loadFile(path.join(RENDERER, "capture-history.html"));
   win.webContents.send("marshal:capture-history-loaded", {
     folder: "/fake/captures",
-    entries: ENTRIES
+    entries: ENTRIES,
+    archive: { bytes: 74_000, budget: 600 * 1024 * 1024 }
   });
   await sleep(400);
 
@@ -162,6 +163,12 @@ async function main() {
     `document.querySelectorAll(".tile-source").length`
   );
   record("archive-only entries are labelled", notSaved === 2, `${notSaved} labelled`);
+
+  // A small archive must still light the meter, or it reads as broken (#409).
+  const meter = await win.webContents.executeJavaScript(
+    `({ lit: document.querySelectorAll("#archive-meter i.on").length, label: document.getElementById("archive-label").textContent })`
+  );
+  record("archive usage lights the meter", meter.lit === 1 && meter.label.includes("600"), JSON.stringify(meter));
 
   // ── Search ──────────────────────────────────────────────────────────────
   await typeInto(win, "#search", "yesterday");
