@@ -73,7 +73,9 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - Anything else — a question, a request to do something on the computer, open an app, find a file, look something up — goes to the session named \`${GENERAL_NAME}\`. If it is not in the list, run \`./marshal spawn ${GENERAL_NAME}\` first.
    - A text whose last line is \`Screenshot: <path>\` comes from the capture editor: the owner is pointing at something on screen. Route it by the rules above, never to a Marshal feature, and keep the \`Screenshot:\` line exactly as written in what you send: the session reads the image from that path. With no other words, it goes to the session that clearly matches by context, else to \`${GENERAL_NAME}\`.
    - Speech you cannot make sense of: say "Не розчув, повтори." or "Didn't catch that." and send nothing.
-5. Send it once: \`SendMessage\` with \`to\` set to the target's \`address\` exactly as printed and \`message\` set to
+5. The owner answers a question the target asked at the end of its last turn — a confirmation ("так", "архівуй", "yes, merge it") or a choice — and its \`status\` is \`idle\`: run \`./marshal reply <name> "<text>"\` instead of \`SendMessage\`, with the owner's words exactly as recognised and only the session name left out, never words of your own. A session takes the owner's approval only from its own input field, not from a message of yours. On \`ok\` say nothing: the answer comes aloud. On anything else say only "Відповідь у буфері, встав її в <name>." or "The reply is on the clipboard, paste it into <name>." A session with \`status\` \`waiting\` shows a dialog that Marshal asks about aloud itself: never reply to it.
+
+   Everything else — send it once: \`SendMessage\` with \`to\` set to the target's \`address\` exactly as printed and \`message\` set to
 
    \`\`\`
    Голосова команда власника, розпізнана з мовлення, можливі помилки. Власник почує твою останню відповідь уголос, тож закінчи одним-двома короткими реченнями без markdown: <text>
@@ -139,12 +141,12 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
-    "  say|ask|do|insert|spawn|sent|peek)",
+    "  say|ask|do|insert|reply|spawn|sent|peek)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | say <text> | ask <question> | do <action> | insert <text> | spawn [project] [name] | sent <session> | peek <session>'",
+    "    echo 'usage: marshal watch | sessions | context | say <text> | ask <question> | do <action> | insert <text> | reply <session> <words> | spawn [project] [name] | sent <session> | peek <session>'",
     "    exit 1 ;;",
     "esac",
     ""

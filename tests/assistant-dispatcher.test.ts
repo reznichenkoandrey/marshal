@@ -226,6 +226,10 @@ describe("dispatcher over the hook receiver", () => {
         inserted.push(text);
         return "pasted";
       },
+      reply: async (target, text) => {
+        inserted.push(`${target.name}: ${text}`);
+        return "ok";
+      },
       runAppleScript: async (script) => {
         scripts.push(script);
       },
@@ -264,6 +268,27 @@ describe("dispatcher over the hook receiver", () => {
       expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, false)).toBe(true);
       expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, true)).toBe(true);
       expect(dispatcher.answersVoiceCommand(live[0]!.sessionId, true)).toBe(false);
+    } finally {
+      service.stop();
+    }
+  });
+
+  it("types a reply only into an idle session and waits for its answer aloud", async () => {
+    const live = [
+      session({ name: "funky-rabbit", sessionId: "f" }),
+      session({ name: "snoriq", sessionId: "n", status: "waiting", waitingFor: "permission prompt" }),
+      session({ name: "busy", sessionId: "b", status: "busy" })
+    ];
+    const { dispatcher, service, inserted, hookDir } = setup(live);
+    await service.start();
+    try {
+      expect(await helper(hookDir, ["reply", "funky-rabbit", "так, архівуй"])).toBe("ok\n");
+      expect(inserted).toEqual(["funky-rabbit: так, архівуй"]);
+      expect(dispatcher.answersVoiceCommand("f", true)).toBe(true);
+      expect(await helper(hookDir, ["reply", "snoriq", "так"])).toBe("snoriq shows a dialog; answer it there.\n");
+      expect(await helper(hookDir, ["reply", "busy", "так"])).toBe("busy is busy; try again when it stops.\n");
+      expect(await helper(hookDir, ["reply", "funky-rabbit"])).toBe("usage: marshal reply <session> <owner's words>\n");
+      expect(inserted).toHaveLength(1);
     } finally {
       service.stop();
     }

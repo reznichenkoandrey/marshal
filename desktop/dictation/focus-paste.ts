@@ -152,6 +152,8 @@ export function isAxBlind(focus: FocusProbeResult): boolean {
 export interface ProbeOptions {
   binPath?: string;
   timeoutMs?: number;
+  /** Ask the frontmost app itself, building an Electron app's AX tree if needed (#394). */
+  appLevel?: boolean;
 }
 
 /**
@@ -168,7 +170,7 @@ export function probeFocusedElement(options: ProbeOptions = {}): Promise<FocusPr
     let stdout = "";
     let child;
     try {
-      child = spawn(binPath, [], { stdio: ["ignore", "pipe", "ignore"] });
+      child = spawn(binPath, options.appLevel ? ["--app"] : [], { stdio: ["ignore", "pipe", "ignore"] });
     } catch {
       resolve(FALLBACK);
       return;

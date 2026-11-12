@@ -12,6 +12,7 @@ import path from "node:path";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
 import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
+import { replyRefusal } from "../claude-code/reply.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import {
   buildGeneralPrompt,
@@ -111,6 +112,8 @@ export type DispatcherDeps = {
   focus: (pid: number) => void;
   /** `./marshal insert`: types the text into the app the owner was in when they spoke (#361). */
   insert: (text: string) => Promise<string>;
+  /** `./marshal reply`: types the owner's words into the session as their own input (#394). */
+  reply: (session: ClaudeSession, text: string) => Promise<string>;
   runAppleScript?: (script: string) => Promise<void>;
   /** Where Claude Code keeps folder trust; ~/.claude.json. */
   claudeStatePath?: string;
@@ -361,6 +364,18 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (route === "insert") {
       const text = args.join(" ");
       return text ? this.deps.insert(text) : "usage: marshal insert <text>";
+    }
+    if (route === "reply") {
+      const [name, ...words] = args;
+      const text = words.join(" ");
+      if (!name || !text) return "usage: marshal reply <session> <owner's words>";
+      const target = this.deps.liveSessions().find((session) => session.name === name);
+      const refusal = replyRefusal(target, name);
+      if (!target || refusal) return refusal;
+      const result = await this.deps.reply(target, text);
+      // The session's answer is what the owner waits to hear.
+      if (result === "ok") this.awaitingAnswer.add(target.sessionId);
+      return result;
     }
     if (route === "spawn") return this.spawn(args);
     if (route === "peek") {

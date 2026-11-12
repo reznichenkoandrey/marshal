@@ -38,6 +38,8 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
+import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
+import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import {
   DEFAULT_MODEL_NAME,
@@ -2937,6 +2939,18 @@ function initAssistantDispatcher(): void {
       void focusSession(pid).catch(() => undefined);
     },
     insert: async (text) => (dictationService ? dictationService.insert(text) : "not running"),
+    reply: (session, text) =>
+      replyToSession(session, text, {
+        hostApp: hostAppOf,
+        focusSession,
+        // The app-level fallback waits up to 500 ms for an Electron tree to appear.
+        probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
+        writeClipboard: (value) => clipboard.writeText(value),
+        sendKey: (key) => sendKeystroke(key),
+        activate: async (app) => {
+          await execFileAsync("open", ["-a", app]);
+        }
+      }),
     runAppleScript: async (script) => {
       await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     },
