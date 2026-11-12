@@ -1023,12 +1023,15 @@ const CAPTURE_HIDE_SETTLE_MS = 150;
  * Hides every visible Marshal window so none of them lands in the shot, and
  * returns a function that brings them back without taking focus (#342).
  * Content-protected windows (captions, glow, mini widget) are already absent
- * from screen captures and stay put. Hiding does not activate Marshal, so a
- * menu open in another app survives until the screen has been grabbed.
+ * from screen captures and stay put. The assistant home stays too: it is the
+ * main window, and vanishing under the cursor reads as a crash; it lands in the
+ * frozen frame like any other app. Hiding does not activate Marshal, so a menu
+ * open in another app survives until the screen has been grabbed.
  */
 async function hideOwnWindows(): Promise<() => void> {
   const hidden = BrowserWindow.getAllWindows().filter(
-    (win) => !win.isDestroyed() && win.isVisible() && !win.isContentProtected()
+    (win) =>
+      !win.isDestroyed() && win.isVisible() && !win.isContentProtected() && !assistantHome?.owns(win)
   );
   for (const win of hidden) win.hide();
   if (hidden.length > 0) await new Promise<void>((r) => setTimeout(r, CAPTURE_HIDE_SETTLE_MS));
