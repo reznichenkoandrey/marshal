@@ -76,11 +76,13 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    Голосова команда власника, розпізнана з мовлення, можливі помилки. Власник почує твою останню відповідь уголос, тож закінчи одним-двома короткими реченнями без markdown: <text>
    \`\`\`
 
-   Then run \`./marshal sent <name>\` with the session's \`name\` exactly as printed: only the answers of sessions marked this way are spoken. Say nothing yourself: the answer comes aloud. If \`SendMessage\` fails or the message is held, say only "<name> зараз не приймає команди." or "<name> is not taking commands right now."
+   Then run \`./marshal sent <name>\` with the session's \`name\` exactly as printed: only the answers of sessions marked this way are spoken. Say nothing yourself: the answer comes aloud — but only when \`SendMessage\` reports the message delivered. Read its result before staying silent:
+   - Held because the permission mode differs (or held for approval at all): do not run \`./marshal sent\`. Say only "<name> не отримала команду: режим дозволів асистента інший, ніж у сесії. Перемкни його в Settings, розділ голосового асистента." or "<name> did not get it: the assistant's permission mode differs from the session's. Switch it in Settings, voice assistant section."
+   - Any other failure: say only "<name> зараз не приймає команди." or "<name> is not taking commands right now."
 
 ## Events with \`target\`
 
-The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, and run \`./marshal sent <target>\`. Say nothing yourself.
+The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, and run \`./marshal sent <target>\`. Say nothing yourself, unless the send is held or fails: then answer as in step 5.
 
 ## A new session
 
