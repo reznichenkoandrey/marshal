@@ -320,6 +320,11 @@ export function sharedWhisperServer(options: WhisperServerOptions): WhisperServe
   return shared;
 }
 
+/** Whether the shared server is up with the model loaded. */
+export function isSharedWhisperServerRunning(): boolean {
+  return shared?.isRunning ?? false;
+}
+
 /** Called on app quit so the model's memory is released with the app. */
 export function stopSharedWhisperServer(): void {
   shared?.stop();

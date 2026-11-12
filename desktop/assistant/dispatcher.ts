@@ -14,6 +14,7 @@ import type { AssistantRoutes } from "../claude-code/hook-service.ts";
 import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
+import type { CommandRoute } from "./command-log.ts";
 import {
   buildGeneralPrompt,
   findNamedClaudePids,
@@ -124,6 +125,8 @@ export type DispatcherDeps = {
   /** 0 = spawned sessions stay until closed by hand. */
   sessionIdleMs?: number;
   log?: (message: string) => void;
+  /** Voice command log for the home dashboard (#398): each command, and where it went. */
+  commands?: { add: (text: string) => void; route: (route: CommandRoute) => void };
 };
 
 /** `ps -axo pid=,command=`; empty on failure, so the registry alone decides. */
@@ -299,6 +302,7 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   /** A voice command from the home mic. Waits in the queue while the dispatcher is not listening. */
   submit(text: string): void {
+    this.deps.commands?.add(text);
     if (this.queue.submit(text)) {
       this.deps.announce(text);
       return;
@@ -350,6 +354,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (route === "say") {
       const text = args.join(" ");
       if (text) this.deps.say(text);
+      if (text) this.deps.commands?.route({ kind: "general", target: "marshal", outcome: "answered" });
       return "ok";
     }
     if (route === "ask") {
@@ -359,7 +364,13 @@ export class AssistantDispatcher implements AssistantRoutes {
     }
     if (route === "do") {
       const [action] = args;
-      return action ? this.deps.runAction(action) : "usage: marshal do <action>";
+      if (!action) return "usage: marshal do <action>";
+      const said = await this.deps.runAction(action).catch((err: unknown) => {
+        this.deps.commands?.route({ kind: "feature", target: action, outcome: "failed" });
+        throw err;
+      });
+      this.deps.commands?.route({ kind: "feature", target: action, outcome: "answered" });
+      return said;
     }
     if (route === "insert") {
       const text = args.join(" ");
@@ -373,6 +384,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       const refusal = replyRefusal(target, name);
       if (!target || refusal) return refusal;
       const result = await this.deps.reply(target, text);
+      this.deps.commands?.route({ kind: "session", target: name, outcome: result === "ok" ? "sent" : "failed" });
       // The session's answer is what the owner waits to hear.
       if (result === "ok") this.awaitingAnswer.add(target.sessionId);
       return result;
@@ -387,6 +399,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       const target = this.deps.liveSessions().find((session) => session.name === args.join(" "));
       if (!target) return `No live session named "${args.join(" ")}".`;
       this.awaitingAnswer.add(target.sessionId);
+      this.deps.commands?.route({ kind: "session", target: target.name ?? args.join(" "), outcome: "sent" });
       return "ok";
     }
     return null;

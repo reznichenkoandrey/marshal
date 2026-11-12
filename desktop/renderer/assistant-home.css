@@ -1,5 +1,6 @@
-/* Assistant home (#284): HUD panel around the voice visual. Tokens only —
-   the look and palette come from design-tokens.css via theme.js. */
+/* Assistant home (#284, #398): a Lumen-style dashboard — top bar with tabs,
+   a main column with the wave hero and the dock, a right rail of cards.
+   Tokens only; the epic #396 tokens carry fallbacks until the lumen look lands. */
 
 html,
 body {
@@ -14,24 +15,28 @@ body {
 
 .home {
   --state: var(--state-idle);
+  --hairline: var(--border-hairline, var(--border-default));
+  --card-radius: var(--radius-card, var(--radius-md));
+  --chip-radius: var(--radius-chip, var(--radius-xs));
+  --fs-metric: 40px;
+  --fw-thin: 300;
+  --tracking: var(--label-tracking, 0.12em);
   position: relative;
   box-sizing: border-box;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-4) var(--space-6);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 340px;
   container-type: inline-size;
-  padding: var(--space-4) var(--space-6) var(--space-6);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-strong);
-  background:
-    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--state) 14%, transparent), transparent 60%),
-    color-mix(in srgb, var(--bg-app) 94%, transparent);
-  box-shadow: inset 0 0 48px color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid var(--hairline);
+  background: var(--bg-app);
   overflow: hidden;
-  transition: background var(--dur-slow) var(--ease-out);
 }
+
+.home *,
+.home *::before,
+.home *::after { box-sizing: border-box; }
 
 .home[data-state="listening"] { --state: var(--state-listen); }
 .home[data-state="thinking"],
@@ -40,66 +45,114 @@ body {
 .home[data-state="waiting"] { --state: var(--state-wait); }
 .home[data-state="offline"] { --state: var(--state-fail); }
 
-.scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    color-mix(in srgb, var(--accent) 4%, transparent) 0 1px,
-    transparent 1px 3px
-  );
-  opacity: 0.6;
+/* Mono uppercase letter-spaced labels: the Lumen readout voice. */
+.chip,
+.hotkey,
+.tag,
+.project,
+.count,
+.seg button,
+.updated,
+.tog,
+.fchip,
+.ochip,
+.feature-foot,
+.commands th,
+.level,
+.split,
+.big span,
+.sub,
+.metric .delta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
 }
 
-:root[data-theme="light"] .scan { opacity: 0.25; }
-
+/* ── Top bar: logo, tabs, compact actions ── */
 .bar {
   grid-column: 1 / -1;
-  position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--hairline);
   -webkit-app-region: drag;
-  font: var(--fs-xs) / 1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
 }
 
 .brand {
-  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-2xl);
   font-weight: var(--fw-semibold);
-  text-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
 }
 
-.brand::before { content: "◎ "; }
+.brand-mark { display: inline-grid; color: var(--accent); }
 
-.chip {
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--state) 60%, transparent);
-  border-radius: var(--radius-xs);
-  color: color-mix(in srgb, var(--state) 75%, var(--text-strong));
-  box-shadow: 0 0 12px color-mix(in srgb, var(--state) 30%, transparent);
-  transition: color var(--dur-slow), border-color var(--dur-slow), box-shadow var(--dur-slow);
+.tabs {
+  display: flex;
+  gap: var(--space-6);
+  -webkit-app-region: no-drag;
 }
 
-.spacer { flex: 1; }
+.tab {
+  position: relative;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: var(--fw-medium) var(--fs-md) / 1 var(--font-sans);
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--text-strong); }
+
+.tab[aria-selected="true"] { color: var(--text-strong); }
+
+/* The selected tab glows from below, as in the reference. */
+.tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: calc(-1 * var(--space-3) - 1px);
+  height: var(--space-3);
+  background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--accent) 45%, transparent), transparent 70%);
+}
+
+.tab:focus-visible,
+.icon-btn:focus-visible,
+.tog:focus-visible,
+.join:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+.bar-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+}
 
 .hotkey {
-  padding: 3px 6px;
-  border: 1px solid var(--border-default);
-  background: var(--bg-muted);
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--chip-radius);
+  background: var(--bg-surface);
   color: var(--text-muted);
-  font: inherit;
-  letter-spacing: 0.08em;
 }
 
 .icon-btn {
   -webkit-app-region: no-drag;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -110,152 +163,512 @@ body {
 
 .icon-btn:hover {
   color: var(--text-strong);
-  border-color: var(--border-default);
+  border-color: var(--hairline);
+  background: var(--bg-surface);
 }
 
-.stage {
-  position: relative;
-  display: grid;
-  place-items: center;
-  min-height: 0;
-  container-type: size;
-}
-
-.visual {
-  width: min(100%, 100cqh, 420px);
-  aspect-ratio: 1;
-  height: auto;
-  max-height: 100%;
-}
-
-.line {
-  position: relative;
-  margin: 0 auto;
-  max-width: 560px;
-  min-height: calc(2 * var(--lh-normal) * var(--fs-md));
-  display: grid;
-  place-content: center;
-  padding: var(--space-3) var(--space-5);
-  border: 1px solid var(--border-default);
-  border-left: 2px solid var(--state);
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
-  font-size: var(--fs-md);
-  line-height: var(--lh-normal);
-  text-align: center;
-  color: var(--text-default);
-  overflow-wrap: anywhere;
-}
-
+/* ── Compact feature actions in the top bar; the mic stays in the hero ── */
 .dock {
-  position: relative;
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: var(--space-3);
-  padding-top: var(--space-2);
+  gap: 2px;
+  margin-right: var(--space-2);
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--hairline);
+  -webkit-app-region: no-drag;
 }
 
 .dock button {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--dur-base), background var(--dur-base);
+}
+
+.dock button:hover { color: var(--text-strong); background: var(--bg-surface); border-color: var(--hairline); }
+.dock button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+
+/* A running feature lights its button (#341). */
+.dock button.on {
+  color: var(--accent-text);
+  background: var(--chip-info-bg, var(--accent-soft));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ── Main column: scrolls; blocks with a large light title ── */
+.dash,
+.side { grid-row: 2; }
+
+.dash {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-6) var(--space-8);
+}
+
+.block + .block { margin-top: var(--space-8); }
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.block-head h2 {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-thin);
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+
+.block-note { font-size: var(--fs-sm); color: var(--text-muted); }
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.seg button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--chip-radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.seg button[aria-selected="true"] { background: var(--bg-muted); color: var(--text-strong); }
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-default);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.link:hover { color: var(--accent-text); }
+
+/* ── Hero: the ribbon on the left, 2×2 metrics on the right, a footer strip ── */
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 46%);
+  grid-template-rows: minmax(200px, auto) auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  background:
+    radial-gradient(120% 90% at 35% 100%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    var(--bg-surface);
+  overflow: hidden;
+}
+
+/* The state sits on the hero's corner like the reference's LIVE STREAM tab;
+   it is the only place the hero carries the state colour. */
+.chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  border-bottom-right-radius: var(--chip-radius);
+  background: var(--state);
+  color: var(--bg-surface);
+  transition: background var(--dur-slow);
+}
+
+.chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.stage {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  position: relative;
+  min-height: 0;
+}
+
+.visual {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.metrics {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: var(--space-6) 0;
+  padding: var(--space-6) var(--space-6) var(--space-5) 0;
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.metric:nth-child(even) { border-left: 1px solid var(--hairline); }
+
+.metric .num {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-thin);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.metric.accent .num { color: var(--accent-text); }
+.metric.over .num { color: var(--danger-text, var(--state-fail)); }
+
+.metric .label {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.metric.accent .label { color: var(--accent-text); }
+
+.metric .delta {
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--hairline);
+  color: var(--text-default);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.strip {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--hairline);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+.strip [hidden] { display: none; }
+
+/* The mic is the primary action: the one filled control on the page. */
+.mic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--bg-muted);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 3px var(--bg-surface), inset 0 0 0 4px var(--border-strong);
+  background: var(--accent);
+  color: var(--bg-surface);
   cursor: pointer;
-  transition: box-shadow var(--dur-base), color var(--dur-base);
+  transition: background var(--dur-base), box-shadow var(--dur-base);
 }
 
-.dock button:hover,
-.dock button:focus-visible {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 3px var(--bg-surface),
-    inset 0 0 0 4px var(--accent),
-    0 0 14px color-mix(in srgb, var(--accent) 40%, transparent);
+.mic:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text-strong)); }
+.mic:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.home[data-state="listening"] .mic { background: var(--state-listen); box-shadow: 0 0 0 4px var(--chip-info-bg, var(--accent-soft)); }
+
+.line {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--fs-md);
+  color: var(--text-default);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.dock button.on {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-muted));
-  box-shadow:
-    inset 0 0 0 3px var(--bg-surface),
-    inset 0 0 0 4px var(--accent),
-    0 0 14px color-mix(in srgb, var(--accent) 45%, transparent);
+.toggles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.dock button:disabled {
-  color: var(--text-disabled);
-  cursor: default;
-  box-shadow: inset 0 0 0 3px var(--bg-surface), inset 0 0 0 4px var(--border-subtle);
+.updated {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
 }
 
-.dock .mic {
-  width: 56px;
-  height: 56px;
-  margin: 0 var(--space-2);
-  color: var(--state);
-  box-shadow:
-    inset 0 0 0 3px var(--bg-surface),
-    inset 0 0 0 5px color-mix(in srgb, var(--state) 70%, transparent),
-    0 0 18px color-mix(in srgb, var(--state) 30%, transparent);
+.updated::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
-.home[data-state="listening"] .dock .mic {
-  background: color-mix(in srgb, var(--state) 18%, var(--bg-muted));
+.tog,
+.join {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--chip-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home,
-  .chip,
-  .dock button { transition: none; }
+.tog:hover,
+.join:hover { color: var(--text-strong); border-color: var(--hairline); }
+
+.tog.lang {
+  border-color: var(--hairline);
+  color: var(--accent-text);
 }
 
-/* Explicit row: the strip above may be hidden and must not pull these up into its row. */
-.core,
-.side { grid-row: 3; }
-
-.core {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  gap: var(--space-4);
-  min-height: 0;
-}
-
-/* ── Side panel: sessions and what Marshal said last (#308) ── */
-.side {
+.sw {
   position: relative;
-  width: 340px;
+  width: 24px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.tog[aria-pressed="true"] .sw {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tog[aria-pressed="true"] .sw::after {
+  transform: translateX(10px);
+  background: var(--accent);
+}
+
+
+/* ── Features: one card per feature, chip + dotted ring + footer stats ── */
+.features {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: var(--space-4);
-  min-height: 0;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
 }
 
-/* Too narrow for two columns: the visual and the dock win. */
-@container (max-width: 760px) {
-  .side { display: none; }
-}
-
-.card {
+.feature {
+  --c: var(--accent);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--border-default);
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  background: var(--bg-surface);
 }
 
-.card h3 {
-  margin: 0 0 var(--space-3);
-  font: var(--fw-semibold) var(--fs-xs) / 1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+.feature[data-state="running"] { --c: var(--state-listen); }
+.feature[data-state="off"] { --c: var(--text-subtle); }
+.feature[data-state="no_model"] { --c: var(--state-wait); }
+.feature[data-state="error"] { --c: var(--state-fail); border-color: color-mix(in srgb, var(--state-fail) 45%, var(--hairline)); }
+
+.ring {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--hairline);
+  background: radial-gradient(circle, color-mix(in srgb, var(--c) 22%, transparent) 0 6px, transparent 22px);
+  position: relative;
+}
+
+.ring::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.ring svg { width: 48px; height: 48px; }
+
+.ring circle {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0 4.1;
+  opacity: 0.85;
+}
+
+.feature[data-state="off"] .ring circle { opacity: 0.4; }
+
+.feature-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.feature-body h4 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--text-strong);
+}
+
+.feature-body p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-tight);
   color: var(--text-muted);
 }
+
+.fchip,
+.ochip {
+  justify-self: start;
+  padding: 2px 6px;
+  border-radius: var(--chip-radius);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.feature[data-state="running"] .fchip { background: var(--chip-ok-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-done) 75%, var(--text-strong)); }
+.feature[data-state="off"] .fchip { background: var(--bg-muted); color: var(--text-muted); }
+.feature[data-state="no_model"] .fchip { background: var(--chip-warn-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-wait) 75%, var(--text-strong)); }
+.feature[data-state="error"] .fchip { background: var(--chip-bad-bg, var(--accent-soft)); color: var(--danger-text, var(--state-fail)); }
+
+.feature-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  color: var(--text-default);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.feature-foot .stat { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.feature-foot .stat:first-of-type { flex: 1; }
+.feature-icon { flex: none; display: inline-flex; color: var(--text-muted); }
+
+/* ── Recent commands table ── */
+.commands {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.commands[hidden] { display: none; }
+
+.commands th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-muted);
+  font-weight: var(--fw-regular);
+  text-align: left;
+}
+
+.commands td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-default);
+  vertical-align: middle;
+}
+
+.commands .right { text-align: right; }
+.commands .mono { font-family: var(--font-mono); white-space: nowrap; }
+
+.commands .time { margin-right: var(--space-3); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-subtle); }
+.commands q { overflow-wrap: anywhere; color: var(--text-strong); }
+.commands .routed { color: var(--text-muted); white-space: nowrap; }
+
+tr[data-outcome="answered"] .ochip { background: var(--chip-ok-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-done) 75%, var(--text-strong)); }
+tr[data-outcome="pending"] .ochip { background: var(--bg-muted); color: var(--text-muted); }
+tr[data-outcome="no_answer"] .ochip { background: var(--chip-warn-bg, var(--accent-soft)); color: color-mix(in srgb, var(--state-wait) 75%, var(--text-strong)); }
+tr[data-outcome="failed"] .ochip { background: var(--chip-bad-bg, var(--accent-soft)); color: var(--danger-text, var(--state-fail)); }
+
+/* ── Right rail: sessions, alerts, memory, next meeting ── */
+.side {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--hairline);
+}
+
+.card { padding: var(--space-5) var(--space-6); }
+.card[hidden] { display: none; }
+.card + .card { border-top: 1px solid var(--hairline); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  color: var(--text-strong);
+}
+
+.card-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+}
+
+.count {
+  padding: 2px 6px;
+  border-radius: var(--chip-radius);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.count[data-urgent="true"] {
+  background: var(--chip-bad-bg, color-mix(in srgb, var(--state-fail) 14%, transparent));
+  color: var(--danger-text, var(--state-fail));
+}
+
+.count:empty { display: none; }
 
 .sessions,
 .recent {
@@ -268,8 +681,6 @@ body {
 
 .project {
   margin: var(--space-4) 0 var(--space-2);
-  font: var(--fs-xs) / 1.2 var(--font-mono);
-  letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
@@ -277,49 +688,42 @@ body {
 
 .session {
   --c: var(--state-idle);
+  --chip: var(--bg-muted);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
   align-items: center;
   width: 100%;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-default);
+  border: 0;
   border-left: 2px solid var(--c);
-  border-radius: var(--radius-xs);
-  background: var(--bg-muted);
+  background: transparent;
   color: var(--text-default);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.session:hover { border-color: color-mix(in srgb, var(--c) 60%, transparent); }
-.session:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.session:hover { background: var(--bg-surface); }
+.session:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 
-.session[data-status="busy"] { --c: var(--state-think); }
-.session[data-status="waiting"] { --c: var(--state-wait); }
-.session[data-status="shell"] { --c: var(--state-listen); }
-
-.session .dot {
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--c);
-  border-radius: 50%;
+.session[data-status="busy"] { --c: var(--state-think); --chip: var(--chip-info-bg, color-mix(in srgb, var(--state-think) 14%, transparent)); }
+.session[data-status="waiting"] {
+  --c: var(--state-wait);
+  --chip: var(--chip-warn-bg, color-mix(in srgb, var(--state-wait) 16%, transparent));
+  background: color-mix(in srgb, var(--state-wait) 7%, transparent);
 }
+.session[data-status="shell"] { --c: var(--state-listen); --chip: var(--chip-ok-bg, color-mix(in srgb, var(--state-listen) 14%, transparent)); }
 
-.session[data-status="busy"] .dot {
-  border-top-color: transparent;
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
+/* The ring is kept in the markup for the busy spinner; the chip carries the status. */
+.session .dot { display: none; }
 
 .session b {
   display: block;
   overflow: hidden;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -327,16 +731,17 @@ body {
 .session small {
   display: block;
   overflow: hidden;
-  font: var(--fs-xs) / 1.3 var(--font-mono);
+  margin-top: 2px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .session .tag {
-  font: var(--fs-xs) / 1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: var(--chip-radius);
+  background: var(--chip);
   color: color-mix(in srgb, var(--c) 75%, var(--text-strong));
 }
 
@@ -346,156 +751,121 @@ body {
   color: var(--text-muted);
 }
 
-.empty:empty { display: none; }
+.empty:empty,
+.sessions:empty { display: none; }
 
+/* Alerts: critical / warning / info, each with its colour on the left border. */
 .recent li {
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border-subtle);
+  --c: var(--accent);
+  display: grid;
+  gap: 2px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--c);
   font-size: var(--fs-sm);
-  color: var(--text-muted);
+  line-height: var(--lh-tight);
   overflow-wrap: anywhere;
 }
 
-.recent li:first-child {
-  border-top: 0;
+.recent li[data-level="critical"] { --c: var(--state-fail); background: var(--chip-bad-bg, var(--accent-soft)); }
+.recent li[data-level="warning"] { --c: var(--state-wait); }
+.recent li.none { border-left-color: var(--hairline); color: var(--text-muted); }
+
+.recent .level { color: color-mix(in srgb, var(--c) 80%, var(--text-strong)); }
+.recent b { font-weight: var(--fw-regular); color: var(--text-strong); }
+.recent small { color: var(--text-muted); }
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.big b {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-thin);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.big span { color: var(--text-muted); }
+
+/* Memory as a dotted bar meter, like the reference's budget. */
+.batt {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+  height: 18px;
+}
+
+.batt i { background: radial-gradient(circle, var(--border-strong) 1px, transparent 1.5px) 0 0 / 4px 4px; }
+.batt i.on { background-image: radial-gradient(circle, var(--accent) 1.3px, transparent 1.7px); }
+#mem.over .batt i.on { background-image: radial-gradient(circle, var(--state-fail) 1.3px, transparent 1.7px); }
+
+.sub { margin: var(--space-2) 0 var(--space-3); color: var(--text-muted); }
+
+.split {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.split li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
   color: var(--text-default);
+}
+
+.split .meter {
+  height: 2px;
+  background: linear-gradient(90deg, var(--c, var(--accent)) calc(var(--share) * 100%), var(--hairline) 0);
+}
+
+.split li[data-group="renderer"] { --c: var(--text-strong); }
+.split li[data-group="gpu"] { --c: var(--state-fail); }
+.split li[data-group="service"] { --c: var(--state-wait); }
+.split li[data-group="helpers"] { --c: var(--text-subtle); }
+
+.meeting-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-md);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.join {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--chip-info-bg, var(--accent-soft));
+  color: var(--accent-text);
+}
+
+.join[hidden] { display: none; }
+
+/* Too narrow for two columns: the rail goes under the main column. A media query,
+   not @container: the container is .home itself, which its own query cannot restyle. */
+@media (max-width: 760px) {
+  .home { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
+  .dash { min-height: auto; overflow: visible; }
+  .home:not([data-view="settings"]) { overflow-y: auto; }
+  .side { grid-row: 3; min-height: auto; overflow: visible; border-left: 0; border-top: 1px solid var(--hairline); }
+  .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: 160px auto auto; }
+  .stage { grid-row: 1; }
+  .metrics { grid-column: 1; grid-row: 2; padding: var(--space-4) var(--space-5); }
+  .strip { grid-row: 3; flex-wrap: wrap; }
+  .tabs { gap: var(--space-4); }
+  .bar { grid-template-columns: auto 1fr auto; }
+  .dock { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session[data-status="busy"] .dot { animation: none; }
-}
-
-/* ── Status strip: what runs, toggles, memory, next meeting (#309) ── */
-.strip {
-  grid-column: 1 / -1;
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-5);
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border-default);
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
-  font: var(--fs-xs) / 1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-.strip[hidden],
-.strip [hidden] { display: none; }
-
-.toggles,
-.mem,
-.meeting {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-}
-
-
-.tog,
-.join {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 4px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  cursor: pointer;
-}
-
-.tog:hover,
-.tog:focus-visible,
-.join:hover,
-.join:focus-visible {
-  outline: none;
-  color: var(--text-strong);
-  border-color: var(--border-default);
-}
-
-.tog.lang {
-  border-color: var(--border-default);
-  color: var(--accent);
-}
-
-.sw {
-  position: relative;
-  width: 12px;
-  height: 22px;
-  border: 1px solid var(--border-strong);
-  border-radius: 2px;
-}
-
-.sw::after {
-  content: "";
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 2px;
-  height: 8px;
-  background: var(--text-muted);
-  opacity: 0.5;
-}
-
-.tog[aria-pressed="true"] .sw::after {
-  top: 2px;
-  bottom: auto;
-  background: var(--accent);
-  opacity: 1;
-  box-shadow: 0 0 6px var(--accent);
-}
-
-.batt {
-  position: relative;
-  display: inline-flex;
-  gap: 2px;
-  margin-right: 6px;
-  padding: 2px;
-  border: 1px solid var(--border-strong);
-}
-
-.batt::after {
-  content: "";
-  position: absolute;
-  right: -4px;
-  top: 30%;
-  width: 2px;
-  height: 40%;
-  background: var(--border-strong);
-}
-
-.batt i {
-  width: 5px;
-  height: 12px;
-  background: var(--bg-muted);
-}
-
-.batt i.on { background: var(--accent); }
-.mem.over .batt i.on { background: var(--state-fail); }
-.mem.over { color: var(--state-fail); }
-
-.meeting { margin-left: auto; }
-
-.meeting b {
-  display: inline-block;
-  max-width: 180px;
-  overflow: hidden;
-  vertical-align: bottom;
-  color: var(--text-default);
-  font-weight: var(--fw-semibold);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.join {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  color: var(--accent);
+  .chip,
+  .mic,
+  .sw::after,
+  .dock button { transition: none; }
 }

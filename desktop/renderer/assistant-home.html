@@ -15,45 +15,82 @@
 </head>
 <body>
   <div class="home" id="home" data-state="idle">
-    <div class="scan" aria-hidden="true"></div>
     <header class="bar">
-      <span class="brand">Marshal</span>
-      <span class="chip" id="state-chip" role="status" aria-live="polite"></span>
-      <span class="spacer"></span>
-      <kbd class="hotkey" id="hotkey" hidden></kbd>
-      <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
+      <span class="brand"><span class="brand-mark" data-icon="sun" data-icon-size="20" aria-hidden="true"></span>marshal</span>
+      <nav class="tabs" role="tablist" aria-label="Marshal">
+        <button type="button" class="tab" role="tab" data-tab="home" aria-selected="true" data-i18n="home.overview">Overview</button>
+        <button type="button" class="tab" role="tab" data-tab="settings" aria-selected="false" data-i18n="settings.settings">Settings</button>
+      </nav>
+      <div class="bar-actions">
+        <nav class="dock" aria-label="Dock" data-i18n-aria-label="settings.dock">
+          <button type="button" data-action="translator" data-icon="languages" data-icon-size="18"></button>
+          <button type="button" data-action="captions" data-icon="captions" data-icon-size="18"></button>
+          <button type="button" data-action="record-call" data-icon="circle-dot" data-icon-size="18"></button>
+          <button type="button" data-action="capture" data-icon="crop" data-icon-size="18"></button>
+          <button type="button" data-action="recordings" data-icon="history" data-icon-size="18"></button>
+          <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal" data-icon-size="18"></button>
+          <button type="button" data-action="settings" data-icon="settings" data-icon-size="18"></button>
+        </nav>
+        <kbd class="hotkey" id="hotkey" hidden></kbd>
+        <button class="icon-btn" id="close-btn" type="button" data-icon="x" data-icon-size="16"></button>
+      </div>
     </header>
 
-    <div class="strip" id="strip">
-      <div class="toggles">
-        <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
-        <button type="button" class="tog lang" data-action="toggle-language"></button>
-      </div>
-      <div class="mem" id="mem" hidden><span class="batt" id="batt" aria-hidden="true"></span><span id="mem-text"></span></div>
-      <div class="meeting" id="meeting" hidden>
-        <span class="meeting-text"><b id="meeting-title"></b> <span id="meeting-when"></span></span>
-        <button type="button" class="join" id="join" data-action="join-meeting"></button>
-      </div>
-    </div>
+    <main class="dash" id="dash">
+      <section class="block glance" aria-labelledby="glance-title">
+        <header class="block-head">
+          <h2 id="glance-title" data-i18n="home.glance">Today at a glance</h2>
+          <div class="seg" id="range" role="tablist" aria-label="Range">
+            <button type="button" role="tab" data-range="1" aria-selected="true">24H</button>
+            <button type="button" role="tab" data-range="7" aria-selected="false">7D</button>
+          </div>
+        </header>
+        <div class="hero">
+          <span class="chip live" id="state-chip" role="status" aria-live="polite"></span>
+          <div class="stage"><canvas id="visual" class="visual" aria-hidden="true"></canvas></div>
+          <div class="metrics" id="metrics">
+            <div class="metric accent" data-metric="sessions"><b class="num"></b><span class="label"></span></div>
+            <div class="metric" data-metric="commands"><b class="num"></b><span class="label"></span></div>
+            <div class="metric" data-metric="memory"><b class="num"></b><span class="label"></span></div>
+            <div class="metric" data-metric="meeting"><b class="num"></b><span class="label"></span></div>
+          </div>
+          <footer class="strip" id="strip">
+            <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="18"></button>
+            <p class="line" id="assistant-line" aria-live="polite"></p>
+            <div class="toggles">
+              <button type="button" class="tog" data-action="toggle-speech"><span class="sw" aria-hidden="true"></span><span data-label="speech"></span></button>
+              <button type="button" class="tog lang" data-action="toggle-language"></button>
+            </div>
+            <span class="updated" id="updated"></span>
+          </footer>
+        </div>
+      </section>
 
-    <section class="core">
-    <main class="stage">
-      <canvas id="visual" class="visual" aria-hidden="true"></canvas>
+      <section class="block" aria-labelledby="features-title">
+        <header class="block-head">
+          <h2 id="features-title" data-i18n="home.features">Features</h2>
+          <span class="block-note" id="features-note"></span>
+        </header>
+        <div class="features" id="features"></div>
+      </section>
+
+      <section class="block" aria-labelledby="commands-title">
+        <header class="block-head">
+          <h2 id="commands-title" data-i18n="home.commands">Recent commands</h2>
+          <button type="button" class="link" data-action="dispatcher-terminal"><span data-i18n="home.viewAll">View all</span><span data-icon="arrow-right" data-icon-size="14" aria-hidden="true"></span></button>
+        </header>
+        <table class="commands">
+          <thead><tr>
+            <th data-i18n="home.col.said">You said</th>
+            <th data-i18n="home.col.routed">Routed to</th>
+            <th data-i18n="home.col.outcome">Outcome</th>
+            <th class="right" data-i18n="home.col.handled">Handled in</th>
+          </tr></thead>
+          <tbody id="commands"></tbody>
+        </table>
+        <p class="empty" id="commands-empty"></p>
+      </section>
     </main>
-
-    <p class="line" id="assistant-line" aria-live="polite"></p>
-
-    <nav class="dock" aria-label="Dock" data-i18n-aria-label="settings.dock">
-      <button type="button" data-action="translator" data-icon="languages"></button>
-      <button type="button" data-action="captions" data-icon="captions"></button>
-      <button type="button" data-action="record-call" data-icon="circle-dot"></button>
-      <button type="button" class="mic" id="mic-btn" data-action="dictate-session" data-icon="mic" data-icon-size="26"></button>
-      <button type="button" data-action="recordings" data-icon="history"></button>
-      <button type="button" data-action="capture" data-icon="crop"></button>
-      <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal"></button>
-      <button type="button" data-action="settings" data-icon="settings"></button>
-    </nav>
-    </section>
 
     <section class="settings" id="settings" aria-labelledby="settings-title" hidden>
       <header class="settings-head">
@@ -735,13 +772,26 @@
 
     <aside class="side">
       <section class="card">
-        <h3 id="sessions-title"></h3>
+        <header class="card-head"><span data-icon="square-terminal" data-icon-size="16" aria-hidden="true"></span><h3 id="sessions-title"></h3></header>
         <ul class="sessions" id="sessions" aria-labelledby="sessions-title"></ul>
         <p class="empty" id="sessions-empty"></p>
       </section>
       <section class="card">
-        <h3 id="recent-title"></h3>
+        <header class="card-head"><span data-icon="bell" data-icon-size="16" aria-hidden="true"></span><h3 id="recent-title"></h3><span class="count" id="recent-count"></span></header>
         <ol class="recent" id="recent" aria-labelledby="recent-title"></ol>
+      </section>
+      <section class="card" id="mem" hidden>
+        <header class="card-head"><span data-icon="cpu" data-icon-size="16" aria-hidden="true"></span><h3 data-i18n="home.memory">Memory</h3></header>
+        <p class="big"><b id="mem-used"></b> <span id="mem-budget"></span></p>
+        <span class="batt" id="batt" aria-hidden="true"></span>
+        <p class="sub" id="mem-text"></p>
+        <ul class="split" id="mem-split"></ul>
+      </section>
+      <section class="card" id="meeting" hidden>
+        <header class="card-head"><span data-icon="calendar" data-icon-size="16" aria-hidden="true"></span><h3 data-i18n="home.nextMeeting">Next meeting</h3></header>
+        <p class="big"><b id="meeting-time"></b> <span id="meeting-when"></span></p>
+        <p class="meeting-title" id="meeting-title"></p>
+        <button type="button" class="join" id="join" data-action="join-meeting"></button>
       </section>
     </aside>
   </div>

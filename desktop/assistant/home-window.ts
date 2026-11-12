@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, screen } from "electron";
 
 import type { ReminderLanguage } from "../calendar/reminders.ts";
+import type { FootprintShare } from "../perf/footprint.ts";
 import type { AssistantState, SessionGroup } from "./assistant-state.ts";
+import type { CommandRow } from "./command-log.ts";
+import type { FeatureCard } from "./features.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const rendererDir = path.join(path.dirname(currentFilePath), "..", "renderer");
@@ -22,7 +25,7 @@ export type AssistantStrip = {
   active: { dictation: boolean; captions: boolean; translator: boolean; recording: boolean };
   speech: boolean;
   /** null until the one measurement taken on open finishes, or when it failed. */
-  memory: { usedMb: number; budgetMb: number } | null;
+  memory: { usedMb: number; budgetMb: number; split: FootprintShare[]; measuredAt: string } | null;
   meeting: { title: string; start: string; joinable: boolean } | null;
   hotkey: string | null;
 };
@@ -34,6 +37,14 @@ export type AssistantView = {
   // What Marshal last said or notified, newest first (#308).
   lines?: string[];
   sessions?: SessionGroup[];
+  commands?: AssistantCommands;
+  features?: FeatureCard[];
+};
+
+export type AssistantCommands = {
+  rows: CommandRow[];
+  day: { current: number; previous: number };
+  week: { current: number; previous: number };
 };
 
 export class AssistantHomeWindow {

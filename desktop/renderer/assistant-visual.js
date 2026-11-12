@@ -1,8 +1,8 @@
 // desktop/renderer/assistant-visual.js
 //
-// HUD voice visual of the assistant home (#284): a ticked outer scale, a
-// spectrum arc driven by the voice level, segmented rings turning against
-// each other, an amber VU ring and a core in the state colour.
+// Voice visual of the assistant home: a dotted particle wave whose height
+// follows the voice level, over a soft glow in the state colour (#398). The
+// mini widget (#285) keeps the round HUD: a wave is unreadable at its size.
 //
 // The top half is pure (state styles, parameter interpolation, colour mixing,
 // the fallback level) and covered by tests/assistant-visual.test.ts. The
@@ -302,6 +302,65 @@ export function drawHud(ctx, size, t, level, params, colors, bars, labels, mini 
   ctx.fillText(labels.footer, cx, cy + R * 1.62);
 }
 
+const WAVE_COLS = 110;
+const WAVE_ROWS = 18;
+// Fade buckets: dots are batched into one path per bucket and colour, so a
+// frame is 2 × WAVE_BUCKETS fills however many dots there are.
+const WAVE_BUCKETS = 4;
+// The ribbon runs over the left part of the hero and fades out before the metrics.
+const RIBBON_SPAN = 0.6;
+
+/**
+ * One frame of the home wave on a `w`×`h` canvas: a dotted ribbon seen in
+ * perspective that runs left to right and fades out at its right end. Each
+ * row is a travelling sine; the ribbon twists as the rows' phases drift. The
+ * crest takes the accent colour, the rest the muted text colour; the mic
+ * level raises the amplitude. `params.scan` sweeps a lit band while thinking.
+ */
+export function drawWave(ctx, w, h, t, level, params, colors) {
+  const spin = params.spin;
+  const lv = level * params.energy;
+  const span = w * RIBBON_SPAN;
+  ctx.clearRect(0, 0, w, h);
+
+  const glow = ctx.createRadialGradient(span * 0.45, h * 0.62, 0, span * 0.45, h * 0.62, Math.min(span, h) * 0.7);
+  glow.addColorStop(0, rgba(colors.accent, 0.16 + 0.12 * lv));
+  glow.addColorStop(1, rgba(colors.accent, 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  const crest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
+  const rest = new Array(WAVE_BUCKETS).fill(null).map(() => new Path2D());
+  const amp = h * (0.16 + 0.18 * lv);
+  const sweep = ((t * 0.35) % 1.4) - 0.2;
+  const dot = Math.max(1, h * 0.008);
+  for (let j = 0; j < WAVE_ROWS; j++) {
+    const z = j / (WAVE_ROWS - 1);
+    for (let i = 0; i < WAVE_COLS; i++) {
+      const x = i / (WAVE_COLS - 1);
+      // Rows fan out towards the middle of the ribbon and pinch at both ends.
+      const width = 0.18 + 0.82 * Math.sin(Math.PI * Math.min(1, x * 1.15)) ** 0.8;
+      const wave =
+        Math.sin(x * 4.2 - t * 0.6 * spin + z * 1.3) * 0.7 +
+        Math.sin(x * 9 + z * 3.1 + t * 1.3 * (0.4 + lv)) * 0.3;
+      const twist = Math.sin(x * 3 - t * 0.25 + 0.6) * (z - 0.5);
+      const py = h * 0.62 + (twist * 0.5 + (z - 0.5) * 0.28) * h * width - wave * amp * width;
+      const px = x * span + z * span * 0.04;
+      const fade = Math.min(WAVE_BUCKETS - 1, Math.floor(x ** 1.4 * WAVE_BUCKETS));
+      const scanned = params.scan > 0.01 && Math.abs(x - sweep) < 0.04;
+      const target = wave > 0.55 || scanned ? crest : rest;
+      target[fade].rect(px - dot / 2, py - dot / 2, dot, dot);
+    }
+  }
+  for (let b = 0; b < WAVE_BUCKETS; b++) {
+    const alpha = 1 - b / WAVE_BUCKETS;
+    ctx.fillStyle = rgba(colors.muted, alpha * 0.7);
+    ctx.fill(rest[b]);
+    ctx.fillStyle = rgba(colors.accent, alpha);
+    ctx.fill(crest[b]);
+  }
+}
+
 /**
  * Owns the canvas and the frame loop. `getLevel()` returns the live mic level
  * (0..1) or null when there is none; the ambient level fills in.
@@ -337,19 +396,21 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
       edge: resolveColor("--border-strong"),
       second: resolveColor("--accent-2"),
       fg: resolveColor("--text-strong"),
-      muted: resolveColor("--text-muted")
+      muted: resolveColor("--text-muted"),
+      accent: resolveColor("--accent")
     };
   }
 
+  // The mini HUD is square; the home wave fills whatever box CSS gives it.
   function size() {
     const dpr = window.devicePixelRatio || 1;
-    const css = Math.max(1, Math.round(canvas.clientWidth));
-    const px = Math.round(css * dpr);
-    if (canvas.width !== px || canvas.height !== px) {
-      canvas.width = px;
-      canvas.height = px;
+    const width = Math.round(Math.max(1, canvas.clientWidth) * dpr);
+    const height = mini ? width : Math.round(Math.max(1, canvas.clientHeight) * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
     }
-    return px;
+    return [width, height];
   }
 
   function render(now) {
@@ -363,7 +424,9 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
     smooth += (raw - smooth) * Math.min(1, dt * 10 || 1);
     const current = colors ?? readColors();
     const drawn = fromColor ? { ...current, state: mixRgb(fromColor, current.state, colorMix) } : current;
-    drawHud(ctx, size(), t, smooth, params, drawn, bars, { state: labelFor(state), footer }, mini);
+    const [width, height] = size();
+    if (mini) drawHud(ctx, width, t, smooth, params, drawn, bars, { state: labelFor(state), footer }, true);
+    else drawWave(ctx, width, height, t, smooth, params, drawn);
   }
 
   function frame(now) {
