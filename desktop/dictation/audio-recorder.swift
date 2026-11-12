@@ -28,6 +28,8 @@
 // Usage:
 //   audio-recorder <out.wav>
 //   audio-recorder <out.wav> --device <coreaudio-uniqueID>
+//   audio-recorder <out.wav> --meter   (also prints "level <dBFS>" every 100 ms
+//                                        after "ready", for end-of-speech detection, #375)
 
 import Foundation
 import AVFoundation
@@ -46,6 +48,7 @@ let outPath = args[1]
 let outURL = URL(fileURLWithPath: outPath)
 
 var requestedDeviceUID: String? = nil
+var meter = false
 var i = 2
 while i < args.count {
     let arg = args[i]
@@ -53,6 +56,11 @@ while i < args.count {
         let raw = args[i + 1].trimmingCharacters(in: .whitespacesAndNewlines)
         if !raw.isEmpty { requestedDeviceUID = raw }
         i += 2
+        continue
+    }
+    if arg == "--meter" {
+        meter = true
+        i += 1
         continue
     }
     FileHandle.standardError.write("ignoring unknown arg: \(arg)\n".data(using: .utf8)!)
@@ -211,6 +219,8 @@ do {
     exit(4)
 }
 
+recorder.isMeteringEnabled = meter
+
 guard recorder.prepareToRecord() else {
     restoreDefaultInput()
     FileHandle.standardError.write(
@@ -256,5 +266,18 @@ parentSource.resume()
 
 print("ready")
 fflush(stdout)
+
+var meterTimer: DispatchSourceTimer? = nil
+if meter {
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100))
+    timer.setEventHandler {
+        recorder.updateMeters()
+        print(String(format: "level %.1f", recorder.averagePower(forChannel: 0)))
+        fflush(stdout)
+    }
+    timer.resume()
+    meterTimer = timer
+}
 
 dispatchMain()
