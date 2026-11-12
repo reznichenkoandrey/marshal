@@ -186,10 +186,63 @@ export function sessionCommandLine(name: string | null): string {
   return name ? `claude --no-chrome --name ${shellQuote(name)}` : "claude --no-chrome";
 }
 
-/** `do terminal script` for a new Terminal window, minimised so it stays out of the way. */
+/**
+ * What a Claude host (Claude desktop, an SDK parent) puts into the environment
+ * of the session it runs. Marshal started from such a session inherits it and
+ * hands it on through osascript to Terminal. With `CLAUDE_CODE_CHILD_SESSION`,
+ * Claude Code treats the new session as a host's helper and writes no
+ * `~/.claude/sessions/<pid>.json`, so the assistant never saw its own sessions
+ * (#388). The rest point it at the parent's socket, id and desktop entrypoint.
+ */
+export const HOST_SESSION_ENV = [
+  "CLAUDECODE",
+  "CLAUDE_PID",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_HOST_SESSION_ID",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_OAUTH_SCOPES",
+  "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+  "CLAUDE_CODE_DESKTOP_APP_VERSION",
+  "CLAUDE_CODE_DESKTOP_MESSAGE_CARD",
+  "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+  "CLAUDE_AGENT_SDK_VERSION"
+] as const;
+
+/** A copy of `env` without a Claude host's session variables. */
+export function withoutHostSessionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const key of HOST_SESSION_ENV) delete clean[key];
+  return clean;
+}
+
 // An API key in the environment stops Claude Code at a first-run question in a
 // window nobody looks at (#322); the assistant's sessions use the owner's login.
-const CLAUDE_ENV_RESET = "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL";
+// Terminal may already run with a host's session env, so the tab drops it too (#388).
+const CLAUDE_ENV_RESET = ["env", ...["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", ...HOST_SESSION_ENV].flatMap((key) => ["-u", key])].join(" ");
+
+/**
+ * Pids of running `claude --name <name>` processes, from `ps -axo pid=,command=`.
+ * A fallback for a session the registry does not list (#388): only the CLI's
+ * own argv counts, not a shell or an editor that mentions the name.
+ */
+export function findNamedClaudePids(psOutput: string, name: string): number[] {
+  const pids: number[] = [];
+  for (const line of psOutput.split("\n")) {
+    const match = /^\s*(\d+)\s+(\S+)(.*)$/.exec(line);
+    if (!match || path.basename(match[2]) !== "claude") continue;
+    const args = match[3].trim().split(/\s+/);
+    const at = args.indexOf("--name");
+    if (at !== -1 && args[at + 1] === name) pids.push(Number(match[1]));
+  }
+  return pids;
+}
+
+/** `do terminal script` for a new Terminal window, minimised so it stays out of the way. */
 
 export function terminalScript(cwd: string, commandLine: string, title: string, minimised = true): string {
   const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}`;

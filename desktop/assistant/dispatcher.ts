@@ -3,7 +3,7 @@
 // over the hook receiver. Started only when the assistant is on; between
 // commands the one open stream is all that exists — no timers (#281).
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import type http from "node:http";
 import os from "node:os";
@@ -15,6 +15,7 @@ import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts"
 import { AssistantCommandQueue } from "./command-queue.ts";
 import {
   buildGeneralPrompt,
+  findNamedClaudePids,
   buildHelperScript,
   dispatcherCommandLine,
   DISPATCHER_NAME,
@@ -40,6 +41,49 @@ const SPAWN_WAIT_MS = 45_000;
 const SPAWN_POLL_MS = 1_000;
 // A session opened this recently is still starting, not stuck on a prompt.
 const STARTING_MS = 60_000;
+const DEFAULT_SESSION_IDLE_MIN = 30;
+
+/**
+ * How long a session opened by `./marshal spawn` may sit idle before it is
+ * closed (#388); `MARSHAL_ASSISTANT_SESSION_IDLE_MIN`, 0 = never.
+ */
+export function sessionIdleMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MARSHAL_ASSISTANT_SESSION_IDLE_MIN?.trim();
+  const minutes = raw ? Number(raw) : DEFAULT_SESSION_IDLE_MIN;
+  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 0;
+}
+
+/**
+ * Marshal's own sessions the registry misses: a session that inherited a
+ * Claude host's environment writes no registry file (#388). Found by argv,
+ * addressed by the socket Claude Code opens for every pid.
+ */
+export function unregisteredOwnSessions(
+  registered: readonly ClaudeSession[],
+  running: ReadonlyArray<{ name: string; cwd: string; pids: readonly number[] }>,
+  socketExists: (socketPath: string) => boolean
+): ClaudeSession[] {
+  const known = new Set(registered.map((session) => session.pid));
+  return running.flatMap(({ name, cwd, pids }) => pids
+    .filter((pid) => !known.has(pid))
+    .map((pid) => ({ pid, socketPath: path.join(SOCKETS_DIR, `${pid}.sock`) }))
+    .filter(({ socketPath }) => socketExists(socketPath))
+    .map(({ pid, socketPath }): ClaudeSession => ({
+      pid,
+      sessionId: `pid:${pid}`,
+      name,
+      cwd,
+      status: null,
+      waitingFor: null,
+      entrypoint: "cli",
+      socketPath,
+      startedAt: 0,
+      statusUpdatedAt: null
+    })));
+}
+
+// Where Claude Code opens a session's messaging socket (`messagingSocketPath` in the registry).
+const SOCKETS_DIR = "/tmp/cc-socks";
 
 export type DispatcherSettings = {
   model: string;
@@ -70,7 +114,31 @@ export type DispatcherDeps = {
   runAppleScript?: (script: string) => Promise<void>;
   /** Where Claude Code keeps folder trust; ~/.claude.json. */
   claudeStatePath?: string;
+  /** `ps -axo pid=,command=` (`listProcesses`), read only when a session of Marshal's own is looked up; absent = registry only. */
+  processList?: () => string;
+  socketExists?: (socketPath: string) => boolean;
+  kill?: (pid: number) => void;
+  /** 0 = spawned sessions stay until closed by hand. */
+  sessionIdleMs?: number;
+  log?: (message: string) => void;
 };
+
+/** `ps -axo pid=,command=`; empty on failure, so the registry alone decides. */
+export function listProcesses(): string {
+  try {
+    return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  } catch {
+    return "";
+  }
+}
+
+function defaultKill(pid: number): void {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Already gone.
+  }
+}
 
 function defaultRunAppleScript(script: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -83,7 +151,11 @@ export class AssistantDispatcher implements AssistantRoutes {
   private readonly launchedAt = new Map<string, number>();
   /** Sessions holding an owner's voice command: only their answers are spoken. */
   private readonly awaitingAnswer = new Set<string>();
+  /** Sessions `./marshal spawn` opened, by session id: the idle timer that closes them. */
+  private readonly spawned = new Map<string, NodeJS.Timeout | null>();
   private readonly runAppleScript: (script: string) => Promise<void>;
+  private readonly kill: (pid: number) => void;
+  private readonly idleMs: number;
   readonly dispatcherDir: string;
   private readonly assistantDir: string;
 
@@ -91,6 +163,25 @@ export class AssistantDispatcher implements AssistantRoutes {
     this.assistantDir = path.join(deps.userDataDir, "assistant");
     this.dispatcherDir = path.join(this.assistantDir, "dispatcher");
     this.runAppleScript = deps.runAppleScript ?? defaultRunAppleScript;
+    this.kill = deps.kill ?? defaultKill;
+    this.idleMs = deps.sessionIdleMs ?? sessionIdleMs();
+  }
+
+  /** The registry plus the dispatcher and `general` processes it does not list. */
+  private liveSessions(): ClaudeSession[] {
+    const registered = this.deps.liveSessions();
+    const psOutput = this.deps.processList?.() ?? "";
+    const running = [
+      { name: DISPATCHER_NAME, cwd: this.dispatcherDir, pids: findNamedClaudePids(psOutput, DISPATCHER_NAME) },
+      { name: GENERAL_NAME, cwd: this.generalDir(), pids: findNamedClaudePids(psOutput, GENERAL_NAME) }
+    ];
+    const extra = unregisteredOwnSessions(registered, running, this.deps.socketExists ?? fs.existsSync);
+    if (extra.length > 0) this.deps.log?.(`[assistant] ${extra.length} own session(s) missing from the registry: ${extra.map((s) => `${s.name}#${s.pid}`).join(", ")}`);
+    return [...registered, ...extra];
+  }
+
+  private dispatchers(live: readonly ClaudeSession[] = this.liveSessions()): ClaudeSession[] {
+    return live.filter((session) => this.isDispatcher(session) || session.name === DISPATCHER_NAME);
   }
 
   get listening(): boolean {
@@ -120,8 +211,11 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   private async launch(): Promise<void> {
     this.writeFiles();
-    const live = this.deps.liveSessions();
-    if (!live.some((session) => this.isDispatcher(session))) {
+    const live = this.liveSessions();
+    const dispatchers = this.dispatchers(live);
+    // One dispatcher: a second one would read the same command stream.
+    for (const extra of dispatchers.slice(1)) this.kill(extra.pid);
+    if (dispatchers.length === 0) {
       this.trust(this.dispatcherDir);
       await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
     }
@@ -133,7 +227,7 @@ export class AssistantDispatcher implements AssistantRoutes {
    * tab comes forward un-minimised; a missing one is opened in plain sight.
    */
   async reveal(): Promise<void> {
-    const dispatcher = this.deps.liveSessions().find((session) => this.isDispatcher(session));
+    const dispatcher = this.dispatchers()[0];
     if (dispatcher) {
       this.deps.focus(dispatcher.pid);
       return;
@@ -149,16 +243,48 @@ export class AssistantDispatcher implements AssistantRoutes {
     await this.open(this.dispatcherDir, dispatcherCommandLine(model, generalMode), DISPATCHER_NAME, false);
   }
 
-  /** The owner turned the assistant off: the dispatcher goes, `general` may hold work and stays. */
+  /** The owner turned the assistant off or quit Marshal: the dispatcher goes, `general` may hold work and stays. */
   stop(): void {
-    const dispatcher = this.deps.liveSessions().find((session) => this.isDispatcher(session));
-    if (dispatcher) {
-      try {
-        process.kill(dispatcher.pid, "SIGTERM");
-      } catch {
-        // Already gone.
-      }
+    for (const dispatcher of this.dispatchers()) this.kill(dispatcher.pid);
+    for (const timer of this.spawned.values()) if (timer) clearTimeout(timer);
+    this.spawned.clear();
+  }
+
+  /**
+   * A hook event from any session. A spawned session's idle clock restarts on
+   * every finished turn and stops while it works or waits for the owner.
+   */
+  noteSessionEvent(sessionId: string, kind: "finished" | "waiting"): void {
+    if (!this.spawned.has(sessionId)) return;
+    const timer = this.spawned.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.spawned.set(sessionId, kind === "finished" ? this.armIdle(sessionId) : null);
+  }
+
+  private armIdle(sessionId: string): NodeJS.Timeout | null {
+    if (this.idleMs <= 0) return null;
+    const timer = setTimeout(() => this.closeIfIdle(sessionId), this.idleMs);
+    timer.unref?.();
+    return timer;
+  }
+
+  private closeIfIdle(sessionId: string): void {
+    this.spawned.set(sessionId, null);
+    const session = this.deps.liveSessions().find((live) => live.sessionId === sessionId);
+    if (!session) {
+      this.spawned.delete(sessionId);
+      return;
     }
+    // A voice command is on its way: its answer restarts the clock.
+    if (this.awaitingAnswer.has(sessionId)) {
+      this.spawned.set(sessionId, this.armIdle(sessionId));
+      return;
+    }
+    // Working or waiting for the owner: the next finished turn restarts the clock.
+    if (session.status !== "idle") return;
+    this.spawned.delete(sessionId);
+    this.deps.log?.(`[assistant] closing ${session.name}#${session.pid}: idle for ${Math.round(this.idleMs / 60_000)} min`);
+    this.kill(session.pid);
   }
 
   /** Whether this session event answers a voice command; a finished turn uses the claim up. */
@@ -174,7 +300,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       this.deps.announce(text);
       return;
     }
-    const dispatcher = this.deps.liveSessions().find((session) => this.isDispatcher(session));
+    const dispatcher = this.dispatchers()[0];
     if (!dispatcher) {
       this.deps.say("Запускаю асистента, команда дочекається.");
       void this.start();
@@ -214,7 +340,7 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   private async answer(method: string, route: string, args: string[]): Promise<string | null> {
     if (method === "GET" && route === "sessions") {
-      return JSON.stringify(sessionsForDispatcher(this.deps.liveSessions(), this.dispatcherDir));
+      return JSON.stringify(sessionsForDispatcher(this.liveSessions(), this.dispatcherDir));
     }
     if (method === "GET" && route === "context") return this.deps.context();
     if (method !== "POST") return null;
@@ -260,32 +386,34 @@ export class AssistantDispatcher implements AssistantRoutes {
     const cwd = findProject(projects, wanted);
     if (!cwd) return `Unknown project "${wanted}". Known: ${[...projects.keys()].join(", ")}`;
 
-    const before = this.deps.liveSessions();
+    const before = this.liveSessions();
     if (cwd === this.generalDir() && !rawName) {
       const general = before.find((session) => session.name === GENERAL_NAME);
       if (general) return `Ready: ${GENERAL_NAME}`;
       await this.openGeneral();
-      return this.waitFor(new Set(before.map((s) => s.sessionId)), (s) => s.name === GENERAL_NAME);
+      return describeSpawn(await this.waitFor(new Set(before.map((s) => s.sessionId)), (s) => s.name === GENERAL_NAME));
     }
 
     const name = rawName?.trim().replace(/\s+/g, "-") || null;
     if (name && !isValidSessionName(name)) return "Invalid name: letters, digits, - and _ only, 40 at most.";
     if (name && before.some((session) => session.name === name)) return `A session named ${name} already exists.`;
     await this.open(cwd, sessionCommandLine(name), name ?? path.basename(cwd));
-    return this.waitFor(
+    const fresh = await this.waitFor(
       new Set(before.map((s) => s.sessionId)),
       (s) => (name ? s.name === name : path.resolve(s.cwd) === path.resolve(cwd))
     );
+    if (fresh) this.spawned.set(fresh.sessionId, this.armIdle(fresh.sessionId));
+    return describeSpawn(fresh);
   }
 
-  private async waitFor(known: Set<string>, matches: (session: ClaudeSession) => boolean): Promise<string> {
+  private async waitFor(known: Set<string>, matches: (session: ClaudeSession) => boolean): Promise<ClaudeSession | null> {
     const deadline = Date.now() + SPAWN_WAIT_MS;
     while (Date.now() < deadline) {
       const fresh = this.deps.liveSessions().find((session) => !known.has(session.sessionId) && matches(session));
-      if (fresh) return `Ready: ${fresh.name}`;
+      if (fresh) return fresh;
       await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_MS));
     }
-    return "The terminal opened, but the session did not register in time. It may be waiting for an answer in its window.";
+    return null;
   }
 
   private async openGeneral(): Promise<void> {
@@ -351,6 +479,12 @@ function listChildFolders(roots: readonly string[]): string[] {
       return [];
     }
   });
+}
+
+function describeSpawn(session: ClaudeSession | null): string {
+  return session
+    ? `Ready: ${session.name}`
+    : "The terminal opened, but the session did not register in time. It may be waiting for an answer in its window.";
 }
 
 /** `./marshal peek <name>`: the session's last turns, for the dispatcher to retell in plain words. */

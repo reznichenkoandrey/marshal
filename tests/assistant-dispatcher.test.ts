@@ -7,18 +7,27 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AssistantCommandQueue, MAX_QUEUED_COMMANDS, QUEUED_COMMAND_TTL_MS } from "../desktop/assistant/command-queue.ts";
-import { AssistantDispatcher, formatRecentTurns, type DispatcherDeps } from "../desktop/assistant/dispatcher.ts";
+import {
+  AssistantDispatcher,
+  formatRecentTurns,
+  sessionIdleMs,
+  unregisteredOwnSessions,
+  type DispatcherDeps
+} from "../desktop/assistant/dispatcher.ts";
 import {
   buildHelperScript,
   dispatcherCommandLine,
+  findNamedClaudePids,
   findProject,
   generalCommandLine,
+  HOST_SESSION_ENV,
   isValidSessionName,
   parseHelperArgs,
   screenshotCommand,
   sessionsForDispatcher,
   spawnProjects,
   terminalScript,
+  withoutHostSessionEnv,
   withTrustedFolder
 } from "../desktop/assistant/dispatcher-files.ts";
 import { ClaudeHookService, rejectHookRequest } from "../desktop/claude-code/hook-service.ts";
@@ -131,7 +140,9 @@ describe("dispatcher files", () => {
 
   it("quotes paths and titles for the shell and for AppleScript", () => {
     const script = terminalScript("/Users/me/it's \"here\"", "claude --name 'x'", "it's");
-    expect(script).toContain("do script \"printf '\\\\033]0;%s\\\\007' 'it'\\\\''s'; cd '/Users/me/it'\\\\''s \\\"here\\\"' && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL claude --name 'x'\"");
+    expect(script).toContain("do script \"printf '\\\\033]0;%s\\\\007' 'it'\\\\''s'; cd '/Users/me/it'\\\\''s \\\"here\\\"' && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDECODE ");
+    expect(script).toContain(" -u CLAUDE_CODE_CHILD_SESSION ");
+    expect(script).toContain(" -u CLAUDE_AGENT_SDK_VERSION claude --name 'x'\"");
     expect(script).toContain("set miniaturized of front window to true");
     expect(dispatcherCommandLine("", "bypass")).toBe("claude --name marshal-dispatcher --no-chrome --permission-mode bypassPermissions --model 'haiku' --setting-sources project 'Start the monitor and wait for commands.'");
     expect(generalCommandLine("/a b/p.md", "auto")).toBe("claude --name general --no-chrome --permission-mode auto --append-system-prompt \"$(cat '/a b/p.md')\"");
@@ -148,8 +159,49 @@ describe("dispatcher files", () => {
 
 });
 
+describe("sessions started from a Claude desktop session (#388)", () => {
+  it("drops the host's session variables and keeps the rest", () => {
+    const env = { PATH: "/bin", HOME: "/h", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDECODE: "1", CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc-socks/1.sock", CLAUDE_CODE_MAX_OUTPUT_TOKENS: "9" };
+    expect(withoutHostSessionEnv(env)).toEqual({ PATH: "/bin", HOME: "/h", CLAUDE_CODE_MAX_OUTPUT_TOKENS: "9" });
+    expect(env.CLAUDE_CODE_CHILD_SESSION).toBe("1");
+    expect(HOST_SESSION_ENV).toContain("CLAUDE_CODE_CHILD_SESSION");
+  });
+
+  it("finds a named claude process by its own argv only", () => {
+    const ps = [
+      "70908 claude --name marshal-dispatcher --no-chrome --model haiku",
+      "  70945 /Users/me/.local/bin/claude --no-chrome --name general --append-system-prompt x",
+      "  111 /bin/zsh -c claude --name general",
+      "  112 vim --name general",
+      "  113 claude --name general-2",
+      "  114 /Applications/Claude.app/claude --output-format stream-json"
+    ].join("\n");
+    expect(findNamedClaudePids(ps, "general")).toEqual([70945]);
+    expect(findNamedClaudePids(ps, "marshal-dispatcher")).toEqual([70908]);
+    expect(findNamedClaudePids("", "general")).toEqual([]);
+  });
+
+  it("adds own sessions the registry misses, only when their socket exists", () => {
+    const registered = [session({ pid: 5, name: "general" })];
+    const extra = unregisteredOwnSessions(
+      registered,
+      [{ name: "general", cwd: "/g", pids: [5, 6, 7] }],
+      (socket) => socket !== "/tmp/cc-socks/7.sock"
+    );
+    expect(extra).toHaveLength(1);
+    expect(extra[0]).toMatchObject({ pid: 6, name: "general", cwd: "/g", socketPath: "/tmp/cc-socks/6.sock", sessionId: "pid:6" });
+  });
+
+  it("reads the idle limit for spawned sessions from the environment", () => {
+    expect(sessionIdleMs({})).toBe(30 * 60_000);
+    expect(sessionIdleMs({ MARSHAL_ASSISTANT_SESSION_IDLE_MIN: "5" })).toBe(5 * 60_000);
+    expect(sessionIdleMs({ MARSHAL_ASSISTANT_SESSION_IDLE_MIN: "0" })).toBe(0);
+    expect(sessionIdleMs({ MARSHAL_ASSISTANT_SESSION_IDLE_MIN: "soon" })).toBe(0);
+  });
+});
+
 describe("dispatcher over the hook receiver", () => {
-  function setup(live: ClaudeSession[]) {
+  function setup(live: ClaudeSession[], overrides: Partial<DispatcherDeps> = {}) {
     const userDataDir = tmpDir();
     const hookDir = path.join(userDataDir, "claude-code");
     const said: string[] = [];
@@ -177,7 +229,8 @@ describe("dispatcher over the hook receiver", () => {
       runAppleScript: async (script) => {
         scripts.push(script);
       },
-      claudeStatePath: path.join(userDataDir, ".claude.json")
+      claudeStatePath: path.join(userDataDir, ".claude.json"),
+      ...overrides
     };
     const dispatcher = new AssistantDispatcher(deps);
     const service = new ClaudeHookService(hookDir, () => undefined);
@@ -267,6 +320,59 @@ describe("dispatcher over the hook receiver", () => {
     expect(fs.statSync(path.join(dispatcher.dispatcherDir, "marshal")).mode & 0o777).toBe(0o700);
     const trusted = JSON.parse(fs.readFileSync(path.join(path.dirname(dispatcher.dispatcherDir), "..", ".claude.json"), "utf8")) as { projects: Record<string, unknown> };
     expect(Object.keys(trusted.projects)).toEqual([dispatcher.dispatcherDir, dispatcher.generalDir()]);
+  });
+
+  it("reuses an unregistered dispatcher and general, keeps one dispatcher, and stops it", async () => {
+    const killed: number[] = [];
+    const ps = ["10 claude --name marshal-dispatcher", "11 claude --name marshal-dispatcher", "12 claude --name general"].join("\n");
+    const { dispatcher, scripts } = setup([], { processList: () => ps, socketExists: () => true, kill: (pid) => killed.push(pid) });
+    await dispatcher.start();
+    expect(scripts).toEqual([]);
+    expect(killed).toEqual([11]);
+    dispatcher.stop();
+    expect(killed).toEqual([11, 10, 11]);
+  });
+
+  it("closes a spawned session once it stays idle, never while it works or waits", async () => {
+    vi.useFakeTimers();
+    try {
+      const root = tmpDir();
+      fs.mkdirSync(path.join(root, "shop"));
+      const live: ClaudeSession[] = [];
+      const killed: number[] = [];
+      const { dispatcher } = setup(live, {
+        settings: () => ({ model: "haiku", generalDir: "", generalMode: "auto", routingRoots: [root] }),
+        kill: (pid) => killed.push(pid),
+        sessionIdleMs: 60_000,
+        runAppleScript: async () => {
+          live.push(session({ pid: 42, sessionId: "s-shop", name: "shop", cwd: path.join(root, "shop"), status: "busy" }));
+        }
+      });
+      const spawned = await (dispatcher as unknown as { spawn(args: string[]): Promise<string> }).spawn(["shop"]);
+      expect(spawned).toBe("Ready: shop");
+
+      // Busy when the clock runs out: left alone, the next finished turn restarts it.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(killed).toEqual([]);
+
+      live[0]!.status = "idle";
+      dispatcher.noteSessionEvent("s-shop", "finished");
+      await vi.advanceTimersByTimeAsync(30_000);
+      dispatcher.noteSessionEvent("s-shop", "waiting");
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(killed).toEqual([]);
+
+      dispatcher.noteSessionEvent("s-shop", "finished");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(killed).toEqual([42]);
+
+      // Unknown sessions (the owner's own) are never touched.
+      dispatcher.noteSessionEvent("someone-else", "finished");
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(killed).toEqual([42]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
