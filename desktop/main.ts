@@ -67,9 +67,13 @@ import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts
 import {
   classifyPermissionAnswer,
   describePermission,
+  describeQuestion,
+  isVoicePermission,
+  matchQuestionAnswer,
   parsePermissionRequest,
   permissionHookOutput,
-  type PermissionDecision
+  questionHookOutput,
+  voiceQuestion
 } from "./claude-code/permission-voice.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
@@ -3039,29 +3043,39 @@ async function askOwner(question: string): Promise<string | null> {
   return listenAfterSpeech();
 }
 
-// A PermissionRequest hook waits on this (#375): one question at a time, "" = the usual prompt.
+// A PermissionRequest hook waits on this (#375): a permission prompt or an
+// AskUserQuestion dialog, one at a time; "" = the session shows its own.
 async function answerPermissionByVoice(raw: string): Promise<string> {
   const request = parsePermissionRequest(raw);
   const settings = loadSettings();
   if (!request || !settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
   if (!isUnderRoots(request.cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return "";
+  const question = voiceQuestion(request);
+  if (!question && !isVoicePermission(request)) return "";
   const startedAt = Date.now();
   const late = () => Date.now() - startedAt > PERMISSION_DEADLINE_MS;
-  const turn = permissionTurn.then(async (): Promise<PermissionDecision | null> => {
-    if (late() || assistantInputs.asleep) return null;
+  const turn = permissionTurn.then(async (): Promise<string> => {
+    if (late() || assistantInputs.asleep) return "";
     const name = listLiveSessions().find((session) => session.sessionId === request.sessionId)?.name ?? path.basename(request.cwd);
     const lang = uiLanguage();
+    const uk = lang === "uk";
     permissionAskedAt.set(request.sessionId, Date.now());
-    const answer = await askOwner(describePermission(name, request, lang));
+    const answer = await askOwner(question ? describeQuestion(name, question, lang) : describePermission(name, request, lang));
+    if (late()) return "";
+    if (question) {
+      const index = answer ? matchQuestionAnswer(answer, question.labels) : null;
+      if (index !== null) sayAsAssistant(uk ? `Відповів: ${question.labels[index]}.` : `Answered: ${question.labels[index]}.`);
+      else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+      return questionHookOutput(request, question, index);
+    }
     const decision = answer ? classifyPermissionAnswer(answer) : null;
-    if (late()) return null;
-    if (decision) sayAsAssistant(lang === "uk" ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
-    else if (answer) sayAsAssistant(lang === "uk" ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
-    return decision;
+    if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
+    else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+    return permissionHookOutput(decision);
   });
-  permissionTurn = turn.catch(() => null);
-  const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), PERMISSION_DEADLINE_MS - (Date.now() - startedAt)));
-  return permissionHookOutput(await Promise.race([turn, deadline]));
+  permissionTurn = turn.catch(() => "");
+  const deadline = new Promise<string>((resolve) => setTimeout(() => resolve(""), PERMISSION_DEADLINE_MS - (Date.now() - startedAt)));
+  return Promise.race([turn, deadline]);
 }
 
 // Asleep (#375): nothing is spoken unless the owner asked for it; push-to-talk still works.
@@ -3087,7 +3101,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
   if (event.kind === "waiting" && assistantInputs.asleep) return;
-  if (event.kind === "waiting" && event.confirmation && Date.now() - (permissionAskedAt.get(event.sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS) return;
+  if (event.kind === "waiting" && Date.now() - (permissionAskedAt.get(event.sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS) return;
   const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
