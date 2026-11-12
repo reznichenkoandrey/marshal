@@ -761,8 +761,10 @@
   10 хв (`RELEASE_HIDDEN_MS`); оверлей субтитрів закривається на stop. Раніше обидва жили прихованими
   до виходу з застосунку, по ~30–40 МБ кожен.
 - **Теми — дві незалежні осі (#283).** Режим (`data-theme` light/dark, без атрибута — як у
-  macOS) і look (`data-look`: `hud` — дефолт, `classic`, `liquid`, `signal`, `soft`; для HUD ще
-  `data-palette`: `blue` — дефолт, `teal`, `green`, `amber`). Обирається в Settings → Theme.
+  macOS) і look (`data-look`: `lumen` — дефолт з #397, `hud`, `classic`, `liquid`, `signal`, `soft`; для HUD ще
+  `data-palette`: `blue` — дефолт, `teal`, `green`, `amber`). Спільні токени редизайну #396 є в кожному
+  look: `--font-mono`, `--label-tracking`, `--border-hairline`, `--radius-card`, `--radius-chip`,
+  `--chip-{ok,warn,bad,info}-bg` (з `--state-*` через `color-mix`). Обирається в Settings → Theme.
   Look задає лише `--seed-*` (кожен — `light-dark(<світлий>, <темний>)`), радіуси й
   `--font-label`; семантичні токени (`--bg-*`, `--text-*`, `--accent*`, `--state-*`) виводяться
   з seeds через `color-mix`, тому компоненти про теми нічого не знають. Новий колір у

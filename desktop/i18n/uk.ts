@@ -219,6 +219,7 @@ export const uk: Record<MessageKey, string> = {
   "settings.dark": "Темна",
   "settings.systemFollowsMacosAppearanceChanges": "«Як у системі» стежить за виглядом macOS. Зміни застосовуються одразу.",
   "settings.theme": "Тема",
+  "settings.lumen": "Lumen",
   "settings.classic": "Classic",
   "settings.liquid": "Liquid",
   "settings.signal": "Signal",

@@ -217,6 +217,7 @@ export const en = {
   "settings.dark": "Dark",
   "settings.systemFollowsMacosAppearanceChanges": "System follows macOS appearance. Changes apply instantly.",
   "settings.theme": "Theme",
+  "settings.lumen": "Lumen",
   "settings.classic": "Classic",
   "settings.liquid": "Liquid",
   "settings.signal": "Signal",
