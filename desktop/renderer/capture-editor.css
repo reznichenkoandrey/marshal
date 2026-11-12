@@ -5,6 +5,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Lumen contract tokens (#397) with fallbacks until they land. */
+:root {
+  --ce-hairline: var(--border-hairline, var(--border-default));
+  --ce-radius-card: var(--radius-card, var(--radius-md));
+  --ce-radius-chip: var(--radius-chip, var(--radius-xs));
+  --ce-tracking: var(--label-tracking, var(--letter-wider));
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -29,7 +37,7 @@ body {
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3) var(--space-2) 84px;
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--ce-hairline);
   min-height: 44px;
   position: relative;
   z-index: 2;
@@ -49,14 +57,15 @@ body {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--bg-muted);
-  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--ce-hairline);
+  border-radius: var(--radius-sm);
 }
 
 .toolbar .sep {
   width: 1px;
   height: 18px;
-  background: var(--border-default);
+  background: var(--ce-hairline);
   margin: 0 var(--space-1);
 }
 
@@ -79,10 +88,10 @@ body {
 
 .tool:hover { background: var(--bg-hover); }
 .tool:active { background: var(--bg-pressed); }
+/* Selected segment, as in a Lumen range switch: a quiet fill, no lift. */
 .tool.active {
-  background: var(--bg-surface);
+  background: var(--bg-muted);
   color: var(--accent-text);
-  box-shadow: var(--shadow-sm);
 }
 
 .style-pickers { padding: 2px 6px; }
@@ -106,8 +115,8 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--border-default);
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--ce-hairline);
 }
 
 .stroke-width {
@@ -131,9 +140,8 @@ body {
 
 .stroke-w:hover { background: var(--bg-hover); }
 .stroke-w.active {
-  background: var(--bg-surface);
+  background: var(--bg-muted);
   color: var(--accent-text);
-  box-shadow: var(--shadow-sm);
 }
 
 .stroke-w .dot {
@@ -181,7 +189,8 @@ body {
    it instead of scrolling. */
 .canvas-wrap {
   position: relative;
-  box-shadow: var(--shadow-lg);
+  outline: 1px solid var(--ce-hairline);
+  box-shadow: var(--shadow-sm);
   background: #fff;
   flex: 0 0 auto;
   cursor: crosshair;
@@ -222,7 +231,7 @@ body {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   background: var(--bg-surface);
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--ce-hairline);
   min-height: 44px;
 }
 
@@ -231,8 +240,10 @@ body {
   align-items: center;
   gap: var(--space-1);
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ce-tracking);
 }
 
 .zoom #zoom-label {
@@ -246,10 +257,13 @@ body {
   align-items: center;
   gap: var(--space-2);
   color: var(--text-subtle);
-  font-size: var(--fs-sm);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ce-tracking);
+  padding: 3px 8px;
+  border: 1px dashed var(--ce-hairline);
+  border-radius: var(--ce-radius-chip);
 }
 
 .actions {
@@ -263,9 +277,9 @@ body {
   min-width: 0;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--ce-hairline);
   border-radius: var(--radius-sm);
-  background: var(--bg-muted);
+  background: var(--bg-elevated);
   color: var(--text-default);
   font-size: var(--fs-sm);
 }
@@ -288,7 +302,7 @@ body {
 
 /* Toggled-on state for the stay-on-top button. */
 .ghost[aria-pressed="true"] {
-  background: var(--accent-soft);
+  background: var(--chip-info-bg, var(--accent-soft));
   color: var(--accent-text);
 }
 .ghost[aria-pressed="true"]:hover { background: var(--accent-soft-hover); }
@@ -304,9 +318,9 @@ body {
   background: var(--bg-elevated);
   color: var(--text-default);
   padding: 10px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
-  box-shadow: var(--shadow-overlay);
+  border-radius: var(--ce-radius-card);
+  border: 1px solid var(--ce-hairline);
+  box-shadow: var(--shadow-md);
   font-size: var(--fs-sm);
   z-index: 100;
   transition: opacity var(--dur-base), transform var(--dur-base);

@@ -6,6 +6,14 @@
   box-sizing: border-box;
 }
 
+/* Lumen contract tokens (#397) with fallbacks until they land. */
+:root {
+  --hist-hairline: var(--border-hairline, var(--border-default));
+  --hist-radius-card: var(--radius-card, var(--radius-md));
+  --hist-radius-chip: var(--radius-chip, var(--radius-xs));
+  --hist-tracking: var(--label-tracking, var(--letter-wider));
+}
+
 html,
 body {
   margin: 0;
@@ -28,7 +36,7 @@ body {
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   -webkit-app-region: drag;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--hist-hairline);
   background: var(--bg-surface);
   /* Leave room for the macOS traffic lights — same trick the editor uses. */
   padding-left: 80px;
@@ -41,14 +49,15 @@ body {
   min-width: 0;
 }
 .history-title-label {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  color: var(--text-default);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-regular);
+  color: var(--text-strong);
 }
 .history-folder {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   font-family: var(--font-mono);
+  letter-spacing: var(--hist-tracking);
   max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -66,8 +75,8 @@ body {
    or clicks in it would move the window instead of focusing the field. */
 .history-search {
   -webkit-app-region: no-drag;
-  background: var(--bg-app);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  border: 1px solid var(--hist-hairline);
   color: var(--text-default);
   padding: 6px 10px;
   border-radius: var(--radius-sm);
@@ -87,8 +96,8 @@ body {
 
 .ghost-btn {
   -webkit-app-region: no-drag;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  border: 1px solid var(--hist-hairline);
   color: var(--text-default);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
@@ -97,8 +106,8 @@ body {
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .ghost-btn:hover {
-  background: var(--bg-muted);
-  border-color: var(--border-default);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 main {
@@ -121,8 +130,8 @@ main {
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  font-family: var(--font-label);
-  letter-spacing: var(--letter-wider);
+  font-family: var(--font-mono);
+  letter-spacing: var(--hist-tracking);
   color: var(--text-muted);
   margin: 0 0 var(--space-3);
   position: sticky;
@@ -142,16 +151,15 @@ main {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--hist-hairline);
+  border-radius: var(--hist-radius-card);
   overflow: hidden;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 .tile:hover {
   border-color: var(--accent);
-  transform: translateY(-1px);
 }
 
 .tile-thumb {
@@ -172,8 +180,8 @@ main {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   text-transform: uppercase;
-  font-family: var(--font-label);
-  letter-spacing: var(--letter-wider);
+  font-family: var(--font-mono);
+  letter-spacing: var(--hist-tracking);
 }
 
 .tile-meta {
@@ -181,7 +189,7 @@ main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--hist-hairline);
   min-width: 0;
 }
 .tile-name {
@@ -192,7 +200,10 @@ main {
   color: var(--text-default);
 }
 .tile-sub {
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  letter-spacing: var(--hist-tracking);
+  text-transform: uppercase;
   color: var(--text-muted);
   display: flex;
   justify-content: space-between;
@@ -201,30 +212,29 @@ main {
 
 /* Archive-only entries: the capture exists in history but was never saved to
    a file the user chose, so say so rather than letting them assume otherwise. */
-.tile-source {
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-2);
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
-  font-size: var(--fs-xs);
-  background: rgba(0, 0, 0, 0.55);
-  color: #f5f5f7;
-}
-
+.tile-source,
 .tile-badge {
   position: absolute;
   top: var(--space-2);
-  right: var(--space-2);
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  border-radius: var(--hist-radius-chip);
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  font-family: var(--font-label);
-  letter-spacing: var(--letter-wider);
-  background: rgba(0, 0, 0, 0.55);
-  color: #f5f5f7;
+  letter-spacing: var(--hist-tracking);
+}
+/* Chips sit on a thumbnail: the tint is layered over an opaque card so the
+   image never shows through the text. */
+.tile-source {
+  left: var(--space-2);
+  background: linear-gradient(var(--chip-warn-bg, var(--warning-soft)), var(--chip-warn-bg, var(--warning-soft))), var(--bg-elevated);
+  color: color-mix(in srgb, var(--warning) 70%, var(--text-strong));
+}
+.tile-badge {
+  right: var(--space-2);
+  background: linear-gradient(var(--chip-info-bg, var(--accent-soft)), var(--chip-info-bg, var(--accent-soft))), var(--bg-elevated);
+  color: var(--accent-text);
 }
 
 .tile-actions {
@@ -237,16 +247,20 @@ main {
   display: flex;
 }
 .tile-action-btn {
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  border: 0;
-  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--text-default);
+  border: 1px solid var(--hist-hairline);
+  border-radius: var(--hist-radius-chip);
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  padding: 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: var(--hist-tracking);
+  padding: 3px 8px;
   cursor: pointer;
 }
 .tile-action-btn:hover {
-  background: rgba(0, 0, 0, 0.85);
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
 
 .history-empty {
@@ -257,9 +271,9 @@ main {
 .history-empty kbd {
   font-family: var(--font-mono);
   padding: 1px 6px;
-  background: var(--bg-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  border: 1px solid var(--hist-hairline);
+  border-radius: var(--hist-radius-chip);
   color: var(--text-default);
 }
 .history-empty-hint {

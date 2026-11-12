@@ -52,6 +52,10 @@ export class AssistantHomeWindow {
     return this.window !== null && !this.window.isDestroyed();
   }
 
+  owns(win: BrowserWindow): boolean {
+    return win === this.window;
+  }
+
   /** Open, shown and focused: a toggle closes it; anything less, a toggle raises it. */
   isInFront(): boolean {
     return this.isOpen() && (this.window?.isVisible() ?? false) && (this.window?.isFocused() ?? false);

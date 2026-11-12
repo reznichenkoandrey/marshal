@@ -7,9 +7,9 @@
  *   - Mode: `data-theme="light" | "dark"` on <html>; absent = follow the OS.
  *     Every color seed is `light-dark(<light>, <dark>)`, resolved by
  *     `color-scheme`, so each look is written once, not once per mode.
- *   - Look: `data-look="hud" | "classic" | "liquid" | "signal" | "soft"`,
+ *   - Look: `data-look="lumen" | "hud" | "classic" | "liquid" | "signal" | "soft"`,
  *     plus `data-palette="blue" | "teal" | "green" | "amber"` for HUD.
- *     No attribute = HUD blue. theme.js applies the saved choice.
+ *     theme.js defaults to Lumen (#397); no attribute at all = HUD blue.
  *
  * A look only sets seeds (--seed-*), radii and the label font. Semantic tokens
  * below are derived from the seeds, so components never see the difference.
@@ -41,6 +41,8 @@
 
   --letter-wide: 0.02em;
   --letter-wider: 0.06em;
+  /* Uppercase mono labels: LIVE STREAM, 3.2K CALLS (#396). */
+  --label-tracking: 0.08em;
 
   --radius-pill: 9999px;
 
@@ -236,6 +238,31 @@
   --seed-idle: light-dark(#8576d6, #9b8cff);
 }
 
+/* ── Look: Lumen (default since #397) — cool grey canvas, hairlines, teal ── */
+:root[data-look="lumen"] {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --font-label: var(--font-mono);
+
+  --seed-bg: light-dark(#f4f5f6, #141618);
+  --seed-surface: light-dark(#ffffff, #1c1f22);
+  --seed-fg: light-dark(#16191c, #e6e9eb);
+  --seed-muted: light-dark(#5c6670, #98a2aa);
+  --seed-accent: light-dark(#1a9aa0, #2fb3b9);
+  --seed-accent-2: light-dark(#2b5f8a, #7fb6e0);
+  --seed-on-accent: light-dark(#ffffff, #061a1b);
+  --seed-line: var(--seed-fg);
+  --seed-shadow: light-dark(#16191c, #000000);
+  --seed-danger: light-dark(#d4483b, #ff6b5e);
+  --seed-success: light-dark(#26876a, #4fd1a5);
+  --seed-warning: light-dark(#7d8a12, #c3d24a);
+  --seed-think: light-dark(#6a5bc9, #a597ff);
+  --seed-idle: light-dark(#8a949c, #5d6870);
+}
+
 /* ── Semantic tokens, derived from the seeds of whichever look is active ── */
 :root {
   --bg-app: var(--seed-bg);
@@ -248,6 +275,11 @@
   --border-subtle: color-mix(in srgb, var(--seed-line) 10%, transparent);
   --border-default: color-mix(in srgb, var(--seed-line) 17%, transparent);
   --border-strong: color-mix(in srgb, var(--seed-line) 30%, transparent);
+  /* 1px card and divider colour; use as `1px solid var(--border-hairline)`. */
+  --border-hairline: color-mix(in srgb, var(--seed-line) 12%, transparent);
+
+  --radius-card: var(--radius-lg);
+  --radius-chip: var(--radius-xs);
 
   --text-strong: color-mix(in srgb, var(--seed-fg) 70%, light-dark(#000000, #ffffff));
   --text-default: var(--seed-fg);
@@ -283,6 +315,12 @@
   --state-done: var(--success);
   --state-fail: var(--danger);
   --state-idle: var(--seed-idle);
+
+  /* Status chips (#396): tinted background, text in the matching --state-*. */
+  --chip-ok-bg: color-mix(in srgb, var(--state-done) 14%, transparent);
+  --chip-warn-bg: color-mix(in srgb, var(--state-wait) 16%, transparent);
+  --chip-bad-bg: color-mix(in srgb, var(--state-fail) 14%, transparent);
+  --chip-info-bg: color-mix(in srgb, var(--state-listen) 14%, transparent);
 
   --shadow-xs: 0 0 0 1px var(--border-subtle);
   --shadow-sm: 0 1px 2px color-mix(in srgb, var(--seed-shadow) 12%, transparent),
