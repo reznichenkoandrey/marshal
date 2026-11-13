@@ -2989,7 +2989,10 @@ function initAssistantDispatcher(): void {
     },
     liveSessions: () => listLiveSessions(),
     context: () => hooks.routingContext(ownSessions()),
-    say: sayAsAssistant,
+    say: (text) => {
+      announceToAssistant(text);
+      void answerAloud(text);
+    },
     ask: askOwner,
     runAction: assistantVoiceAction,
     announce: announceToAssistant,
@@ -3124,6 +3127,15 @@ function handleVoiceCommand(text: string): void {
   speechService?.warmUp();
 }
 
+// An answer to a voice command keeps the conversation open (#411): once it is
+// spoken the mic listens for a follow-up without a key, and silence closes it.
+async function answerAloud(text: string, options: { key?: string } = {}): Promise<void> {
+  const spoken = await speechService?.speak(text, options);
+  if (!spoken?.ok) return;
+  const followUp = await listenAfterSpeech();
+  if (followUp) handleVoiceCommand(followUp);
+}
+
 // Opens the mic once Marshal stops talking, no key needed (#375); null when nobody answered.
 async function listenAfterSpeech(): Promise<string | null> {
   if (!speechService || !dictationService || assistantInputs.asleep) return null;
@@ -3208,7 +3220,9 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
     // `general` answers the owner's own question: its name is noise.
-    void speechService?.speak(event.name === GENERAL_NAME ? summary : `${event.name}: ${summary}`, { key: `session:${event.name}` });
+    const text = event.name === GENERAL_NAME ? summary : `${event.name}: ${summary}`;
+    if (asked) void answerAloud(text, { key: `session:${event.name}` });
+    else void speechService?.speak(text, { key: `session:${event.name}` });
     return;
   }
   waitingSignals.set(event.sessionId, { project: projectOf(event.cwd), confirmation: event.confirmation, message: event.message });
