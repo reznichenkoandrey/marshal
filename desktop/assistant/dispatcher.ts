@@ -43,6 +43,8 @@ const SPAWN_WAIT_MS = 45_000;
 const SPAWN_POLL_MS = 1_000;
 // A session opened this recently is still starting, not stuck on a prompt.
 const STARTING_MS = 60_000;
+// Within two minutes of the last answer a command without a name continues that conversation.
+const FOLLOW_UP_MS = 2 * 60_000;
 const DEFAULT_SESSION_IDLE_MIN = 30;
 
 /**
@@ -157,6 +159,8 @@ export class AssistantDispatcher implements AssistantRoutes {
   private readonly launchedAt = new Map<string, number>();
   /** Sessions holding an owner's voice command: only their answers are spoken. */
   private readonly awaitingAnswer = new Set<string>();
+  /** Where the last voice command went; a command soon after it continues that conversation (#412). */
+  private previous: { target: string; sessionId?: string; at: number } | null = null;
   /** Sessions `./marshal spawn` opened, by session id: the idle timer that closes them. */
   private readonly spawned = new Map<string, NodeJS.Timeout | null>();
   private readonly runAppleScript: (script: string) => Promise<void>;
@@ -297,13 +301,20 @@ export class AssistantDispatcher implements AssistantRoutes {
   answersVoiceCommand(sessionId: string, finished: boolean): boolean {
     if (!this.awaitingAnswer.has(sessionId)) return false;
     if (finished) this.awaitingAnswer.delete(sessionId);
+    // The conversation goes on from the answer, not from when the command was sent.
+    if (finished && this.previous?.sessionId === sessionId) this.previous.at = Date.now();
     return true;
+  }
+
+  private notePrevious(target: string, sessionId?: string): void {
+    this.previous = { target, sessionId, at: Date.now() };
   }
 
   /** A voice command from the home mic. Waits in the queue while the dispatcher is not listening. */
   submit(text: string): void {
     this.deps.commands?.add(text);
-    if (this.queue.submit(text)) {
+    const previous = this.previous && Date.now() - this.previous.at <= FOLLOW_UP_MS ? this.previous.target : undefined;
+    if (this.queue.submit(text, { previous })) {
       this.deps.announce(text);
       return;
     }
@@ -355,6 +366,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       const text = args.join(" ");
       if (text) this.deps.say(text);
       if (text) this.deps.commands?.route({ kind: "general", target: "marshal", outcome: "answered" });
+      if (text) this.notePrevious(DISPATCHER_NAME);
       return "ok";
     }
     if (route === "ask") {
@@ -370,6 +382,7 @@ export class AssistantDispatcher implements AssistantRoutes {
         throw err;
       });
       this.deps.commands?.route({ kind: "feature", target: action, outcome: "answered" });
+      this.notePrevious(DISPATCHER_NAME);
       return said;
     }
     if (route === "insert") {
@@ -387,6 +400,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       this.deps.commands?.route({ kind: "session", target: name, outcome: result === "ok" ? "sent" : "failed" });
       // The session's answer is what the owner waits to hear.
       if (result === "ok") this.awaitingAnswer.add(target.sessionId);
+      if (result === "ok") this.notePrevious(name, target.sessionId);
       return result;
     }
     if (route === "spawn") return this.spawn(args);
@@ -400,6 +414,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       if (!target) return `No live session named "${args.join(" ")}".`;
       this.awaitingAnswer.add(target.sessionId);
       this.deps.commands?.route({ kind: "session", target: target.name ?? args.join(" "), outcome: "sent" });
+      this.notePrevious(target.name ?? args.join(" "), target.sessionId);
       return "ok";
     }
     return null;
