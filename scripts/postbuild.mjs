@@ -169,6 +169,14 @@ if (process.platform === "darwin") {
       fallbackNote: "spoken updates will not notice calls in other apps"
     },
     {
+      src: path.join(root, "desktop", "assistant", "wake", "wake-listener.swift"),
+      out: path.join(root, "dist", "desktop", "assistant", "wake", "wake-listener"),
+      label: "wake-listener",
+      // The sherpa-onnx C structs; the runtime itself is dlopen-ed from the models dir.
+      args: ["-import-objc-header", path.join(root, "desktop", "assistant", "wake", "sherpa-kws.h")],
+      fallbackNote: "the wake phrase («Маршал, …») will be unavailable"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",
@@ -227,7 +235,7 @@ if (process.platform === "darwin") {
   for (const target of swiftTargets) {
     await fs.mkdir(path.dirname(target.out), { recursive: true });
     try {
-      execFileSync("swiftc", [target.src, "-O", "-o", target.out], { stdio: "inherit" });
+      execFileSync("swiftc", [target.src, ...(target.args ?? []), "-O", "-o", target.out], { stdio: "inherit" });
       console.log(`[postbuild] ${target.label} compiled →`, target.out);
       compiled += 1;
     } catch (err) {

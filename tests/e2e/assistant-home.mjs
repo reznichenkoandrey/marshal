@@ -595,6 +595,9 @@ async function main() {
     }
     win.setSize(1100, 720);
     await sleep(250);
+    await win.webContents.executeJavaScript(`document.getElementById("settings-assistant-wake").scrollIntoView({ block: "center" })`);
+    await sleep(250);
+    await fs.writeFile(path.join(SHOTS, "home-settings-assistant.png"), (await win.webContents.capturePage()).toPNG());
   }
   await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
   await sleep(50);
