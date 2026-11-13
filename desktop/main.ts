@@ -12,6 +12,8 @@ import { CaptureService, type CaptureResult } from "./capture/capture-service.ts
 import { CaptureWindow } from "./capture/capture-window.ts";
 import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
 import { CaptureArchive } from "./capture/capture-archive.ts";
+import { pickProfile, readProfiles, SmartHubService, type HubProfile, type HubState } from "./smart-tools/hub.ts";
+import { SmartHubWindow } from "./smart-tools/hub-window.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { ScrollCapture } from "./capture/scroll-capture.ts";
 import { UpdateChecker, type UpdateCheckOutcome } from "./updater/update-checker.ts";
@@ -188,6 +190,10 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+// Built on first use: the service holds no timers and no handles until then,
+// so an owner who never opens the hub pays nothing for it (#281).
+let smartHub: SmartHubService | null = null;
+let smartHubWindow: SmartHubWindow | null = null;
 let assistantHome: AssistantHomeWindow | null = null;
 let glowFrame: GlowFrame | null = null;
 let miniWidget: MiniWidget | null = null;
@@ -1353,6 +1359,9 @@ async function performTeardown(): Promise<void> {
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
+  smartHubWindow?.close();
+  // Only ever a server this process started — a reused one idles out on its own.
+  smartHub?.stop();
   captionsService?.stop();
   speechService?.stop();
   captureWindow?.close();
@@ -2442,6 +2451,7 @@ function buildTrayMenu(): Electron.Menu {
     { label: t("tray.openMarshal"), click: () => openAssistantHome() },
     { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
+    { label: t("tray.openHub"), click: () => void openSmartHub() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
     // listener is dead (#84). No global accelerator: Cmd+Alt+M sat next to the
@@ -3303,11 +3313,73 @@ function flushWaitingSpeech(): void {
   void speechService?.speak(describeWaiting([...sessions.values()], lang), { lang, key: WAITING_SPEECH_KEY });
 }
 
+function hubService(): SmartHubService {
+  smartHub ??= new SmartHubService();
+  return smartHub;
+}
+
+/**
+ * Opens the smart-hub panel, starting the server on demand (#416, #417). The
+ * panel is served by the hub, so a hub that is missing or would not start has
+ * nothing to show: say which of the two it is, and open no window at all.
+ * Returns the sentence the assistant speaks.
+ */
+async function openSmartHub(): Promise<string> {
+  const hub = await hubService().ensure();
+  if (hub.kind !== "running") return hubUnavailable(hub.kind);
+  smartHubWindow ??= new SmartHubWindow(app.getPath("userData"));
+  smartHubWindow.open(hub.url, hub.token);
+  return uiLanguage() === "uk" ? "Відкрив хаб." : "The hub is open.";
+}
+
+/**
+ * Logs a browser profile in by name (#419). The names come from the hub at
+ * runtime — Marshal holds none of its own — and the password never passes
+ * through here: the browser CLI reads the Keychain itself.
+ */
+async function loginBrowserProfile(spoken: string): Promise<string> {
+  const uk = uiLanguage() === "uk";
+  const service = hubService();
+  const hub = await service.ensure();
+  if (hub.kind !== "running") return hubUnavailable(hub.kind);
+  const profiles = readProfiles(await service.stateOf(hub));
+  if (profiles.length === 0) return uk ? "Хаб не дав списку профілів." : "The hub listed no profiles.";
+  const profile = pickProfile(spoken, profiles);
+  if (!profile) return uk ? "Не зрозумів, який профіль." : "I didn't catch which profile.";
+  if (!service.login(profile)) {
+    return uk ? "smart-browser не встановлено на цьому Mac." : "smart-browser is not installed on this Mac.";
+  }
+  return uk ? `Логіню ${spokenProfile(profile)}.` : `Logging in ${spokenProfile(profile)}.`;
+}
+
+/** The id is a path for a CLI; spoken, its slashes are pauses. */
+function spokenProfile(profile: HubProfile): string {
+  return profile.parts.join(" ");
+}
+
+function hubUnavailable(kind: Exclude<HubState["kind"], "running">): string {
+  const uk = uiLanguage() === "uk";
+  if (Notification.isSupported()) {
+    new Notification({
+      title: t("notify.hubUnavailable"),
+      body: t(kind === "missing" ? "notify.hubMissingBody" : "notify.hubStoppedBody"),
+      silent: true
+    }).show();
+  }
+  if (kind === "missing") {
+    return uk ? "smart-hub не встановлено на цьому Mac." : "smart-hub is not installed on this Mac.";
+  }
+  return uk ? "Хаб не запустився." : "The hub did not start.";
+}
+
 async function assistantVoiceAction(action: string): Promise<string> {
   const uk = uiLanguage() === "uk";
   const t = (ukText: string, enText: string) => (uk ? ukText : enText);
+  // Every action but `hub-login` is a single word; that one carries the words
+  // the owner said about the profile (#419).
+  const [verb, ...rest] = action.split(/\s+/).filter(Boolean);
   let reply: string;
-  switch (action) {
+  switch (verb) {
     case "translator":
       runAssistantAction("translator");
       reply = t("Відкрив перекладач.", "The translator is open.");
@@ -3339,6 +3411,12 @@ async function assistantVoiceAction(action: string): Promise<string> {
       runAssistantAction("settings");
       reply = t("Відкрив налаштування.", "Settings are open.");
       break;
+    case "hub":
+      reply = await openSmartHub();
+      break;
+    case "hub-login":
+      reply = await loginBrowserProfile(rest.join(" "));
+      break;
     case "skip":
       speechService?.skip();
       return "ok";
@@ -3362,7 +3440,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
       break;
     }
     default:
-      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
   }
   sayAsAssistant(reply);
   return reply;
