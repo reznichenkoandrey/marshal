@@ -375,8 +375,9 @@ export class AssistantDispatcher implements AssistantRoutes {
       return (await this.deps.ask(question)) ?? "(no answer)";
     }
     if (route === "do") {
-      const [action] = args;
-      if (!action) return "usage: marshal do <action>";
+      // Most actions are one word; `hub-login` takes the spoken profile too (#419).
+      const action = args.join(" ");
+      if (!action) return "usage: marshal do <action> [words]";
       const said = await this.deps.runAction(action).catch((err: unknown) => {
         this.deps.commands?.route({ kind: "feature", target: action, outcome: "failed" });
         throw err;
