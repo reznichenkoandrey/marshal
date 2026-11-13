@@ -3,7 +3,8 @@
 // no stream is open waits here and goes out when one connects. An open stream
 // is also the only "the dispatcher listens" signal: no heartbeat, no poller.
 
-export type AssistantCommand = { id: string; at: string; text: string; target?: string };
+/** `previous`: where the last voice command went, while the owner may still be continuing that conversation (#412). */
+export type AssistantCommand = { id: string; at: string; text: string; target?: string; previous?: string };
 
 export interface CommandSink {
   write(line: string): void;
@@ -25,14 +26,15 @@ export class AssistantCommandQueue {
   }
 
   /** True when a dispatcher received it now, false when it waits. */
-  submit(text: string, target?: string): boolean {
+  submit(text: string, fields: { target?: string; previous?: string } = {}): boolean {
     // Two commands in one millisecond still get distinct ids.
     this.lastId = Math.max(this.now(), this.lastId + 1);
     const command: AssistantCommand = {
       id: String(this.lastId),
       at: new Date(this.now()).toISOString(),
       text,
-      ...(target ? { target } : {})
+      ...(fields.target ? { target: fields.target } : {}),
+      ...(fields.previous ? { previous: fields.previous } : {})
     };
     if (this.deliver(command)) return true;
     this.queued = [...this.queued, command].slice(-MAX_QUEUED_COMMANDS);

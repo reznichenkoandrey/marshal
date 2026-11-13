@@ -57,7 +57,7 @@ describe("command queue", () => {
     let now = 1_000;
     const queue = new AssistantCommandQueue(() => now);
     expect(queue.submit("перший")).toBe(false);
-    expect(queue.submit("другий", "marshal")).toBe(false);
+    expect(queue.submit("другий", { target: "marshal" })).toBe(false);
     expect(queue.listening).toBe(false);
 
     const lines: string[] = [];
@@ -332,6 +332,39 @@ describe("dispatcher over the hook receiver", () => {
       await vi.waitFor(() => expect(lines).toHaveLength(2));
       expect(lines.map((line) => (JSON.parse(line) as { text: string }).text)).toEqual(["відкрий перекладач", "скажи marshal запусти тести"]);
     } finally {
+      req.destroy();
+      service.stop();
+    }
+  });
+
+  it("tells the dispatcher where the last command went while the conversation goes on (#412)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const live = [session({ name: "marshal", sessionId: "m", socketPath: "/s/m" })];
+    const { dispatcher, service, hookDir } = setup(live);
+    await service.start();
+    const port = fs.readFileSync(path.join(hookDir, "port"), "utf8").trim();
+    const auth = fs.readFileSync(path.join(hookDir, "auth-header"), "utf8").trim().replace(/^Authorization: /, "");
+    const events: { text: string; previous?: string }[] = [];
+    const req = http.get({ host: "127.0.0.1", port, path: "/assistant/commands", headers: { Authorization: auth } }, (res) => {
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => events.push(...chunk.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; previous?: string })));
+    });
+    try {
+      await vi.waitFor(() => expect(dispatcher.listening).toBe(true));
+      dispatcher.submit("скажи marshal запусти тести");
+      await helper(hookDir, ["sent", "marshal"]);
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      // A long turn: the two minutes count from the answer, not from the send.
+      dispatcher.answersVoiceCommand("m", true);
+      dispatcher.submit("а що впало?");
+      await helper(hookDir, ["say", "Так, я тут."]);
+      dispatcher.submit("ти тут?");
+      vi.setSystemTime(Date.now() + 3 * 60_000);
+      dispatcher.submit("відкрий перекладач");
+      await vi.waitFor(() => expect(events).toHaveLength(4));
+      expect(events.map((event) => event.previous)).toEqual([undefined, "marshal", "marshal-dispatcher", undefined]);
+    } finally {
+      vi.useRealTimers();
       req.destroy();
       service.stop();
     }
