@@ -203,6 +203,15 @@
               <code>general</code> does the work on this Mac. Installs the Claude Code hooks, so results are read aloud.
             </p>
 
+            <label class="checkbox-row">
+              <input id="settings-assistant-wake" name="assistantWake" type="checkbox" />
+              <span data-i18n="settings.assistantWake">Start with «Marshal, …» — no key</span>
+            </label>
+            <p id="settings-assistant-wake-status" class="field-hint">The mic stays open and listens only for the name; a command counts only when you start with it. Off on calls, while recording a meeting or running captions.</p>
+            <button type="button" id="settings-assistant-wake-install" class="btn btn-secondary" hidden data-i18n="settings.downloadWake">
+              Download wake phrase model (38 MB)
+            </button>
+
             <div class="field">
               <label for="settings-assistant-general-dir" data-i18n-html="settings.folderCodeGeneralCodeWorks">Folder <code>general</code> works in</label>
               <input id="settings-assistant-general-dir" name="assistantGeneralDir" type="text"

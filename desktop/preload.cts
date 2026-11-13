@@ -222,6 +222,8 @@ const desktopApi = {
   installPiperVoice: () => ipcRenderer.invoke("marshal:speech-install-piper") as Promise<
     { ok: true } | { ok: false; error: string }
   >,
+  wakeStatus: () => ipcRenderer.invoke("marshal:wake-status") as Promise<{ installed: boolean; running: boolean }>,
+  installWake: () => ipcRenderer.invoke("marshal:wake-install") as Promise<{ ok: true } | { ok: false; error: string }>,
   installHolosVoice: () => ipcRenderer.invoke("marshal:speech-install-holos") as Promise<
     { ok: true } | { ok: false; error: string }
   >,

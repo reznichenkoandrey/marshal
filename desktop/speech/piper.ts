@@ -20,14 +20,14 @@ import { DEFAULT_SPEECH_RATE, normalizeSpeechRate } from "./speech-policy.ts";
 
 const execFileAsync = promisify(execFile);
 
-const SHERPA_VERSION = "v1.13.8";
-const RUNTIME_DIR = `sherpa-onnx-${SHERPA_VERSION}-osx-arm64-shared`;
+export const SHERPA_VERSION = "v1.13.8";
+export const RUNTIME_DIR = `sherpa-onnx-${SHERPA_VERSION}-osx-arm64-shared`;
 const VOICE_DIR = "vits-piper-uk_UA-lada-x_low-int8";
-const RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download";
+export const RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download";
 
 export const PIPER_VOICE_LABEL = "Piper · Lada (uk_UA)";
 
-type PiperArchive = {
+export type PiperArchive = {
   url: string;
   /** Exact upstream size; anything else is a truncated or replaced download. */
   bytes: number;
@@ -95,28 +95,35 @@ export function buildPiperArgs(paths: PiperPaths, text: string, wavPath: string,
   ];
 }
 
-/** Downloads the runtime and the voice (~33 MB) and unpacks only what synthesis needs. */
-export async function installPiper(options: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {}): Promise<void> {
+export type InstallOptions = { fetchImpl?: typeof fetch; signal?: AbortSignal };
+
+/** Downloads each archive into `root`, checks its exact size and unpacks only its members. Shared with the wake listener (#274). */
+export async function installArchives(root: string, archives: readonly PiperArchive[], options: InstallOptions = {}): Promise<void> {
   const doFetch = options.fetchImpl ?? fetch;
-  const root = piperDir();
   await fs.mkdir(root, { recursive: true });
-  for (const archive of PIPER_ARCHIVES) {
+  for (const archive of archives) {
     const file = path.join(root, path.basename(archive.url));
     try {
       const response = await doFetch(archive.url, { signal: options.signal });
-      if (!response.ok || !response.body) throw new Error(`Piper download failed: HTTP ${response.status} for ${archive.url}`);
+      if (!response.ok || !response.body) throw new Error(`Download failed: HTTP ${response.status} for ${archive.url}`);
       await pipeline(
         Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
         createWriteStream(file)
       );
       const { size } = await fs.stat(file);
       if (size !== archive.bytes) {
-        throw new Error(`Piper download ${path.basename(file)} is ${size} bytes, expected ${archive.bytes}. Try again.`);
+        throw new Error(`Download ${path.basename(file)} is ${size} bytes, expected ${archive.bytes}. Try again.`);
       }
       await execFileAsync("/usr/bin/tar", ["-xjf", file, "-C", root, ...archive.members], { timeout: 120_000 });
     } finally {
       await fs.rm(file, { force: true });
     }
   }
+}
+
+/** Downloads the runtime and the voice (~33 MB) and unpacks only what synthesis needs. */
+export async function installPiper(options: InstallOptions = {}): Promise<void> {
+  const root = piperDir();
+  await installArchives(root, PIPER_ARCHIVES, options);
   if (!isPiperInstalled()) throw new Error(`Piper unpacked into ${root}, but files are missing.`);
 }

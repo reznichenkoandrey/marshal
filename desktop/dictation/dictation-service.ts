@@ -235,6 +235,12 @@ export class DictationService extends EventEmitter {
     return answer;
   }
 
+  /** A wake-phrase clip (#274): the same backend and prompt as dictation, filler dropped. */
+  async transcribeClip(wavPath: string): Promise<string> {
+    const result = await this.backend.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+    return transcriptToDeliver(result.text).trim();
+  }
+
   private settleAnswer(text: string | null): void {
     const resolve = this.answerResolve;
     this.answerResolve = null;

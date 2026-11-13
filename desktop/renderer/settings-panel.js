@@ -54,6 +54,9 @@ const dom = {
   settingsLaunchAtLogin: document.getElementById("settings-launch-at-login"),
   settingsSpeechEnabled: document.getElementById("settings-speech-enabled"),
   settingsAssistantDispatcher: document.getElementById("settings-assistant-dispatcher"),
+  settingsAssistantWake: document.getElementById("settings-assistant-wake"),
+  settingsAssistantWakeStatus: document.getElementById("settings-assistant-wake-status"),
+  settingsAssistantWakeInstall: document.getElementById("settings-assistant-wake-install"),
   settingsAssistantWidget: document.getElementById("settings-assistant-widget"),
   settingsAssistantGlow: document.getElementById("settings-assistant-glow"),
   settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
@@ -157,6 +160,30 @@ async function populateSpeechVoices(voiceUk, voiceEn, holosVoice) {
   dom.settingsSpeechStatus.textContent = !report?.available
     ? t("settings.speechUnavailable")
     : (report.uk ?? []).length === 0 ? t("settings.noUkVoice") : t("settings.usesTheSavedSettingsSave");
+}
+
+async function refreshWakeState() {
+  if (!api?.wakeStatus) return;
+  const { installed } = await api.wakeStatus().catch(() => ({ installed: false }));
+  if (dom.settingsAssistantWakeInstall) dom.settingsAssistantWakeInstall.hidden = installed;
+  if (dom.settingsAssistantWakeStatus) {
+    dom.settingsAssistantWakeStatus.textContent = t(installed ? "settings.assistantWakeHint" : "settings.wakeNotInstalled");
+  }
+}
+
+async function installWakeModel() {
+  if (!api?.installWake || !dom.settingsAssistantWakeInstall) return;
+  dom.settingsAssistantWakeInstall.disabled = true;
+  if (dom.settingsAssistantWakeStatus) dom.settingsAssistantWakeStatus.textContent = t("settings.wakeDownloading");
+  try {
+    const result = await api.installWake();
+    if (result.ok) await refreshWakeState();
+    else if (dom.settingsAssistantWakeStatus) dom.settingsAssistantWakeStatus.textContent = t("settings.piperDownloadFailed", { error: result.error });
+  } catch (err) {
+    if (dom.settingsAssistantWakeStatus) dom.settingsAssistantWakeStatus.textContent = t("settings.piperDownloadFailed", { error: err?.message ?? String(err) });
+  } finally {
+    dom.settingsAssistantWakeInstall.disabled = false;
+  }
 }
 
 function showPiperState(installed) {
@@ -387,6 +414,8 @@ async function openSettings() {
     void api?.calendarStatus?.().then(renderCalendarStatus).catch(() => renderCalendarStatus(null));
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
+    if (dom.settingsAssistantWake) dom.settingsAssistantWake.checked = current.assistantWake ?? false;
+    void refreshWakeState();
     if (dom.settingsAssistantWidget) dom.settingsAssistantWidget.checked = current.assistantWidget ?? false;
     if (dom.settingsAssistantGlow) dom.settingsAssistantGlow.checked = current.assistantGlow ?? true;
     if (dom.settingsAssistantBadge) dom.settingsAssistantBadge.checked = current.assistantWaitingBadge ?? true;
@@ -593,6 +622,7 @@ async function saveSettingsFromForm() {
     calendarEnabled: dom.settingsCalendarEnabled?.checked ?? false,
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
+    assistantWake: dom.settingsAssistantWake?.checked ?? false,
     assistantWidget: dom.settingsAssistantWidget?.checked ?? false,
     assistantGlow: dom.settingsAssistantGlow?.checked ?? true,
     assistantWaitingBadge: dom.settingsAssistantBadge?.checked ?? true,
@@ -884,6 +914,7 @@ function bindEvents() {
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
   dom.settingsSpeechPiperInstall?.addEventListener("click", installPiperVoice);
+  dom.settingsAssistantWakeInstall?.addEventListener("click", installWakeModel);
   dom.settingsSpeechHolosInstall?.addEventListener("click", installHolosVoice);
   dom.settingsSpeechHolosClone?.addEventListener("click", cloneHolosVoice);
   dom.appearanceSegmented?.addEventListener("click", (e) => {

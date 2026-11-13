@@ -93,6 +93,7 @@ import {
   writeLastGreeted
 } from "./assistant/greeting.ts";
 import { matchSleepCommand } from "./assistant/sleep.ts";
+import { installWake, isWakeInstalled, WakeListener } from "./assistant/wake/wake-listener.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -235,6 +236,7 @@ let captionsAccelerators: { toggle: string; ocr: string } = {
 let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
 let assistantDispatcher: AssistantDispatcher | null = null;
+let wakeListener: WakeListener | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -352,6 +354,7 @@ async function bootstrap(): Promise<void> {
       initAssistantDispatcher();
       registerAssistantHotkey();
       initAmbient();
+      if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) syncWakeListener();
       void initExtensionBridge();
       initUpdater();
       if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) {
@@ -560,6 +563,7 @@ function registerIpcHandlers(): void {
     restartDictation();
     syncCalendar();
     void syncAssistantDispatcher();
+    syncWakeListener();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1343,6 +1347,7 @@ async function performTeardown(): Promise<void> {
   stopSharedWhisperServer();
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
+  wakeListener?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
@@ -1857,6 +1862,20 @@ function initSpeech(): void {
         piperInstall = null;
       });
     return piperInstall;
+  });
+  let wakeInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
+  handleIpc("marshal:wake-status", () => ({ installed: isWakeInstalled(), running: wakeListener?.isRunning() ?? false }));
+  handleIpc("marshal:wake-install", () => {
+    wakeInstall ??= installWake()
+      .then(() => {
+        syncWakeListener();
+        return { ok: true as const };
+      })
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => {
+        wakeInstall = null;
+      });
+    return wakeInstall;
   });
   let holosInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
   handleIpc("marshal:speech-install-holos", () => {
@@ -2932,6 +2951,7 @@ function toggleAssistantHome(): void {
 function setAssistantInputs(next: Partial<AssistantInputs>): void {
   assistantInputs = { ...assistantInputs, ...next };
   assistantHome?.update({ state: deriveAssistantState(assistantInputs) });
+  wakeListener?.setBusy(assistantInputs.dictating || assistantInputs.transcribing || assistantInputs.speaking);
   updateAmbient();
 }
 
@@ -3114,6 +3134,26 @@ async function greetOnLaunch(): Promise<void> {
   // The greeting ends with "що робимо сьогодні?": listen for the answer.
   const answer = await listenAfterSpeech();
   if (answer) handleVoiceCommand(answer);
+}
+
+// «Маршал, …» without a key (#274). Asleep it still listens: «Маршал, прокинься» is the way back.
+function syncWakeListener(): void {
+  if (!loadSettings().assistantWake || !isWakeInstalled()) {
+    wakeListener?.stop();
+    return;
+  }
+  wakeListener ??= new WakeListener({
+    transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
+    allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
+    onCommand: handleVoiceCommand,
+    onNameOnly: () => {
+      void askOwner(uiLanguage() === "uk" ? "Так?" : "Yes?").then((answer) => {
+        if (answer) handleVoiceCommand(answer);
+      });
+    },
+    onPhase: (phase) => setAssistantInputs(phase)
+  });
+  wakeListener.start();
 }
 
 function handleVoiceCommand(text: string): void {
