@@ -252,8 +252,13 @@ export function findNamedClaudePids(psOutput: string, name: string): number[] {
 
 /** `do script` for a new Terminal window, minimised so it stays out of the way; it closes when the session ends (#390). */
 
+/** The session's command without the inherited keys and host-session env (#322, #388); Harbor runs it as is. */
+export function assistantCommand(commandLine: string): string {
+  return `${CLAUDE_ENV_RESET} ${commandLine}`;
+}
+
 export function terminalScript(cwd: string, commandLine: string, title: string, minimised = true): string {
-  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${CLAUDE_ENV_RESET} ${commandLine}; exit`;
+  const command = `printf '\\033]0;%s\\007' ${shellQuote(title)}; cd ${shellQuote(cwd)} && ${assistantCommand(commandLine)}; exit`;
   const appleString = `"${command.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
   return [
     "tell application \"Terminal\"",

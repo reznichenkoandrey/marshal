@@ -12,6 +12,7 @@ import path from "node:path";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
 import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
+import { harborCall, type HarborRequest, type HarborResponse } from "../claude-code/harbor.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import type { CommandRoute } from "./command-log.ts";
@@ -34,6 +35,7 @@ import {
   sessionsForDispatcher,
   spawnProjects,
   terminalScript,
+  assistantCommand,
   unminimiseTerminalScript,
   withTrustedFolder,
   type GeneralPermissionMode
@@ -118,6 +120,9 @@ export type DispatcherDeps = {
   /** `./marshal reply`: types the owner's words into the session as their own input (#394). */
   reply: (session: ClaudeSession, text: string) => Promise<string>;
   runAppleScript?: (script: string) => Promise<void>;
+  /** True: sessions open in Harbor's System group instead of Terminal windows (#425). */
+  useHarbor?: () => boolean;
+  harbor?: (request: HarborRequest) => Promise<HarborResponse>;
   /** Where Claude Code keeps folder trust; ~/.claude.json. */
   claudeStatePath?: string;
   /** `ps -axo pid=,command=` (`listProcesses`), read only when a session of Marshal's own is looked up; absent = registry only. */
@@ -244,7 +249,8 @@ export class AssistantDispatcher implements AssistantRoutes {
     }
     if (Date.now() - (this.launchedAt.get(DISPATCHER_NAME) ?? 0) < STARTING_MS) {
       // Opened minimised a moment ago and not registered yet: its tab still carries the title.
-      await this.runAppleScript(unminimiseTerminalScript(DISPATCHER_NAME));
+      if (this.deps.useHarbor?.()) await this.harbor({ op: "focus", name: DISPATCHER_NAME });
+      else await this.runAppleScript(unminimiseTerminalScript(DISPATCHER_NAME));
       return;
     }
     this.writeFiles();
@@ -472,11 +478,17 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (Date.now() - (this.launchedAt.get(title) ?? 0) < STARTING_MS) return;
     this.launchedAt.set(title, Date.now());
     try {
-      await this.runAppleScript(terminalScript(cwd, commandLine, title, minimised));
+      if (this.deps.useHarbor?.()) await this.harbor({ op: "open", name: title, cwd, command: assistantCommand(commandLine), reveal: !minimised });
+      else await this.runAppleScript(terminalScript(cwd, commandLine, title, minimised));
     } catch (err) {
       this.launchedAt.delete(title);
       throw err;
     }
+  }
+
+  private async harbor(request: HarborRequest): Promise<void> {
+    const reply = await (this.deps.harbor ?? harborCall)(request);
+    if (!reply.ok) throw new Error(`Harbor: ${reply.error}`);
   }
 
   private launchError(err: unknown): string {

@@ -108,7 +108,8 @@ describe("saveSettings", () => {
       assistantDispatcher: true,
       assistantDispatcherModel: "  ",
       assistantGeneralDir: " ~/htdocs ",
-      assistantGeneralPermissionMode: "nonsense" as unknown as "auto"
+      assistantGeneralPermissionMode: "nonsense" as unknown as "auto",
+      assistantTerminalHost: "tmux" as unknown as "auto"
     });
     expect(saved).toEqual({
       bridgeMode: "api",
@@ -169,7 +170,8 @@ describe("saveSettings", () => {
       assistantDispatcher: true,
       assistantDispatcherModel: "haiku",
       assistantGeneralDir: "~/htdocs",
-      assistantGeneralPermissionMode: "bypass"
+      assistantGeneralPermissionMode: "bypass",
+      assistantTerminalHost: "auto"
     });
   });
 

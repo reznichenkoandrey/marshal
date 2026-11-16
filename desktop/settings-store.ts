@@ -10,6 +10,7 @@ import {
 } from "./dictation/gesture-options.ts";
 import type { GeneralPermissionMode } from "./assistant/dispatcher-files.ts";
 import type { AssistantLanguageSetting } from "./assistant/strip.ts";
+import type { TerminalHost } from "./claude-code/harbor.ts";
 import { DEFAULT_DICTATION_PROMPT, PREVIOUS_DEFAULT_DICTATION_PROMPTS } from "./dictation/whisper-backend.ts";
 import {
   DEFAULT_CAPTIONS_DRAG_MODIFIER,
@@ -222,6 +223,8 @@ export type MarshalSettings = {
   /** Where `general` works; empty = Marshal's own folder in userData. */
   assistantGeneralDir: string;
   assistantGeneralPermissionMode: GeneralPermissionMode;
+  /** Where the assistant's sessions open (#425): Harbor's System group or a minimised Terminal window each. */
+  assistantTerminalHost: TerminalHost;
 };
 
 const DEFAULT_SETTINGS: MarshalSettings = {
@@ -290,7 +293,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
   assistantGeneralDir: "",
-  assistantGeneralPermissionMode: "bypass"
+  assistantGeneralPermissionMode: "bypass",
+  assistantTerminalHost: "auto"
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
@@ -625,7 +629,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantGeneralDir: typeof input.assistantGeneralDir === "string" ? input.assistantGeneralDir.trim() : DEFAULT_SETTINGS.assistantGeneralDir,
     assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
       ? input.assistantGeneralPermissionMode
-      : DEFAULT_SETTINGS.assistantGeneralPermissionMode
+      : DEFAULT_SETTINGS.assistantGeneralPermissionMode,
+    assistantTerminalHost: input.assistantTerminalHost === "harbor" || input.assistantTerminalHost === "terminal"
+      ? input.assistantTerminalHost
+      : DEFAULT_SETTINGS.assistantTerminalHost
   };
 }
 

@@ -40,6 +40,7 @@ import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/
 import { isSharedWhisperServerRunning, stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
+import { usesHarbor } from "./claude-code/harbor.ts";
 import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
@@ -3017,6 +3018,7 @@ function initAssistantDispatcher(): void {
         routingRoots: parseRoutingRoots(settings.claudeCodeRoutingRoots)
       };
     },
+    useHarbor: () => usesHarbor(loadSettings().assistantTerminalHost),
     liveSessions: () => listLiveSessions(),
     context: () => hooks.routingContext(ownSessions()),
     say: (text) => {
