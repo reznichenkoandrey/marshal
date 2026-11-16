@@ -23,11 +23,12 @@ import { asarUnpacked } from "../../utils/asar-paths.ts";
 
 const MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
 const MODEL_FILES = ["encoder", "decoder", "joiner"].map((part) => `${part}-epoch-12-avg-2-chunk-16-left-64.int8.onnx`);
-// First BPE piece of MARSHAL only: the full "▁MAR SH AL" missed 2 of 3 live attempts (#421).
-// Whisper plus wakeCommand reject the extra candidates (~2 % of room speech).
-const KEYWORDS = "▁MAR @MARSHAL\n";
+// BPE pieces of MARSHAL in the gigaspeech vocabulary. "▁MAR" alone never fires on a clean
+// "Marshal": the decoder goes on to SH instead of a blank (#421).
+const KEYWORDS = "▁MAR SH AL @MARSHAL\n";
 // After the name alone, this much quiet means "Маршал" was the whole utterance.
 const NAME_PAUSE_MS = 1_500;
+const DEBUG = process.env.MARSHAL_WAKE_DEBUG === "1";
 
 const DEFAULT_BIN = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "wake-listener");
 
@@ -160,6 +161,7 @@ export class WakeListener {
 
   private onLine(line: string): void {
     if (line === "wake") {
+      if (DEBUG) console.log(`[wake] candidate${this.capturing ? " (already capturing)" : ""}`);
       if (this.capturing) return;
       this.capturing = true;
       this.endOfSpeech = new EndOfSpeech({ ...endOfSpeechOptions(), noSpeechMs: NAME_PAUSE_MS });
@@ -184,10 +186,13 @@ export class WakeListener {
   private async handleClip(wavPath: string): Promise<void> {
     this.deps.onPhase({ dictating: false, transcribing: true });
     try {
-      if (!(await this.deps.allowed())) return;
+      if (!(await this.deps.allowed())) {
+        if (DEBUG) console.log("[wake] candidate dropped: open mic not allowed (call, recording, captions)");
+        return;
+      }
       const transcript = await this.deps.transcribe(wavPath);
       const command = wakeCommand(transcript);
-      if (process.env.MARSHAL_WAKE_DEBUG === "1") console.log(`[wake] heard ${JSON.stringify(transcript)} → ${JSON.stringify(command)}`);
+      if (DEBUG) console.log(`[wake] heard ${JSON.stringify(transcript)} → ${JSON.stringify(command)}`);
       if (command === "") this.deps.onNameOnly();
       else if (command !== null) this.deps.onCommand(command);
     } catch (err) {
