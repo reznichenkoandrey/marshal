@@ -23,8 +23,9 @@ import { asarUnpacked } from "../../utils/asar-paths.ts";
 
 const MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
 const MODEL_FILES = ["encoder", "decoder", "joiner"].map((part) => `${part}-epoch-12-avg-2-chunk-16-left-64.int8.onnx`);
-// BPE pieces of MARSHAL in the gigaspeech vocabulary; checked against tokens.txt.
-const KEYWORDS = "▁MAR SH AL @MARSHAL\n";
+// First BPE piece of MARSHAL only: the full "▁MAR SH AL" missed 2 of 3 live attempts (#421).
+// Whisper plus wakeCommand reject the extra candidates (~2 % of room speech).
+const KEYWORDS = "▁MAR @MARSHAL\n";
 // After the name alone, this much quiet means "Маршал" was the whole utterance.
 const NAME_PAUSE_MS = 1_500;
 
