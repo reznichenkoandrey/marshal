@@ -76,6 +76,7 @@ typealias CreateStream = @convention(c) (OpaquePointer) -> OpaquePointer?
 typealias AcceptWaveform = @convention(c) (OpaquePointer, Int32, UnsafePointer<Float>, Int32) -> Void
 typealias IsReady = @convention(c) (OpaquePointer, OpaquePointer) -> Int32
 typealias SpotterStream = @convention(c) (OpaquePointer, OpaquePointer) -> Void
+typealias DestroyStream = @convention(c) (OpaquePointer) -> Void
 typealias GetResult = @convention(c) (OpaquePointer, OpaquePointer) -> UnsafePointer<SherpaOnnxKeywordResult>?
 typealias DestroyResult = @convention(c) (UnsafePointer<SherpaOnnxKeywordResult>) -> Void
 
@@ -84,7 +85,7 @@ let createStream = symbol("SherpaOnnxCreateKeywordStream", as: CreateStream.self
 let acceptWaveform = symbol("SherpaOnnxOnlineStreamAcceptWaveform", as: AcceptWaveform.self)
 let isReady = symbol("SherpaOnnxIsKeywordStreamReady", as: IsReady.self)
 let decode = symbol("SherpaOnnxDecodeKeywordStream", as: SpotterStream.self)
-let resetStream = symbol("SherpaOnnxResetKeywordStream", as: SpotterStream.self)
+let destroyStream = symbol("SherpaOnnxDestroyOnlineStream", as: DestroyStream.self)
 let getResult = symbol("SherpaOnnxGetKeywordResult", as: GetResult.self)
 let destroyResult = symbol("SherpaOnnxDestroyKeywordResult", as: DestroyResult.self)
 
@@ -110,7 +111,24 @@ config.keywords_threshold = threshold
 config.keywords_file = cString(keywordsFile)
 
 guard let spotter = withUnsafePointer(to: &config, { createSpotter($0) }) else { fail("cannot create the keyword spotter") }
-guard let stream = createStream(spotter) else { fail("cannot create a keyword stream") }
+// Whether a real "Marshal" fires depends on where the stream starts against the speech: the
+// same clip shifted by 10 ms fires or not (4 of 10 shifts on a recorded attempt). Streams that
+// start 30 ms apart cover that; they decode only while there is sound (#421).
+let streamOffsets = [0, sampleRate * 3 / 100, sampleRate * 6 / 100]
+
+func newStream() -> OpaquePointer {
+  guard let stream = createStream(spotter) else { fail("cannot create a keyword stream") }
+  return stream
+}
+
+var streams = streamOffsets.map { _ in newStream() }
+
+// New streams per stretch of sound. SherpaOnnxResetKeywordStream keeps state from earlier
+// audio: after a few minutes of room talk the same "Marshal" no longer fires (#421).
+func freshStreams() {
+  streams.forEach(destroyStream)
+  streams = streamOffsets.map { _ in newStream() }
+}
 
 // MARK: - Listening state (touched only on `work`)
 
@@ -133,16 +151,14 @@ func dbfs(_ samples: [Float]) -> Float {
   return power > 0 ? max(10 * log10(power), -160) : -160
 }
 
-func spot(_ samples: [Float]) -> Bool {
+func spot(_ samples: [Float], on stream: OpaquePointer) -> Bool {
+  guard !samples.isEmpty else { return false }
   samples.withUnsafeBufferPointer { acceptWaveform(stream, Int32(sampleRate), $0.baseAddress!, Int32(samples.count)) }
   var hit = false
-  while isReady(spotter, stream) != 0 {
+  while !hit && isReady(spotter, stream) != 0 {
     decode(spotter, stream)
     guard let result = getResult(spotter, stream) else { continue }
-    if let keyword = result.pointee.keyword, keyword.pointee != 0 {
-      hit = true
-      resetStream(spotter, stream)
-    }
+    if let keyword = result.pointee.keyword, keyword.pointee != 0 { hit = true }
     destroyResult(result)
   }
   return hit
@@ -173,9 +189,13 @@ func feed(_ samples: [Float]) {
     spotting = loud || (spotting && quietSamples < sampleRate)
     quietSamples = loud ? 0 : quietSamples + samples.count
     guard spotting else { return }
-    if !wasSpotting { resetStream(spotter, stream) }
-    let input = wasSpotting ? samples : Array(ring.suffix(leadInSamples))
-    if spot(input) {
+    if !wasSpotting { freshStreams() }
+    var hit = false
+    for (stream, offset) in zip(streams, streamOffsets) {
+      let input = wasSpotting ? samples : Array(ring.suffix(leadInSamples - offset))
+      if spot(input, on: stream) { hit = true }
+    }
+    if hit {
       mode = .capturing
       capture = ring
       levelSamples = []
@@ -189,7 +209,7 @@ func listenAgain() {
   capture = []
   spotting = false
   quietSamples = 0
-  resetStream(spotter, stream)
+  freshStreams()
   mode = .listening
 }
 
