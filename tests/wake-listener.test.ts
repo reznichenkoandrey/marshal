@@ -75,20 +75,27 @@ cat > /dev/null
     const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
     const bin = path.join(dir, "fake-helper");
     // Tail of the name (0.5 s), the comma pause (1.2 s), the command (0.5 s), then silence.
-    // The clip path says how many readings had gone out when Marshal asked for the clip.
+    // Readings go out on an absolute 100 ms clock: a shell `sleep` loop drifted past the
+    // 1.5 s name pause on a busy CI runner. The clip path is how many had gone out.
+    const levels = [...Array(5).fill(-20), ...Array(12).fill(-60), ...Array(5).fill(-20), ...Array(20).fill(-60)];
     writeFileSync(
       bin,
-      `#!/bin/sh
-echo ready
-echo wake
-(n=0
-for db in -20 -20 -20 -20 -20 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -20 -20 -20 -20 -20 \\
-  -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60; do
-  echo "level $db"; n=$((n+1)); echo $n > "${dir}/sent"; sleep 0.1
-done) &
-read cmd clip
-echo "clip $(cat "${dir}/sent")"
-cat > /dev/null
+      `#!${process.execPath}
+const levels = ${JSON.stringify(levels)};
+let sent = 0;
+console.log("ready");
+console.log("wake");
+const start = Date.now();
+const tick = () => {
+  if (sent >= levels.length) return;
+  console.log("level " + levels[sent++]);
+  setTimeout(tick, start + sent * 100 - Date.now());
+};
+tick();
+require("node:readline").createInterface({ input: process.stdin }).on("line", () => {
+  console.log("clip " + sent);
+  process.exit(0);
+});
 `
     );
     chmodSync(bin, 0o755);
