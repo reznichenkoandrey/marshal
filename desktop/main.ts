@@ -96,7 +96,7 @@ import {
   writeLastGreeted
 } from "./assistant/greeting.ts";
 import { matchSleepCommand } from "./assistant/sleep.ts";
-import { installWake, isWakeInstalled, WakeListener } from "./assistant/wake/wake-listener.ts";
+import { installWake, isWakeReady, WakeListener, wakeEngine, type WakeEngine } from "./assistant/wake/wake-listener.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -209,6 +209,8 @@ const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
 const isOnCall = createCallPresence();
 // A question queued behind other phrases (or held by captions) is stale after this.
 const ANSWER_QUIET_WAIT_MS = 30_000;
+// After «Маршал» alone, how long the next words still count as the command.
+const WAKE_FOLLOW_UP_MS = 6_000;
 // The hook gives up at 58 s (curl) / 60 s (Claude Code); answer well before that.
 const PERMISSION_DEADLINE_MS = 50_000;
 // The prompt that follows an unanswered voice question needs no second announcement.
@@ -244,6 +246,7 @@ let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
 let assistantDispatcher: AssistantDispatcher | null = null;
 let wakeListener: WakeListener | null = null;
+let wakeListenerEngine: WakeEngine | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
@@ -361,7 +364,7 @@ async function bootstrap(): Promise<void> {
       initAssistantDispatcher();
       registerAssistantHotkey();
       initAmbient();
-      if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) syncWakeListener();
+      if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) void syncWakeListener();
       void initExtensionBridge();
       initUpdater();
       if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) {
@@ -570,7 +573,7 @@ function registerIpcHandlers(): void {
     restartDictation();
     syncCalendar();
     void syncAssistantDispatcher();
-    syncWakeListener();
+    void syncWakeListener();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1874,11 +1877,15 @@ function initSpeech(): void {
     return piperInstall;
   });
   let wakeInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
-  handleIpc("marshal:wake-status", () => ({ installed: isWakeInstalled(), running: wakeListener?.isRunning() ?? false }));
+  handleIpc("marshal:wake-status", async () => ({
+    installed: await isWakeReady(),
+    engine: await wakeEngine(),
+    running: wakeListener?.isRunning() ?? false
+  }));
   handleIpc("marshal:wake-install", () => {
     wakeInstall ??= installWake()
-      .then(() => {
-        syncWakeListener();
+      .then(async () => {
+        await syncWakeListener();
         return { ok: true as const };
       })
       .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
@@ -3149,23 +3156,49 @@ async function greetOnLaunch(): Promise<void> {
 }
 
 // «Маршал, …» without a key (#274). Asleep it still listens: «Маршал, прокинься» is the way back.
-function syncWakeListener(): void {
-  if (!loadSettings().assistantWake || !isWakeInstalled()) {
+async function syncWakeListener(): Promise<void> {
+  const engine = await wakeEngine();
+  if (!loadSettings().assistantWake || !(await isWakeReady())) {
     wakeListener?.stop();
     return;
   }
+  if (wakeListenerEngine !== engine) {
+    wakeListener?.stop();
+    wakeListener = null;
+  }
+  wakeListenerEngine = engine;
   wakeListener ??= new WakeListener({
+    engine,
     transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
     onCommand: handleVoiceCommand,
+    // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {
-      void askOwner(uiLanguage() === "uk" ? "Так?" : "Yes?").then((answer) => {
-        if (answer) handleVoiceCommand(answer);
-      });
+      const ack = uiLanguage() === "uk" ? "Слухаю." : "Listening.";
+      if (engine === "apple") void listenForWakeCommand(ack);
+      else
+        void askOwner(ack).then((answer) => {
+          if (answer) handleVoiceCommand(answer);
+        });
     },
-    onPhase: (phase) => setAssistantInputs(phase)
+    onPhase: (phase) => {
+      setAssistantInputs(phase);
+      // A cold Holos took ~3 s to say «Слухаю.»; words said meanwhile were lost to the paused helper.
+      if (phase.dictating) speechService?.warmUp();
+    }
   });
   wakeListener.start();
+}
+
+// The wake helper itself hears the command after «Маршал» alone: it has no energy gate to drop a quiet voice (#433).
+async function listenForWakeCommand(ack: string): Promise<void> {
+  if (!speechService || assistantInputs.asleep) return;
+  // Open at once too: the owner may go on before «Слухаю.» is synthesized.
+  wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
+  const spoken = await speechService.speak(ack, { key: "assistant:ask" });
+  if (spoken.ok) announceToAssistant(ack);
+  await Promise.race([speechService.whenQuiet(), new Promise((resolve) => setTimeout(resolve, ANSWER_QUIET_WAIT_MS))]);
+  wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
 }
 
 function handleVoiceCommand(text: string): void {

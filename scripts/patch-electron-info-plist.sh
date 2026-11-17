@@ -38,6 +38,7 @@ declare -a desired=(
   "NSMicrophoneUsageDescription:Marshal needs microphone access to transcribe your voice dictation."
   "NSScreenCaptureUsageDescription:Marshal captures a selected screen region for OCR translation."
   "NSAppleEventsUsageDescription:Marshal uses Apple Events for auto-paste after dictation."
+  "NSSpeechRecognitionUsageDescription:Marshal recognises the wake phrase on this Mac with macOS dictation."
   "CFBundleIdentifier:$DEV_BUNDLE_ID"
   "CFBundleName:$DEV_BUNDLE_NAME"
   "CFBundleDisplayName:$DEV_BUNDLE_NAME"
