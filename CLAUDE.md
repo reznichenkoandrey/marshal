@@ -838,13 +838,23 @@
   промптом через `reply`, лише в статусі `idle`. Сесій Claude desktop Marshal **не вбиває ніколи**: ні на stop, ні
   як зайвий диспетчер, ні по простою. Вимкнений асистент лишає `watch` у циклі перепідключення. Це ~один хід haiku
   на 30 хв, бо `watch`, що виходить на 404, зламав би перепідключення в Terminal-режимі.
-  **Інструменти застосунку (`mcp__ccd_session_mgmt__*`) і межа #303.** `list_sessions` бачить **усі** сесії
-  застосунку, робочі теж. Тому transcript-інструменти (`list_events`, `search_session_transcripts`,
-  `export_transcript`), `delete_session`, `set_session_permission_mode` і `start_session` у deny
-  `DISPATCHER_SETTINGS`. `archive_session`, `set_session_model` і `get_session` проходять PreToolUse-hook
-  `./marshal gate` → `POST /assistant/gate` → `appToolRefusal`. Пропускає лише живу сесію з дозволених тек
-  (`claudeCodeRoutingRoots`) і ніколи сам диспетчер. Будь-яка помилка блокує виклик (exit 2), зокрема коли Marshal не
-  відповідає. Архівація — лише після `./marshal ask "Архівувати <name>?"` і чіткого «так». `send_message`
+  **Інструменти застосунку (`mcp__ccd_*`) і межа #303.** `list_sessions` бачить **усі** сесії застосунку, робочі
+  теж. **PreToolUse-hook `./marshal gate` ловить кожен `mcp__ccd_*`** (#444): у `bypass` allow-список не діє, і
+  раніше settings, host, pr, directory й інші сервери застосунку йшли повз gate. Hook → `POST /assistant/gate` →
+  `appToolRefusal`, будь-яка помилка блокує виклик (exit 2), зокрема коли Marshal не відповідає. Голосом доступні
+  (#445): `archive_session` і `stop_session` (обидва лише після `./marshal ask` і чіткого «так»), `set_session_title`,
+  `set_session_model`, `set_session_effort`, `get_session`, `mcp__ccd_sidebar__set_pinned` / `mark_completed` /
+  `set_unread`, `mcp__ccd_pr__get_status` (PR і CI сесії). Усі вони пропускають лише живу сесію з дозволених тек
+  (`claudeCodeRoutingRoots`) і ніколи сам диспетчер. Без gate йдуть `list_sessions`, `get_usage` лише без чужого
+  `session_id` (ліміти акаунта) і `mcp__ccd_turn__*` (власний task list сесії). Решту `mcp__ccd_*` gate відмовляє.
+  Deny в `DISPATCHER_SETTINGS` діє й без Marshal: transcript-інструменти (`list_events`, `search_session_transcripts`,
+  `export_transcript`), `delete_session`, `clear_session`, `send_message`, `set_session_permission_mode`,
+  `set_remote_control`, `start_session`, `hand_off_to_session`, `move_to_cloud`, `set_auto_merge`, `set_setting`,
+  сервери `mcp__ccd_host`, `mcp__ccd_directory`, `mcp__ccd_connectors`. `open_session_in` не підходить: застосунок
+  дає його лише для сесій, які сесія запустила сама. Порожні `claudeCodeRoutingRoots` відмовляють усім викликам з
+  текстом `NO_ROOTS_REFUSAL`, і диспетчер вимовляє, куди додати теку (Settings → Claude Code → «Теки, сесії з яких
+  можна читати»); дефолт лишається порожнім. **Власну модель чи effort диспетчер змінити не може:** застосунок сам
+  відмовляє `set_session_model` / `set_session_effort` на сесії, що викликає (перевірено), ще до hook-а. `send_message`
   застосунку не замінює `./marshal reply`: такі повідомлення Claude Code не приймає як згоду власника.
   `./marshal sessions` додає `id` (`hostSessionId`) сесіям застосунку. Сесія диспетчера в застосунку вантажить hooks
   власника, тож Stop/Notification з теки диспетчера `ClaudeHooksController.setIgnoredFolder` викидає. Промпт

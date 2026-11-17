@@ -94,7 +94,7 @@ describe("the dispatcher's Claude app tools (#437)", () => {
     expect(appToolRefusal(call("get_session", { session_id: "local_gone" }), live, roots, dispatcherDir)).toMatch(/Not a live/);
     expect(appToolRefusal(call("archive_session", { session_id: "self" }), live, roots, dispatcherDir)).toMatch(/another/);
     expect(appToolRefusal(call("archive_session", { session_id: "local_d" }), live, [...roots, "/data"], dispatcherDir)).toMatch(/another/);
-    expect(appToolRefusal(call("archive_session", { session_id: "local_a" }), live, [], dispatcherDir)).toMatch(/Outside/);
+    expect(appToolRefusal(call("archive_session", { session_id: "local_a" }), live, [], dispatcherDir)).toMatch(/Settings/);
   });
 
   it("allows the session list, refuses transcripts and anything unknown, fails closed on garbage", () => {
