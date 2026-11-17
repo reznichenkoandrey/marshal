@@ -12,6 +12,9 @@
 // Microphone permission is denied on purpose: the spectrum then runs on its
 // ambient level, which keeps the run deterministic and prompt-free.
 //
+// The Neural look (#439) swaps the wave for a smoke band around an orb: the
+// filmed smoke must load from the renderer bundle and keep moving.
+//
 // MARSHAL_E2E_SHOTS=<dir> also saves a screenshot per state, dark and light.
 //
 // Run: `npm run test:e2e:home`
@@ -27,6 +30,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow } from "electron";
+import { quietApp, showQuietly } from "./quiet-window.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -166,6 +170,19 @@ const CANVAS_STATS = `(() => {
   return { painted, total: data.length / 4, hash, width: canvas.width };
 })()`;
 
+// Bright, saturated pixels in the band right of the orb: tinted smoke, not the empty band.
+const SMOKE = `(() => {
+  const canvas = document.getElementById("visual");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const w = canvas.width, h = canvas.height;
+  const data = ctx.getImageData(Math.round(w * 0.45), Math.round(h * 0.35), Math.round(w * 0.4), Math.round(h * 0.3)).data;
+  let smoke = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] > 200 && data[i + 1] > 90 && data[i + 1] > data[i] + 30) smoke += 1;
+  }
+  return smoke;
+})()`;
+
 const RAF_TICKS = `new Promise((resolve) => {
   let ticks = 0;
   const tick = () => { ticks += 1; requestAnimationFrame(tick); };
@@ -229,6 +246,15 @@ async function setAppearance(win, value) {
   await sleep(300);
 }
 
+async function setLook(win, value) {
+  await win.webContents.executeJavaScript(
+    `localStorage.setItem("marshal-look", ${JSON.stringify(value)}); window.dispatchEvent(new Event("focus"));`
+  );
+  await sleep(300);
+}
+
+quietApp(app);
+
 async function main() {
   await app.whenReady();
 
@@ -238,15 +264,14 @@ async function main() {
   const win = new BrowserWindow({
     width: 1100,
     height: 720,
-    show: true,
-    // Not like the real window (#336): an occluded test window gets no animation frames.
-    alwaysOnTop: true,
+    show: false,
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false }
   });
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  showQuietly(win);
 
   const consoleErrors = [];
   win.webContents.on("console-message", (_e, level, message) => {
@@ -626,6 +651,38 @@ async function main() {
   record("light theme redraws the canvas in light tokens", lightRibbon && lightToken && distance(lightRibbon, lightToken) < 120,
     lightRibbon ? `distance ${distance(lightRibbon, lightToken).toFixed(0)}` : "no ribbon pixels");
 
+  // ── Neural look: smoke band and orb (#439) ──────────────────────────────
+  await setAppearance(win, "dark");
+  await setLook(win, "neural");
+  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk" });
+  let idleSmoke = 0;
+  for (let waited = 0; waited < 4000 && idleSmoke < 200; waited += 250) {
+    await sleep(250);
+    idleSmoke = await win.webContents.executeJavaScript(SMOKE);
+  }
+  record("neural: the smoke video loads and is drawn", idleSmoke >= 200, `${idleSmoke} smoke pixels`);
+  const neuralA = await win.webContents.executeJavaScript(CANVAS_STATS);
+  await sleep(500);
+  const neuralB = await win.webContents.executeJavaScript(CANVAS_STATS);
+  record("neural: the smoke keeps moving", neuralA.hash !== neuralB.hash);
+  await shoot(win, "home-neural-idle");
+  win.webContents.send("marshal:assistant-state", { state: "speaking", lang: "uk" });
+  await sleep(1500);
+  let speakSmoke = 0;
+  for (let i = 0; i < 6; i++) {
+    speakSmoke = Math.max(speakSmoke, await win.webContents.executeJavaScript(SMOKE));
+    await sleep(150);
+  }
+  record("neural: speaking brings more smoke than idle", speakSmoke > idleSmoke, `${idleSmoke} → ${speakSmoke}`);
+  await shoot(win, "home-neural-speaking");
+  win.webContents.send("marshal:assistant-state", dashboard("speaking"));
+  await sleep(800);
+  await shootWidths(win, "home-neural-overview");
+  await setAppearance(win, "light");
+  await shoot(win, "home-neural-light");
+  await setLook(win, "lumen");
+  await setAppearance(win, "dark");
+
   // ── Hidden window stops drawing (#281) ──────────────────────────────────
   win.hide();
   for (let waited = 0; waited < 3000; waited += 100) {
@@ -638,7 +695,7 @@ async function main() {
   const hiddenB = await win.webContents.executeJavaScript(CANVAS_STATS);
   const visibility = await win.webContents.executeJavaScript("document.visibilityState");
   record("no frames are drawn while hidden", hiddenA.hash === hiddenB.hash, visibility);
-  win.show();
+  showQuietly(win);
 
   // ── Reduced motion leaves a still frame ─────────────────────────────────
   await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {

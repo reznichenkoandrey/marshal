@@ -175,7 +175,10 @@ function renderSide() {
       el("li", "project", project),
       ...sessions.map((session) => {
         const item = el("li");
-        item.append(sessionButton(session));
+        const button = sessionButton(session);
+        // Neural lanes (#439) flow across projects, so each lane names its own.
+        button.dataset.project = project;
+        item.append(button);
         return item;
       })
     ])
@@ -370,6 +373,14 @@ function renderCommands() {
   const rows = commands?.rows ?? [];
   document.getElementById("commands-empty").textContent = rows.length ? "" : t("home.noCommands");
   document.querySelector("table.commands").hidden = !rows.length;
+  // The newest command headlines the Neural hero (#439); other looks hide this line.
+  const [last] = rows;
+  document.getElementById("command-said").textContent = last?.text ?? "";
+  const route = document.getElementById("command-route");
+  route.replaceChildren();
+  if (last) {
+    route.append("→ ", el("b", "", last.target ?? "–"), ` · ${t(`home.outcome.${last.outcome}`)} · ${durationLabel(last.durationMs)}`);
+  }
   document.getElementById("commands").replaceChildren(
     ...rows.map((row) => {
       const tr = el("tr");
@@ -532,14 +543,27 @@ document.addEventListener("keydown", (event) => {
   else void api?.close();
 });
 
+// Neural (#439) carries the mic in the floating dock, between the feature buttons, as in its mockup.
+const micButton = document.getElementById("mic-btn");
+const dock = document.querySelector(".dock");
+function placeMic() {
+  const neural = document.documentElement.dataset.look === "neural";
+  if (neural && micButton.parentElement !== dock) dock.insertBefore(micButton, dock.children[4] ?? null);
+  else if (!neural && micButton.parentElement !== strip) strip.prepend(micButton);
+}
+
 // The palette or light/dark can change while the window is open.
-new MutationObserver(() => visual.refreshColors()).observe(document.documentElement, {
+new MutationObserver(() => {
+  placeMic();
+  visual.refreshColors();
+}).observe(document.documentElement, {
   attributes: true,
   attributeFilter: ["data-theme", "data-look", "data-palette"]
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => visual.refreshColors());
 
 window.MarshalIcons?.apply();
+placeMic();
 applyTitles();
 render();
 renderSide();

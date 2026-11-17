@@ -25,6 +25,11 @@
 
 .shell.no-side { grid-template-columns: minmax(0, 1fr); }
 
+/* Neural (#439): every dashboard window gets the glow from the top of the home mockup. */
+:root[data-look="neural"] .shell {
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent) 7%, var(--bg-app)) 0%, var(--bg-app) 65%);
+}
+
 .shell *,
 .shell *::before,
 .shell *::after { box-sizing: border-box; }

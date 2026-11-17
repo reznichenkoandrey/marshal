@@ -23,6 +23,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow } from "electron";
+import { quietApp, showQuietly } from "./quiet-window.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -87,15 +88,19 @@ const CANVAS_HASH = `(() => {
   return { painted, hash };
 })()`;
 
+quietApp(app);
+
 function makeWindow(preloadPath, width, height) {
-  return new BrowserWindow({
+  const win = new BrowserWindow({
     width,
     height,
-    show: true,
+    show: false,
     frame: false,
     transparent: true,
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false }
   });
+  showQuietly(win);
+  return win;
 }
 
 // GitHub's macOS runner has Reduce motion on; the visual must animate here.

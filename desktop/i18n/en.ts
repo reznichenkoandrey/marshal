@@ -226,6 +226,7 @@ export const en = {
   "settings.liquid": "Liquid",
   "settings.signal": "Signal",
   "settings.soft3d": "Soft 3D",
+  "settings.neural": "Neural",
   "settings.hudPalette": "HUD palette",
   "settings.blue": "Blue",
   "settings.teal": "Teal",

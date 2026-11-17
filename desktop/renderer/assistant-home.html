@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./dashboard.css" />
   <link rel="stylesheet" href="./assistant-home.css" />
   <link rel="stylesheet" href="./settings-panel.css" />
+  <link rel="stylesheet" href="./assistant-neural.css" />
   <script src="./theme.js"></script>
   <script src="./icons.js"></script>
   <script src="./locales.js"></script>
@@ -49,6 +50,10 @@
         <div class="hero">
           <span class="chip live" id="state-chip" role="status" aria-live="polite"></span>
           <div class="stage"><canvas id="visual" class="visual" aria-hidden="true"></canvas></div>
+          <section class="command" aria-live="polite">
+            <h2 id="command-said"></h2>
+            <span class="route" id="command-route"></span>
+          </section>
           <div class="metrics" id="metrics">
             <div class="metric accent" data-metric="sessions"><b class="num"></b><span class="label"></span></div>
             <div class="metric" data-metric="commands"><b class="num"></b><span class="label"></span></div>
@@ -151,6 +156,7 @@
               <option value="liquid" data-i18n="settings.liquid">Liquid</option>
               <option value="signal" data-i18n="settings.signal">Signal</option>
               <option value="soft" data-i18n="settings.soft3d">Soft 3D</option>
+              <option value="neural" data-i18n="settings.neural">Neural</option>
             </select>
           </div>
 
