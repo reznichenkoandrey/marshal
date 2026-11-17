@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -173,6 +174,15 @@ describe("dispatcher in Claude desktop (#437)", () => {
     expect(opened).toEqual([`${dispatcher.dispatcherDir}: ${DISPATCHER_START_PROMPT}`]);
   });
 
+  it("replaces a Terminal dispatcher once the host is the app", async () => {
+    const live: ClaudeSession[] = [session({ pid: 8, name: "general", cwd: "/g", entrypoint: "cli" })];
+    const { dispatcher, opened, killed } = setup(live);
+    live.push(session({ pid: 5, name: "marshal-dispatcher", cwd: dispatcher.dispatcherDir, entrypoint: "cli" }));
+    await dispatcher.start();
+    expect(killed).toEqual([5]);
+    expect(opened).toEqual([`${dispatcher.dispatcherDir}: ${DISPATCHER_START_PROMPT}`]);
+  });
+
   it("wakes an idle desktop dispatcher, never kills it, and resumes it by its remembered id", async () => {
     const live: ClaudeSession[] = [];
     const { dispatcher, replies, opened, killed } = setup(live);
@@ -196,6 +206,16 @@ describe("dispatcher in Claude desktop (#437)", () => {
     expect(resumed.opened).toEqual(["claude://code/continue?session=local_d"]);
     expect(resumed.replies).toEqual([`Voice dispatcher: ${DISPATCHER_START_PROMPT}`]);
     expect(opened).toEqual([]);
+  });
+
+  it("remembers a freshly opened desktop dispatcher once its monitor connects", () => {
+    const live: ClaudeSession[] = [];
+    const { dispatcher } = setup(live);
+    live.push(session({ pid: 7, name: "Voice dispatcher", cwd: dispatcher.dispatcherDir, hostSessionId: "local_new" }));
+    fs.mkdirSync(path.dirname(dispatcher.dispatcherDir), { recursive: true });
+    const res = { writeHead: () => res, flushHeaders: () => undefined, write: () => true, on: () => res };
+    dispatcher.respond("GET", "commands", "", res as unknown as http.ServerResponse);
+    expect(fs.readFileSync(path.join(path.dirname(dispatcher.dispatcherDir), "desktop-dispatcher-id"), "utf8")).toBe("local_new\n");
   });
 
   it("spawns a project session in the app and finds it by folder", async () => {

@@ -35,13 +35,15 @@ export async function openDesktopSession(cwd: string, prompt: string, reveal: bo
   const before = (await deps.probe()).frontmostPath ?? "";
   await deps.openUrl(newSessionUrl(cwd, prompt));
   await wait(OPEN_SETTLE_MS);
+  let last: FocusProbeResult | null = null;
   for (let attempt = 0; attempt < OPEN_ATTEMPTS; attempt += 1) {
-    if (mayPressReturn(await deps.probe(), CLAUDE_APP)) {
+    last = await deps.probe();
+    if (mayPressReturn(last, CLAUDE_APP)) {
       await deps.sendKey("return");
       if (!reveal && before && before !== CLAUDE_APP) await deps.activate(before);
       return "ok";
     }
     await wait(OPEN_RETRY_MS);
   }
-  return "Claude opened the session, but its input field is not focused; press Return there.";
+  return `Claude opened the session, but its input field is not focused; press Return there. (frontmost: ${last?.frontmostPath ?? "?"}, text input: ${last?.isTextInput ?? "?"}, role: ${last?.role ?? "?"})`;
 }

@@ -239,13 +239,21 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   /** Opens whatever of the dispatcher and `general` is not running yet. */
   async start(): Promise<void> {
-    await this.launch().catch((err: unknown) => this.deps.say(this.launchError(err)));
+    await this.launch().catch((err: unknown) => {
+      this.deps.log?.(`[assistant] launch failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.deps.say(this.launchError(err));
+    });
   }
 
   private async launch(): Promise<void> {
     this.writeFiles();
     const live = this.liveSessions();
-    const dispatchers = this.dispatchers(live);
+    let dispatchers = this.dispatchers(live);
+    if (this.desktopMode()) {
+      // Host switched to the app: the Terminal or Harbor dispatcher gives way.
+      for (const old of dispatchers) if (!inDesktop(old)) this.kill(old.pid);
+      dispatchers = dispatchers.filter(inDesktop);
+    }
     // One dispatcher: a second one would read the same command stream. Claude desktop's sessions are the owner's to close.
     for (const extra of dispatchers.slice(1)) if (!inDesktop(extra)) this.kill(extra.pid);
     const [dispatcher] = dispatchers;
@@ -302,6 +310,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       }
     }
     const result = await desktop.open(this.dispatcherDir, DISPATCHER_START_PROMPT, reveal);
+    this.deps.log?.(`[assistant] desktop dispatcher opened: ${result}`);
     if (result !== "ok") this.deps.say("Claude відкрив сесію асистента, натисни в ній Return.");
   }
 
@@ -432,6 +441,9 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   respond(method: string, route: string, body: string, res: http.ServerResponse): void {
     if (method === "GET" && route === "commands") {
+      // A freshly opened desktop dispatcher is first seen here: remember it so a restart resumes it.
+      const desktopDispatcher = this.dispatchers().find(inDesktop);
+      if (desktopDispatcher) this.rememberDesktopDispatcher(desktopDispatcher);
       this.stream(res);
       return;
     }
