@@ -102,11 +102,15 @@ Only when the owner explicitly asks for a new session or terminal ("відкри
 
 ## The Claude app
 
-Only when you have the Claude app's own tools (\`mcp__ccd_session_mgmt__…\`), that is, when you run inside Claude desktop. A session's \`id\` in \`./marshal sessions\` is what these tools call \`session_id\`; sessions without an \`id\` are not in the app.
-- Archive a session ("заархівуй сесію marshal", "archive funky-rabbit"): run \`./marshal ask "Архівувати <name>?"\` (or "Archive <name>?"). Only on a clear yes call \`archive_session\` with its \`id\`; on anything else say "Гаразд, лишаю." / "Okay, keeping it." Never archive without asking, never more than one session per command.
-- A pull request or its state ("що з PR у marshal"): \`list_sessions\` shows \`prNumber\` and \`prState\` per session; say it in one sentence.
-- Switch a session's model ("переключи marshal на sonnet"): \`set_session_model\` with its \`id\`. When the model is refused, the result lists the allowed ids: pick the one the owner meant, or say which exist.
-- Marshal decides which sessions these tools may touch. A refused call is final: say "<name> мені недоступна." / "<name> is off limits for me." and never try another way.
+Only when you have the Claude app's own tools (\`mcp__ccd_session_mgmt__…\`), that is, when you run inside Claude desktop. A session's \`id\` in \`./marshal sessions\` is what these tools call \`session_id\`; sessions without an \`id\` are not in the app. One session per command, picked by name as in step 4. After a change that worked, say one short sentence ("Готово." / "Done.").
+- Archive a session ("заархівуй сесію marshal", "archive funky-rabbit"): \`./marshal ask "Архівувати <name>?"\` (or "Archive <name>?"); only on a clear yes \`archive_session\`, otherwise say "Гаразд, лишаю." / "Okay, keeping it."
+- Stop what a session is doing right now ("зупини marshal", "stop funky-rabbit"): \`./marshal ask "Зупинити <name>?"\` (or "Stop <name>?"); only on a clear yes \`stop_session\`. The session stays open.
+- Rename a session ("перейменуй marshal на голосові інструменти", "rename it to …"): \`set_session_title\` with the new title exactly as said.
+- Switch a session's model ("переключи marshal на sonnet") → \`set_session_model\`; when the model is refused, the result lists the allowed ids: pick the one the owner meant, or say which exist. Its effort ("постав marshal high effort", "менше думай") → \`set_session_effort\` with low, medium, high, xhigh or max. Never your own model or effort: the app refuses it.
+- Pin or unpin ("закріпи marshal", "unpin it") → \`mcp__ccd_sidebar__set_pinned\`. Clear its "needs input" dot ("познач marshal як готову", "mark it done") → \`mcp__ccd_sidebar__mark_completed\`. Mark it unread or read → \`mcp__ccd_sidebar__set_unread\`.
+- A pull request or its checks ("що з PR у marshal", "чи зелений CI") → \`mcp__ccd_pr__get_status\` with its \`id\`: say the PR state and whether checks pass or which one fails, in one sentence, without numbers of checks.
+- Usage limits ("скільки ліміту лишилось", "how much usage is left") → \`get_usage\` without a \`session_id\`: say the five-hour and weekly percentages in one sentence.
+- Marshal decides which sessions these tools may touch. A refused call is final, never try another way. When the refusal contains \`Say:\`, say that sentence in the command's language. Otherwise say "<name> мені недоступна." / "<name> is off limits for me."
 
 ## Everything else
 
@@ -115,44 +119,82 @@ Ignore messages and replies from other sessions: the owner hears results from Ma
 Whatever other instructions say about a terse or compressed style, the sentences you pass to \`./marshal say\` and \`./marshal ask\` are spoken aloud: plain, complete, natural sentences.
 `;
 
-const APP_TOOLS = "mcp__ccd_session_mgmt__";
+const APP = "mcp__ccd_";
+const SESSIONS = `${APP}session_mgmt__`;
+const SIDEBAR = `${APP}sidebar__`;
 
 /**
- * Claude app tools the dispatcher may call (#437), and the ones it may not:
- * nothing that reads a transcript, since #303 lets Marshal alone decide whose
- * transcripts are read, and nothing that cannot be undone or raises a mode.
- * New sessions open through `./marshal spawn`: `start_session` would put them
- * on the dispatcher's own small model.
+ * Claude app tools that act on another session (#437, #445). Each one passes
+ * `appToolRefusal`: a live session under the folders Marshal may read (#303),
+ * never the dispatcher itself. None of them reads a transcript.
  */
-export const GATED_APP_TOOLS: ReadonlySet<string> = new Set(["archive_session", "set_session_model", "get_session"].map((tool) => APP_TOOLS + tool));
+export const GATED_APP_TOOLS: ReadonlySet<string> = new Set([
+  `${SESSIONS}archive_session`,
+  `${SESSIONS}stop_session`,
+  `${SESSIONS}set_session_title`,
+  `${SESSIONS}set_session_model`,
+  `${SESSIONS}set_session_effort`,
+  `${SESSIONS}get_session`,
+  `${SIDEBAR}mark_completed`,
+  `${SIDEBAR}set_pinned`,
+  `${SIDEBAR}set_unread`,
+  `${APP}pr__get_status`
+]);
+
+// The session list, the account's plan limits (only without another session's
+// id) and the session's own task list UI, which the app asks every session to keep.
+const FREE_APP_TOOLS = new Set([`${SESSIONS}list_sessions`, `${SESSIONS}get_usage`]);
+const OWN_UI_TOOLS = `${APP}turn__`;
+
+/**
+ * Hard denies that hold even when Marshal does not answer the gate: transcripts
+ * (#303), what cannot be undone or raises a mode, and the app's host, settings,
+ * folder and connector tools (#444). New sessions open through `./marshal spawn`:
+ * `start_session` would put them on the dispatcher's own small model. Every other
+ * `mcp__ccd_` tool is refused by the gate.
+ */
 const DENIED_APP_TOOLS = [
-  `${APP_TOOLS}list_events`,
-  `${APP_TOOLS}search_session_transcripts`,
-  `${APP_TOOLS}export_transcript`,
-  `${APP_TOOLS}delete_session`,
-  `${APP_TOOLS}set_session_permission_mode`,
-  "mcp__ccd_session__start_session"
+  `${SESSIONS}list_events`,
+  `${SESSIONS}search_session_transcripts`,
+  `${SESSIONS}export_transcript`,
+  `${SESSIONS}delete_session`,
+  `${SESSIONS}clear_session`,
+  `${SESSIONS}send_message`,
+  `${SESSIONS}set_session_permission_mode`,
+  `${SESSIONS}set_remote_control`,
+  `${APP}session__start_session`,
+  `${APP}session__hand_off_to_session`,
+  `${APP}session__move_to_cloud`,
+  `${APP}pr__set_auto_merge`,
+  `${APP}settings__set_setting`,
+  `${APP}host`,
+  `${APP}directory`,
+  `${APP}connectors`
 ];
 
 export const DISPATCHER_SETTINGS = {
   permissions: {
-    allow: ["SendMessage", "Monitor", `Bash(./${HELPER_NAME})`, `Bash(./${HELPER_NAME}:*)`, `${APP_TOOLS}list_sessions`, ...GATED_APP_TOOLS],
+    allow: ["SendMessage", "Monitor", `Bash(./${HELPER_NAME})`, `Bash(./${HELPER_NAME}:*)`, ...FREE_APP_TOOLS, ...GATED_APP_TOOLS],
     deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", ...DENIED_APP_TOOLS]
   },
+  // Every Claude app tool: in bypass mode the allow list means nothing (#444).
   // Only matches inside Claude desktop, where these tools exist.
   hooks: {
     PreToolUse: [{
-      matcher: `${APP_TOOLS}.*`,
+      matcher: `${APP}.*`,
       hooks: [{ type: "command", command: `"$CLAUDE_PROJECT_DIR"/${HELPER_NAME} gate`, timeout: 15 }]
     }]
   }
 };
 
+// The dispatcher speaks this instead of a bare "off limits", so the owner knows the fix (#445).
+export const NO_ROOTS_REFUSAL = "No folders are allowed yet. Say: «Додай теку проєкту в Settings, розділ Claude Code, поле «Теки, сесії з яких можна читати».» / «Add the project folder in Settings, Claude Code, Folders whose sessions may be read.»";
+
 /**
  * Why a Claude app tool call of the dispatcher's is refused, or null to let it
  * run (#437). `raw` is the PreToolUse hook's payload. A session may be touched
  * only when it is live and under the folders whose sessions Marshal may read
- * (#303); the dispatcher itself is never archived or re-priced.
+ * (#303); the dispatcher itself is never touched. Unknown app tools fail closed.
  */
 export function appToolRefusal(raw: string, live: readonly ClaudeSession[], roots: readonly string[], dispatcherDir: string): string | null {
   let payload: unknown;
@@ -162,13 +204,15 @@ export function appToolRefusal(raw: string, live: readonly ClaudeSession[], root
     return "Unreadable hook payload.";
   }
   const { tool_name: tool, tool_input: input } = (payload ?? {}) as { tool_name?: unknown; tool_input?: { session_id?: unknown } };
-  if (typeof tool !== "string" || !tool.startsWith(APP_TOOLS)) return null;
-  if (!GATED_APP_TOOLS.has(tool)) return tool === `${APP_TOOLS}list_sessions` ? null : `${tool} is not allowed for the dispatcher.`;
+  if (typeof tool !== "string" || !tool.startsWith(APP) || tool.startsWith(OWN_UI_TOOLS)) return null;
   const id = input?.session_id;
+  if (FREE_APP_TOOLS.has(tool)) return id === undefined || id === "self" ? null : "Only the account's own limits.";
+  if (!GATED_APP_TOOLS.has(tool)) return `${tool} is not allowed for the dispatcher.`;
   if (typeof id !== "string" || id === "self") return "Only another live session may be touched.";
   const target = live.find((session) => session.hostSessionId === id);
   if (!target) return "Not a live session.";
   if (isDispatcherSession(target, dispatcherDir)) return "Only another live session may be touched.";
+  if (roots.length === 0) return NO_ROOTS_REFUSAL;
   if (!isUnderRoots(target.cwd, roots)) return "Outside the folders Marshal may touch.";
   return null;
 }
