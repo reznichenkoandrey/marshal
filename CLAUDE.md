@@ -856,8 +856,11 @@
   після цього не відкривається (`warn`, не `say`). Заміряно на живих командах: подія до сесії доходить за 0.22–0.33 с,
   одна дія на haiku займає 1.0–1.5 с, на opus 1.8 с. «Що там по сесіях» займає ~3.6 с на обох, бо це два ходи моделі.
   **`MARSHAL_ASSISTANT_DEBUG=1`** логує, куди йде час голосової команди (`desktop/assistant/voice-timing.ts`):
-  `key-up→transcript`, `transcript→sent` (команда в стрімі), `sent→answer` (`./marshal say` чи `do` дійшов до Marshal),
-  `answer→audio` (старт `afplay`/`say`) і сумарно до першого звуку. `hostSessionId`
+  `key-up→transcript` (key-up — кінець будь-якого запису, і відкритого мікрофона після відповіді теж), `transcript→sent`
+  (команда в стрімі), `sent→answer` (`./marshal say`, `do` чи відповідь сесії дійшли до Marshal), `answer→audio` (старт
+  `afplay`/`say`) і сумарно до першого звуку. Заміряно на встановленому білді (диспетчер у Terminal, haiku, Holos теплий):
+  розпізнавання 0.39–0.54 с, у стрім ≤ 0.01 с, хід диспетчера 2.15–2.42 с, синтез 0.27–0.45 с, від кінця мови до звуку
+  2.8–3.3 с. Майже весь час — хід моделі диспетчера. `hostSessionId`
   диспетчера Marshal пам'ятає в `<userData>/assistant/desktop-dispatcher-id`. Коли процесу сесії немає, Marshal
   відкриває саме її через `claude://code/continue` і не створює нову. Сесію без Monitor Marshal будить стартовим
   промптом через `reply`, лише в статусі `idle`. Сесій Claude desktop Marshal **не вбиває ніколи**: ні на stop, ні

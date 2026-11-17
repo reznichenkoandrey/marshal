@@ -3242,6 +3242,7 @@ function handleVoiceCommand(text: string): void {
 // An answer to a voice command keeps the conversation open (#411): once it is
 // spoken the mic listens for a follow-up without a key, and silence closes it.
 async function answerAloud(text: string, options: { key?: string } = {}): Promise<void> {
+  markVoice("answer");
   const spoken = await speechService?.speak(text, options);
   if (!spoken?.ok) return;
   const followUp = await listenAfterSpeech();
