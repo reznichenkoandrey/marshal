@@ -1,0 +1,256 @@
+/* Neural look (#439): the home window laid out like its mockup. The bar, a frameless smoke band
+   with the orb, the last voice command and what Marshal said, sessions as lanes, the rest of the
+   dashboard as cards, and a floating dock with the mic in the middle. Layout only: the colours
+   come from the look's seeds in design-tokens.css. */
+
+/* Only this look shows the command line; the others keep it in the table below. */
+.command { display: none; }
+
+:root[data-look="neural"] .home {
+  --lane-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-surface) 94%, var(--text-strong) 5%) 0%,
+    color-mix(in srgb, var(--bg-surface) 70%, transparent) 70%,
+    transparent 100%
+  );
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--accent) 7%, var(--bg-app)) 0%, var(--bg-app) 65%);
+}
+
+:root[data-look="neural"] .brand-mark { color: var(--accent-2); }
+
+/* ── One scrolling column: the main column and the rail dissolve into it ── */
+:root[data-look="neural"] .home:not([data-view="settings"]) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: var(--space-8) var(--space-4);
+  padding: 0 var(--space-6) 112px;
+  overflow-y: auto;
+}
+
+:root[data-look="neural"] .home:not([data-view="settings"]) :is(.dash, .side) { display: contents; }
+
+:root[data-look="neural"] .home:not([data-view="settings"]) > .bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin-inline: calc(-1 * var(--space-6));
+  margin-bottom: calc(-1 * var(--space-8));
+  border-bottom: 0;
+  /* No backdrop-filter: it would make the bar the containing block of the fixed dock inside it. */
+  background: color-mix(in srgb, var(--bg-app) 94%, transparent);
+}
+
+:root[data-look="neural"] .home :is(.block, .card) { grid-column: 1 / -1; }
+:root[data-look="neural"] .home .block + .block { margin-top: 0; }
+:root[data-look="neural"] .glance { order: 1; }
+:root[data-look="neural"] .card:has(#sessions) { order: 2; padding: 0; }
+:root[data-look="neural"] .block:has(#features) { order: 3; }
+:root[data-look="neural"] .block:has(#commands) { order: 4; }
+
+/* Alerts, memory and the next meeting sit side by side at the bottom. */
+:root[data-look="neural"] .home .card:not(:has(#sessions)) {
+  order: 5;
+  grid-column: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  background: var(--lane-bg);
+}
+
+/* ── Hero: the band runs edge to edge, the command and the metrics go under it ── */
+:root[data-look="neural"] .glance > .block-head { display: none; }
+
+:root[data-look="neural"] .hero {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 230px auto auto auto;
+  margin-inline: calc(-1 * var(--space-6));
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+
+:root[data-look="neural"] .chip {
+  top: var(--space-3);
+  left: var(--space-6);
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--state) 55%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--state) 16%, transparent);
+  color: var(--state);
+}
+
+:root[data-look="neural"] .command {
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-4) var(--space-6) 0;
+}
+
+:root[data-look="neural"] .command:has(h2:empty) { display: none; }
+
+:root[data-look="neural"] .command h2 {
+  margin: 0;
+  font-size: clamp(20px, 2.4vw, 27px);
+  font-weight: var(--fw-semibold);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--accent-text);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+:root[data-look="neural"] .command .route {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+:root[data-look="neural"] .command .route b { font-weight: var(--fw-medium); color: var(--text-default); }
+
+/* What Marshal said reads as the answer under the command. */
+:root[data-look="neural"] .strip {
+  grid-row: 3;
+  padding: var(--space-2) var(--space-6) 0;
+  border: 0;
+  background: none;
+}
+
+:root[data-look="neural"] .line {
+  font-size: clamp(15px, 1.6vw, 18px);
+  font-weight: var(--fw-medium);
+  color: var(--text-default);
+  white-space: normal;
+}
+
+:root[data-look="neural"] .metrics {
+  grid-column: 1;
+  grid-row: 4;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: var(--space-6) var(--space-6) 0;
+}
+
+:root[data-look="neural"] .metric + .metric { border-left: 1px solid var(--hairline); }
+
+/* ── Sessions as lanes ── */
+:root[data-look="neural"] .sessions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+:root[data-look="neural"] .sessions > .project { display: none; }
+
+:root[data-look="neural"] .session {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+  height: 100%;
+  min-height: 132px;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, var(--hairline));
+  border-radius: var(--card-radius);
+  background: var(--lane-bg);
+}
+
+:root[data-look="neural"] .session::before {
+  content: attr(data-project);
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+:root[data-look="neural"] .session:hover { border-color: color-mix(in srgb, var(--c) 60%, var(--hairline)); }
+
+:root[data-look="neural"] .session .dot {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 2px dotted var(--c);
+  border-radius: 50%;
+}
+
+:root[data-look="neural"] .session[data-status="busy"] .dot { animation: neural-spin 2.4s linear infinite; }
+:root[data-look="neural"] .session:is([data-status="waiting"], [data-status="idle"]) .dot {
+  border-style: solid;
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+
+:root[data-look="neural"] .session b { font-size: 15px; font-weight: var(--fw-semibold); white-space: normal; overflow-wrap: anywhere; }
+:root[data-look="neural"] .session small { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: normal; }
+
+:root[data-look="neural"] .session .tag {
+  grid-column: 1 / -1;
+  align-self: end;
+  justify-self: start;
+  padding: 0;
+  background: none;
+  color: var(--c);
+}
+
+:root[data-look="neural"] .feature { background: var(--lane-bg); }
+
+/* ── Floating dock, the mic in the middle (assistant-home.js moves it there) ── */
+:root[data-look="neural"] .home:not([data-view="settings"]) .dock {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  z-index: 4;
+  display: flex;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+:root[data-look="neural"] .home:not([data-view="settings"]) .dock button { width: 40px; height: 40px; border-radius: 14px; }
+
+:root[data-look="neural"] .home:not([data-view="settings"]) .dock .mic {
+  width: 52px;
+  height: 52px;
+  margin: -14px var(--space-2);
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-surface);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+:root[data-look="neural"] .dock .mic:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text-strong)); color: var(--bg-surface); }
+:root[data-look="neural"] .home[data-state="listening"] .dock .mic { background: var(--state-listen); }
+:root[data-look="neural"] .home[data-view="settings"] .dock .mic { width: 32px; height: 32px; }
+
+@keyframes neural-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  :root[data-look="neural"] .home:not([data-view="settings"]) { padding-inline: var(--space-4); }
+  :root[data-look="neural"] .home:not([data-view="settings"]) > .bar,
+  :root[data-look="neural"] .hero { margin-inline: calc(-1 * var(--space-4)); }
+  :root[data-look="neural"] .home .card:not(:has(#sessions)) { grid-column: 1 / -1; }
+  :root[data-look="neural"] .hero { grid-template-rows: 170px auto auto auto; }
+  :root[data-look="neural"] .command { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-4); }
+  :root[data-look="neural"] .command .route { text-align: left; white-space: normal; }
+  :root[data-look="neural"] :is(.strip, .metrics) { padding-inline: var(--space-4); }
+  :root[data-look="neural"] .metrics { grid-template-columns: 1fr 1fr; }
+  :root[data-look="neural"] .metric:nth-child(odd) { border-left: 0; }
+  :root[data-look="neural"] .chip { left: var(--space-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-look="neural"] .session .dot { animation: none; }
+}

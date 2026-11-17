@@ -38,6 +38,11 @@
   У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home і ambient: вони працюють через
   stub-preload і не потребують TCC. `capture` і `region` — лише локально, бо їм потрібен
   Screen Recording, якого GitHub runner дати не може. Чіпаєш захоплення — запусти їх руками.
+  **home і ambient не заважають роботі** (`tests/e2e/quiet-window.mjs`): без іконки в Dock, вікно
+  показується `showInactive` з `opacity 0` і click-through, тож фокус і вікна власника лишаються як були.
+  Сторінка однаково малює кадри (прапорець `disable-backgrounding-occluded-windows`), а `capturePage`
+  знімає її як завжди. `MARSHAL_E2E_VISIBLE=1` показує вікна, щоб подивитись очима. Smoke запускає
+  справжній main і на кілька секунд відкриває home із фокусом.
 - Тести живуть у `tests/` на рівні проєкту
 - Нові pure helpers мають бути `export`-нуті з testable форми (не внутрішні методи)
 - Перед коммітом: `npm run check` (typecheck + test)
@@ -901,7 +906,13 @@
   Розширення Chrome показує дефолтний HUD blue: вибору теми там поки немає.
   **Look `neural` (#439) міняє не лише кольори, а й hero вікна асистента:** замість крапкової стрічки
   (`drawWave`) — смуга диму з фіолетовою сферою посередині (`desktop/renderer/assistant-neural.js`), а метрики
-  стають рядком під смугою (4 колонки, вужче за 760 px — 2). Дим — відео `desktop/renderer/media/neural-smoke.mp4`
+  стають рядком під смугою (4 колонки, вужче за 760 px — 2). **І розкладку всього home**
+  (`desktop/renderer/assistant-neural.css`, як у демо): одна прокручувана колонка замість основної колонки й
+  rail; смуга на всю ширину без рамки; під нею остання голосова команда великим акцентом із маршрутом
+  праворуч (`.command`, у решті look-ів схована) і рядок асистента як відповідь; сесії — lanes поруч із
+  назвою проєкту в картці; alerts, пам'ять і зустріч — картки в ряд унизу; dock плаває пігулкою внизу, а
+  мікрофон переїжджає в його середину (`placeMic` в `assistant-home.js`). Settings лишається звичайним.
+  `backdrop-filter` на предку dock не ставити: він стає containing block для `position: fixed`. Дим — відео `desktop/renderer/media/neural-smoke.mp4`
   (білий дим на чорному, 3 вертикальні смуги, похідне від кліпу Pixabay за Pixabay Content License). Renderer
   домальовує його на offscreen canvas із `lighter`, кільцем навколо сфери й тонуванням під `--accent` (у
   `waiting`/`offline` — колір стану), сфера — `--accent-2`. Параметри на стан — `NEURAL_STATES`

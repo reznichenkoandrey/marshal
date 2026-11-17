@@ -30,6 +30,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow } from "electron";
+import { quietApp, showQuietly } from "./quiet-window.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
@@ -252,6 +253,8 @@ async function setLook(win, value) {
   await sleep(300);
 }
 
+quietApp(app);
+
 async function main() {
   await app.whenReady();
 
@@ -261,15 +264,14 @@ async function main() {
   const win = new BrowserWindow({
     width: 1100,
     height: 720,
-    show: true,
-    // Not like the real window (#336): an occluded test window gets no animation frames.
-    alwaysOnTop: true,
+    show: false,
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false }
   });
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  showQuietly(win);
 
   const consoleErrors = [];
   win.webContents.on("console-message", (_e, level, message) => {
@@ -693,7 +695,7 @@ async function main() {
   const hiddenB = await win.webContents.executeJavaScript(CANVAS_STATS);
   const visibility = await win.webContents.executeJavaScript("document.visibilityState");
   record("no frames are drawn while hidden", hiddenA.hash === hiddenB.hash, visibility);
-  win.show();
+  showQuietly(win);
 
   // ── Reduced motion leaves a still frame ─────────────────────────────────
   await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {

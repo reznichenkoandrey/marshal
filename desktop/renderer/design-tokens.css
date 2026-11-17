@@ -268,8 +268,9 @@
   --radius-xs: 2px;
   --radius-sm: 6px;
   --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-chip: var(--radius-pill);
   --font-label: var(--font-mono);
 
   --seed-bg: light-dark(#eef6f4, #041010);
