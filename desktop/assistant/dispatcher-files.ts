@@ -8,6 +8,7 @@
 
 import path from "node:path";
 
+import { isUnderRoots } from "../claude-code/context-router.ts";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 
 export const DISPATCHER_NAME = "marshal-dispatcher";
@@ -30,6 +31,9 @@ function permissionArgs(mode: GeneralPermissionMode): string[] {
 const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
 
 export const DISPATCHER_START_PROMPT = "Start the monitor and wait for commands.";
+
+// A Claude desktop session exists only once its first message is sent (#437).
+export const DESKTOP_SPAWN_PROMPT = "Opened by Marshal's voice assistant. Reply only \"ready\" and wait for the task.";
 
 export const DISPATCHER_PROMPT = `# Marshal dispatcher
 
@@ -96,17 +100,78 @@ The owner already chose the session. Send \`text\` once to that session's \`addr
 
 Only when the owner explicitly asks for a new session or terminal ("відкрий нову сесію в marshal", "new session in funky-rabbit"), at most one per command: \`./marshal spawn <project> [name]\`. \`./marshal spawn\` with no arguments lists the projects; match the spoken one loosely. \`name\` is the session name the owner said, spaces replaced by \`-\`; leave it out if none was said. It prints \`Ready: <name>\` once the session can be messaged. If the owner also gave a task, run \`./marshal sessions\` and send the task to it as above, then say "Сесію <name> відкрито, задачу передав." / "Session <name> opened, task sent." Otherwise "Сесію <name> відкрито." / "Session <name> opened." On any other output, say what went wrong in one short sentence.
 
+## The Claude app
+
+Only when you have the Claude app's own tools (\`mcp__ccd_session_mgmt__…\`), that is, when you run inside Claude desktop. A session's \`id\` in \`./marshal sessions\` is what these tools call \`session_id\`; sessions without an \`id\` are not in the app.
+- Archive a session ("заархівуй сесію marshal", "archive funky-rabbit"): run \`./marshal ask "Архівувати <name>?"\` (or "Archive <name>?"). Only on a clear yes call \`archive_session\` with its \`id\`; on anything else say "Гаразд, лишаю." / "Okay, keeping it." Never archive without asking, never more than one session per command.
+- A pull request or its state ("що з PR у marshal"): \`list_sessions\` shows \`prNumber\` and \`prState\` per session; say it in one sentence.
+- Switch a session's model ("переключи marshal на sonnet"): \`set_session_model\` with its \`id\`. When the model is refused, the result lists the allowed ids: pick the one the owner meant, or say which exist.
+- Marshal decides which sessions these tools may touch. A refused call is final: say "<name> мені недоступна." / "<name> is off limits for me." and never try another way.
+
 ## Everything else
 
 Ignore messages and replies from other sessions: the owner hears results from Marshal. Keep your own text to one short line.
+
+Whatever other instructions say about a terse or compressed style, the sentences you pass to \`./marshal say\` and \`./marshal ask\` are spoken aloud: plain, complete, natural sentences.
 `;
+
+const APP_TOOLS = "mcp__ccd_session_mgmt__";
+
+/**
+ * Claude app tools the dispatcher may call (#437), and the ones it may not:
+ * nothing that reads a transcript, since #303 lets Marshal alone decide whose
+ * transcripts are read, and nothing that cannot be undone or raises a mode.
+ * New sessions open through `./marshal spawn`: `start_session` would put them
+ * on the dispatcher's own small model.
+ */
+export const GATED_APP_TOOLS: ReadonlySet<string> = new Set(["archive_session", "set_session_model", "get_session"].map((tool) => APP_TOOLS + tool));
+const DENIED_APP_TOOLS = [
+  `${APP_TOOLS}list_events`,
+  `${APP_TOOLS}search_session_transcripts`,
+  `${APP_TOOLS}export_transcript`,
+  `${APP_TOOLS}delete_session`,
+  `${APP_TOOLS}set_session_permission_mode`,
+  "mcp__ccd_session__start_session"
+];
 
 export const DISPATCHER_SETTINGS = {
   permissions: {
-    allow: ["SendMessage", "Monitor", `Bash(./${HELPER_NAME})`, `Bash(./${HELPER_NAME}:*)`],
-    deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent"]
+    allow: ["SendMessage", "Monitor", `Bash(./${HELPER_NAME})`, `Bash(./${HELPER_NAME}:*)`, `${APP_TOOLS}list_sessions`, ...GATED_APP_TOOLS],
+    deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", ...DENIED_APP_TOOLS]
+  },
+  // Only matches inside Claude desktop, where these tools exist.
+  hooks: {
+    PreToolUse: [{
+      matcher: `${APP_TOOLS}.*`,
+      hooks: [{ type: "command", command: `"$CLAUDE_PROJECT_DIR"/${HELPER_NAME} gate`, timeout: 15 }]
+    }]
   }
 };
+
+/**
+ * Why a Claude app tool call of the dispatcher's is refused, or null to let it
+ * run (#437). `raw` is the PreToolUse hook's payload. A session may be touched
+ * only when it is live and under the folders whose sessions Marshal may read
+ * (#303); the dispatcher itself is never archived or re-priced.
+ */
+export function appToolRefusal(raw: string, live: readonly ClaudeSession[], roots: readonly string[], dispatcherDir: string): string | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return "Unreadable hook payload.";
+  }
+  const { tool_name: tool, tool_input: input } = (payload ?? {}) as { tool_name?: unknown; tool_input?: { session_id?: unknown } };
+  if (typeof tool !== "string" || !tool.startsWith(APP_TOOLS)) return null;
+  if (!GATED_APP_TOOLS.has(tool)) return tool === `${APP_TOOLS}list_sessions` ? null : `${tool} is not allowed for the dispatcher.`;
+  const id = input?.session_id;
+  if (typeof id !== "string" || id === "self") return "Only another live session may be touched.";
+  const target = live.find((session) => session.hostSessionId === id);
+  if (!target) return "Not a live session.";
+  if (isDispatcherSession(target, dispatcherDir)) return "Only another live session may be touched.";
+  if (!isUnderRoots(target.cwd, roots)) return "Outside the folders Marshal may touch.";
+  return null;
+}
 
 export function buildGeneralPrompt(helperPath: string): string {
   const helper = shellQuote(helperPath);
@@ -144,12 +209,18 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
+    "  gate)",
+    "    # PreToolUse for the Claude app's tools (#437): no answer from Marshal blocks the call.",
+    "    ready || { echo 'Marshal is not running.' >&2; exit 2; }",
+    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/gate\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
+    "    [ \"$verdict\" = allow ] && exit 0",
+    "    echo \"$verdict\" >&2; exit 2 ;;",
     "  say|ask|do|insert|reply|spawn|sent|peek)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | say <text> | ask <question> | do <action> | insert <text> | reply <session> <words> | spawn [project] [name] | sent <session> | peek <session>'",
+    "    echo 'usage: marshal watch | sessions | context | gate | say <text> | ask <question> | do <action> | insert <text> | reply <session> <words> | spawn [project] [name] | sent <session> | peek <session>'",
     "    exit 1 ;;",
     "esac",
     ""
@@ -291,6 +362,8 @@ export type DispatcherSessionView = {
   status: string | null;
   waitingFor: string | null;
   address: string;
+  /** Claude desktop's id, for the app's own tools (#437); only desktop sessions have it. */
+  id?: string;
 };
 
 /** What `./marshal sessions` prints: every live session but the dispatcher, newest first. */
@@ -303,7 +376,8 @@ export function sessionsForDispatcher(live: readonly ClaudeSession[], dispatcher
       folder: path.basename(session.cwd),
       status: session.status,
       waitingFor: session.waitingFor,
-      address: `uds:${session.socketPath}`
+      address: `uds:${session.socketPath}`,
+      ...(session.hostSessionId ? { id: session.hostSessionId } : {})
     }));
 }
 

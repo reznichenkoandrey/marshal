@@ -630,7 +630,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
       ? input.assistantGeneralPermissionMode
       : DEFAULT_SETTINGS.assistantGeneralPermissionMode,
-    assistantTerminalHost: input.assistantTerminalHost === "harbor" || input.assistantTerminalHost === "terminal"
+    assistantTerminalHost: input.assistantTerminalHost === "harbor" || input.assistantTerminalHost === "terminal" || input.assistantTerminalHost === "claude-desktop"
       ? input.assistantTerminalHost
       : DEFAULT_SETTINGS.assistantTerminalHost
   };

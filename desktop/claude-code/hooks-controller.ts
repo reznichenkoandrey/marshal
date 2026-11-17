@@ -39,6 +39,7 @@ export class ClaudeHooksController {
   // collected; hold the shown ones until they are clicked or closed.
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
+  private ignoredFolder: string | null = null;
 
   constructor(
     userDataDir: string,
@@ -68,6 +69,7 @@ export class ClaudeHooksController {
       }
     });
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
+      if (this.ignoredFolder && event.cwd && path.resolve(event.cwd) === this.ignoredFolder) return;
       void this.notifier.handle(event);
       this.onSessionEvent();
       // A finished turn is when "what it is doing now" changes.
@@ -85,6 +87,11 @@ export class ClaudeHooksController {
     await this.service.start().catch((err: unknown) => {
       console.warn("[claude-hooks] receiver failed to start:", err instanceof Error ? err.message : err);
     });
+  }
+
+  /** Events from this folder are dropped: the dispatcher's turns in Claude desktop also run the owner's hooks (#437). */
+  setIgnoredFolder(dir: string | null): void {
+    this.ignoredFolder = dir ? path.resolve(dir) : null;
   }
 
   /** The voice dispatcher's helper reaches Marshal through the hook receiver (#318). */
