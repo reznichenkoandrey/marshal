@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { deriveAssistantState, groupSessions, IDLE_INPUTS, projectOf, pushLine, sessionCounts } from "../desktop/assistant/assistant-state.ts";
 import type { ClaudeSession } from "../desktop/claude-code/registry.ts";
+import { NEURAL_STATES, neuralTarget, voiceEnvelope } from "../desktop/renderer/assistant-neural.js";
 import {
   ambientLevel,
   frameIntervalMs,
@@ -173,5 +174,27 @@ describe("assistant sessions panel (#308)", () => {
     let lines: string[] = [];
     for (const text of ["a", "b", "b", "  c \n d ", "", "e", "f", "g"]) lines = pushLine(lines, text);
     expect(lines).toEqual(["g", "f", "e", "c d", "b"]);
+  });
+});
+
+describe("neural look (#439)", () => {
+  it("has parameters for every assistant state and falls back to idle", () => {
+    for (const state of STATES) expect(NEURAL_STATES[state], state).toBeDefined();
+    expect(neuralTarget("nonsense")).toBe(NEURAL_STATES.idle);
+  });
+
+  it("brings smoke and orb motion in with speech, not at rest", () => {
+    expect(NEURAL_STATES.idle.smoke).toBe(0);
+    expect(NEURAL_STATES.idle.talk).toBe(0);
+    expect(NEURAL_STATES.speaking.smoke).toBeGreaterThan(NEURAL_STATES.listening.smoke);
+    expect(NEURAL_STATES.speaking.talk).toBe(1);
+  });
+
+  it("keeps the voice envelope in 0..1 with pauses and bursts", () => {
+    const samples = Array.from({ length: 2000 }, (_, i) => voiceEnvelope(i * 0.01));
+    expect(Math.min(...samples)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...samples)).toBeLessThanOrEqual(1);
+    expect(samples.filter((v) => v === 0).length).toBeGreaterThan(200);
+    expect(Math.max(...samples)).toBeGreaterThan(0.5);
   });
 });

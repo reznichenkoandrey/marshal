@@ -30,7 +30,8 @@
   `npm run test:e2e:alternatives`
   (перекладач: клік по слову → альтернативи), `npm run test:e2e:captions` (живий рядок
   субтитрів), `npm run test:e2e:home` (вікно асистента: кожен стан, dock, тема, пауза
-  прихованого вікна, reduced motion, вигляд Settings: rail, перемикач, Save;
+  прихованого вікна, reduced motion, look `neural`: дим вантажиться, рухається, під час мови його більше,
+  вигляд Settings: rail, перемикач, Save;
   `MARSHAL_E2E_SHOTS=<тека>` — скріни кожного стану і Settings на трьох ширинах),
   `npm run test:e2e:ambient` (рамка-світіння, індикатор диктовки, міні-віджет: картки, клік /
   подвійний клік / драг, пауза після 30 с idle)
@@ -883,7 +884,7 @@
   10 хв (`RELEASE_HIDDEN_MS`); оверлей субтитрів закривається на stop. Раніше обидва жили прихованими
   до виходу з застосунку, по ~30–40 МБ кожен.
 - **Теми — дві незалежні осі (#283).** Режим (`data-theme` light/dark, без атрибута — як у
-  macOS) і look (`data-look`: `lumen` — дефолт з #397, `hud`, `classic`, `liquid`, `signal`, `soft`; для HUD ще
+  macOS) і look (`data-look`: `lumen` — дефолт з #397, `hud`, `classic`, `liquid`, `signal`, `soft`, `neural`; для HUD ще
   `data-palette`: `blue` — дефолт, `teal`, `green`, `amber`). Спільні токени редизайну #396 є в кожному
   look: `--font-mono`, `--label-tracking`, `--border-hairline`, `--radius-card`, `--radius-chip`,
   `--chip-{ok,warn,bad,info}-bg` (з `--state-*` через `color-mix`). Обирається в Settings → Theme.
@@ -898,6 +899,17 @@
   (так було з історіями знімків і записів). Субтитри мають власні локальні
   токени (завжди темні поверх чужого екрана), а полотно редактора захоплення — нейтральне.
   Розширення Chrome показує дефолтний HUD blue: вибору теми там поки немає.
+  **Look `neural` (#439) міняє не лише кольори, а й hero вікна асистента:** замість крапкової стрічки
+  (`drawWave`) — смуга диму з фіолетовою сферою посередині (`desktop/renderer/assistant-neural.js`), а метрики
+  стають рядком під смугою (4 колонки, вужче за 760 px — 2). Дим — відео `desktop/renderer/media/neural-smoke.mp4`
+  (білий дим на чорному, 3 вертикальні смуги, похідне від кліпу Pixabay за Pixabay Content License). Renderer
+  домальовує його на offscreen canvas із `lighter`, кільцем навколо сфери й тонуванням під `--accent` (у
+  `waiting`/`offline` — колір стану), сфера — `--accent-2`. Параметри на стан — `NEURAL_STATES`
+  (амплітуда, швидкість, сфера, дим, «розмова»): поки Marshal говорить чи слухає, диму більше і сфера пульсує
+  за рівнем голосу (`listening` — справжній рівень мікрофона, `speaking` — синтетична огинаюча
+  `voiceEnvelope`). Відео грає лише поки крутиться цикл кадрів hero; на прихованому вікні й reduced motion
+  стоїть. Відео читається з `app.asar` без `asarUnpack` (перевірено). Смуга лишається темною і в light-режимі:
+  адитивний дим на світлому тлі не видно. Міні-віджет лишається на HUD.
   **Структура dashboard — спільна, `desktop/renderer/dashboard.css`** (#406): `.shell` (bar + основна колонка +
   rail), `.bar`, `.icon-btn`, `.block`, `.metric-row`/`.metric`, таблиця `.commands`, `.ochip[data-tone]`, `.card`,
   крапковий метр `.batt`, overflow-меню `.menu`. Її підключають home, Meeting Recordings і Capture history; нове вікно

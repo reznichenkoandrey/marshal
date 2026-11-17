@@ -12,6 +12,9 @@
 // Microphone permission is denied on purpose: the spectrum then runs on its
 // ambient level, which keeps the run deterministic and prompt-free.
 //
+// The Neural look (#439) swaps the wave for a smoke band around an orb: the
+// filmed smoke must load from the renderer bundle and keep moving.
+//
 // MARSHAL_E2E_SHOTS=<dir> also saves a screenshot per state, dark and light.
 //
 // Run: `npm run test:e2e:home`
@@ -166,6 +169,19 @@ const CANVAS_STATS = `(() => {
   return { painted, total: data.length / 4, hash, width: canvas.width };
 })()`;
 
+// Bright, saturated pixels in the band right of the orb: tinted smoke, not the empty band.
+const SMOKE = `(() => {
+  const canvas = document.getElementById("visual");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const w = canvas.width, h = canvas.height;
+  const data = ctx.getImageData(Math.round(w * 0.45), Math.round(h * 0.35), Math.round(w * 0.4), Math.round(h * 0.3)).data;
+  let smoke = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] > 200 && data[i + 1] > 90 && data[i + 1] > data[i] + 30) smoke += 1;
+  }
+  return smoke;
+})()`;
+
 const RAF_TICKS = `new Promise((resolve) => {
   let ticks = 0;
   const tick = () => { ticks += 1; requestAnimationFrame(tick); };
@@ -225,6 +241,13 @@ async function shootFull(win, name) {
 async function setAppearance(win, value) {
   await win.webContents.executeJavaScript(
     `localStorage.setItem("marshal-appearance", ${JSON.stringify(value)}); window.dispatchEvent(new Event("focus"));`
+  );
+  await sleep(300);
+}
+
+async function setLook(win, value) {
+  await win.webContents.executeJavaScript(
+    `localStorage.setItem("marshal-look", ${JSON.stringify(value)}); window.dispatchEvent(new Event("focus"));`
   );
   await sleep(300);
 }
@@ -625,6 +648,38 @@ async function main() {
   const lightRibbon = (await win.webContents.executeJavaScript(RIBBON)).rgb;
   record("light theme redraws the canvas in light tokens", lightRibbon && lightToken && distance(lightRibbon, lightToken) < 120,
     lightRibbon ? `distance ${distance(lightRibbon, lightToken).toFixed(0)}` : "no ribbon pixels");
+
+  // ── Neural look: smoke band and orb (#439) ──────────────────────────────
+  await setAppearance(win, "dark");
+  await setLook(win, "neural");
+  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk" });
+  let idleSmoke = 0;
+  for (let waited = 0; waited < 4000 && idleSmoke < 200; waited += 250) {
+    await sleep(250);
+    idleSmoke = await win.webContents.executeJavaScript(SMOKE);
+  }
+  record("neural: the smoke video loads and is drawn", idleSmoke >= 200, `${idleSmoke} smoke pixels`);
+  const neuralA = await win.webContents.executeJavaScript(CANVAS_STATS);
+  await sleep(500);
+  const neuralB = await win.webContents.executeJavaScript(CANVAS_STATS);
+  record("neural: the smoke keeps moving", neuralA.hash !== neuralB.hash);
+  await shoot(win, "home-neural-idle");
+  win.webContents.send("marshal:assistant-state", { state: "speaking", lang: "uk" });
+  await sleep(1500);
+  let speakSmoke = 0;
+  for (let i = 0; i < 6; i++) {
+    speakSmoke = Math.max(speakSmoke, await win.webContents.executeJavaScript(SMOKE));
+    await sleep(150);
+  }
+  record("neural: speaking brings more smoke than idle", speakSmoke > idleSmoke, `${idleSmoke} → ${speakSmoke}`);
+  await shoot(win, "home-neural-speaking");
+  win.webContents.send("marshal:assistant-state", dashboard("speaking"));
+  await sleep(800);
+  await shootWidths(win, "home-neural-overview");
+  await setAppearance(win, "light");
+  await shoot(win, "home-neural-light");
+  await setLook(win, "lumen");
+  await setAppearance(win, "dark");
 
   // ── Hidden window stops drawing (#281) ──────────────────────────────────
   win.hide();

@@ -7,7 +7,7 @@
  *   - Mode: `data-theme="light" | "dark"` on <html>; absent = follow the OS.
  *     Every color seed is `light-dark(<light>, <dark>)`, resolved by
  *     `color-scheme`, so each look is written once, not once per mode.
- *   - Look: `data-look="lumen" | "hud" | "classic" | "liquid" | "signal" | "soft"`,
+ *   - Look: `data-look="lumen" | "hud" | "classic" | "liquid" | "signal" | "soft" | "neural"`,
  *     plus `data-palette="blue" | "teal" | "green" | "amber"` for HUD.
  *     theme.js defaults to Lumen (#397); no attribute at all = HUD blue.
  *
@@ -261,6 +261,31 @@
   --seed-warning: light-dark(#7d8a12, #c3d24a);
   --seed-think: light-dark(#6a5bc9, #a597ff);
   --seed-idle: light-dark(#8a949c, #5d6870);
+}
+
+/* ── Look: Neural (#439) — deep teal, mint smoke, violet orb in the home hero ── */
+:root[data-look="neural"] {
+  --radius-xs: 2px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --font-label: var(--font-mono);
+
+  --seed-bg: light-dark(#eef6f4, #041010);
+  --seed-surface: light-dark(#ffffff, #0a1c1b);
+  --seed-fg: light-dark(#0e2724, #d8f2ec);
+  --seed-muted: light-dark(#4d6f6a, #6e9790);
+  --seed-accent: light-dark(#0f9e7f, #3ef0c0);
+  --seed-accent-2: light-dark(#7a3fc8, #a45cf0);
+  --seed-on-accent: light-dark(#ffffff, #04201a);
+  --seed-line: light-dark(#0e2724, #3ef0c0);
+  --seed-shadow: light-dark(#0e2724, #000000);
+  --seed-danger: light-dark(#d4405a, #ff5d73);
+  --seed-success: light-dark(#1d8a68, #46d98e);
+  --seed-warning: light-dark(#a46a00, #ffb547);
+  --seed-think: light-dark(#6a4bc9, #b48cff);
+  --seed-idle: light-dark(#5f8a84, #4f8f86);
 }
 
 /* ── Semantic tokens, derived from the seeds of whichever look is active ── */

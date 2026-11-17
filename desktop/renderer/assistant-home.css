@@ -402,6 +402,18 @@ body {
 
 .join[hidden] { display: none; }
 
+/* Neural look (#439): the smoke band and its orb need the full width of the hero,
+   so the metrics move under the band in one row. */
+:root[data-look="neural"] .hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: 200px auto auto; }
+:root[data-look="neural"] .metrics {
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: var(--space-4) var(--space-5);
+}
+:root[data-look="neural"] .metric + .metric { border-left: 1px solid var(--hairline); }
+:root[data-look="neural"] .strip { grid-row: 3; }
+
 /* Too narrow for two columns: the rail goes under the main column. A media query,
    not @container: the container is .home itself, which its own query cannot restyle. */
 @media (max-width: 760px) {
@@ -411,6 +423,8 @@ body {
   .stage { grid-row: 1; }
   .metrics { grid-column: 1; grid-row: 2; padding: var(--space-4) var(--space-5); }
   .strip { grid-row: 3; flex-wrap: wrap; }
+  :root[data-look="neural"] .metrics { grid-template-columns: 1fr 1fr; }
+  :root[data-look="neural"] .metric:nth-child(odd) { border-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

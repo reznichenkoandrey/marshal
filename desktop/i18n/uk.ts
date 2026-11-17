@@ -228,6 +228,7 @@ export const uk: Record<MessageKey, string> = {
   "settings.liquid": "Liquid",
   "settings.signal": "Signal",
   "settings.soft3d": "Soft 3D",
+  "settings.neural": "Neural",
   "settings.hudPalette": "Палітра HUD",
   "settings.blue": "Синя",
   "settings.teal": "Бірюзова",

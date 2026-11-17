@@ -9,6 +9,8 @@
 // bottom half draws on a canvas and owns the frame loop, which runs only
 // while the window is visible (#281).
 
+import { createNeuralRenderer } from "./assistant-neural.js";
+
 const TAU = Math.PI * 2;
 
 export const STATES = ["idle", "listening", "thinking", "speaking", "working", "waiting", "offline", "sleeping"];
@@ -381,6 +383,9 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
   let onBattery = false;
   // Held by the owner (the mini widget's idle pause): no visibility change restarts it.
   let paused = false;
+  // The Neural look (#439) draws smoke instead of the wave; created the first time it is picked.
+  let neural = null;
+  const neuralLook = () => !mini && document.documentElement.dataset.look === "neural";
 
   if (typeof navigator.getBattery === "function") {
     navigator.getBattery().then((battery) => {
@@ -397,7 +402,8 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
       second: resolveColor("--accent-2"),
       fg: resolveColor("--text-strong"),
       muted: resolveColor("--text-muted"),
-      accent: resolveColor("--accent")
+      accent: resolveColor("--accent"),
+      surface: resolveColor("--bg-surface")
     };
   }
 
@@ -426,7 +432,14 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
     const drawn = fromColor ? { ...current, state: mixRgb(fromColor, current.state, colorMix) } : current;
     const [width, height] = size();
     if (mini) drawHud(ctx, width, t, smooth, params, drawn, bars, { state: labelFor(state), footer }, true);
-    else drawWave(ctx, width, height, t, smooth, params, drawn);
+    else if (neuralLook()) {
+      neural ??= createNeuralRenderer({ onReady: () => reducedMotion.matches && render(performance.now()) });
+      if (raf) neural.play();
+      neural.draw(ctx, width, height, t, raf ? dt : 0, { state, level: live, colors: drawn });
+    } else {
+      neural?.pause();
+      drawWave(ctx, width, height, t, smooth, params, drawn);
+    }
   }
 
   function frame(now) {
@@ -451,6 +464,7 @@ export function createHudVisual(canvas, { resolveColor, getLevel, labelFor, foot
   function stop() {
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
+    neural?.pause();
   }
 
   document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
