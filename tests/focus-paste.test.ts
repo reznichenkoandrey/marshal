@@ -15,6 +15,7 @@ import {
   parseFocusProbe,
   probeFocusedElement,
   sendPasteKeystroke,
+  useClaudeAppDictation,
   type FocusProbeResult
 } from "../desktop/dictation/focus-paste.ts";
 
@@ -158,6 +159,21 @@ describe("decideAutoPaste", () => {
     // want the fail-open path so we never silently swallow paste.
     const focus = make({ isTextInput: false, role: "", axError: 0, frontmostApp: "Anything" });
     expect(decideAutoPaste(focus)).toBe(true);
+  });
+});
+
+describe("useClaudeAppDictation", () => {
+  const claude: FocusProbeResult = { ...EMPTY, frontmostApp: "Claude", frontmostPath: "/Applications/Claude.app" };
+
+  it("hands the hold to Claude only when the option is on and Claude is frontmost", () => {
+    expect(useClaudeAppDictation(claude, true)).toBe(true);
+    expect(useClaudeAppDictation(claude, false)).toBe(false);
+  });
+
+  it("matches the bundle path, not the localized name", () => {
+    expect(useClaudeAppDictation({ ...claude, frontmostPath: "/Users/me/Applications/Claude.app" }, true)).toBe(true);
+    expect(useClaudeAppDictation({ ...claude, frontmostPath: "/Applications/Claude Helper.app" }, true)).toBe(false);
+    expect(useClaudeAppDictation({ ...EMPTY, frontmostApp: "Claude" }, true)).toBe(false);
   });
 });
 

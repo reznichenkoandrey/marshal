@@ -105,6 +105,19 @@
      через нього було б кілька секунд). Тапи на правому ⌥ нічого не значать
      (`toggleTapCount: 0`). `MARSHAL_PASTE_DICTATION_HOTKEY` — інша клавіша або `off`;
      `MARSHAL_DICTATION_HOTKEY` (Settings → «Talk to Marshal hotkey») — клавіша розмови.
+     **У застосунку Claude правий ⌥ може вмикати диктовку самого Claude** (#450, opt-in:
+     Settings → Dictation, `dictationUseClaudeApp` → `MARSHAL_DICTATION_CLAUDE_APP`). Якщо Claude
+     попереду (`useClaudeAppDictation`: bundle path закінчується на `/Claude.app`), утримання тисне ⌘D
+     (`send-keystroke d`), а відпускання тисне ⌘D ще раз. Шорткат під час утримання теж тисне ⌘D:
+     скасування диктовки Claude не перевірене. Ні deep link, ні IPC для диктовки в Claude немає: його
+     посилання — лише `code/new`, `code/continue`, `code/needs-input`, `cowork/shared-artifact`. Тому
+     Marshal лише натискає ⌘D. Claude розпізнає мову у своїй хмарі, без промпту й glossary Marshal, і
+     текст іде тільки в поле повідомлення. Перепризначений у Claude `dictationShortcut` тихо вимикає
+     опцію. Перевірка frontmost (`focus-probe`) затримує старт запису Marshal, тому вона працює лише з
+     увімкненою опцією. Marshal диктовці Claude не заважає: ⌘D у Claude працює, поки `speech-wake`
+     тримає той самий мікрофон (перевірено 2026-11-17). Глобальна голосова функція Claude
+     (`sableOtter*`, за замовчуванням вимкнена) займає утримання правого ⌘ і правого ⌥, як Marshal.
+     Увімкнеш її — клавіші зіткнуться.
      Колишня диктовка правим ⌥ у сесію Claude Code (#264, `session-router.ts`) прибрана: ту
      саму маршрутизацію (ім'я, сесія, що чекає, контекст) тепер робить диспетчер.
   4. **Промпт диктовки — бюджет у токенах, не в символах** (#289, #261). Whisper (і whisper.cpp,

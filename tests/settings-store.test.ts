@@ -33,6 +33,7 @@ afterEach(() => {
   delete process.env.MARSHAL_DICTATION_BACKEND;
   delete process.env.MARSHAL_DICTATION_LANGUAGE;
   delete process.env.MARSHAL_DICTATION_AUTOPASTE;
+  delete process.env.MARSHAL_DICTATION_CLAUDE_APP;
   delete process.env.MARSHAL_DICTATION_HOLD_DELAY_MS;
   delete process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT;
   delete process.env.MARSHAL_DICTATION_PROMPT;
@@ -97,6 +98,7 @@ describe("saveSettings", () => {
       claudeCodeContextRouting: false,
       claudeCodeRoutingRoots: "~/htdocs",
       dictationAutoPaste: true,
+      dictationUseClaudeApp: true,
       dictationHoldDelayMs: 350,
       dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR",
@@ -128,6 +130,7 @@ describe("saveSettings", () => {
       claudeCodeContextRouting: false,
       claudeCodeRoutingRoots: "~/htdocs",
       dictationAutoPaste: true,
+      dictationUseClaudeApp: true,
       dictationHoldDelayMs: 350,
       dictationToggleTapCount: 2,
       dictationPrompt: "React, Magento, PR",

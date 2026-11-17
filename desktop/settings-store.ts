@@ -85,6 +85,8 @@ export type MarshalSettings = {
   /** Folders (one per line) whose sessions context routing may read; empty = none (#303). */
   claudeCodeRoutingRoots: string;
   dictationAutoPaste: boolean;
+  /** Right ⌥ in the Claude desktop app toggles the app's own dictation with ⌘D (#450). */
+  dictationUseClaudeApp: boolean;
   /**
    * Delay before a physical hold starts recording. Suppresses accidental taps
    * and mirrors the more deliberate push-to-talk feel of native dictation apps.
@@ -250,6 +252,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   claudeCodeContextRouting: true,
   claudeCodeRoutingRoots: "",
   dictationAutoPaste: false,
+  dictationUseClaudeApp: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
   dictationToggleTapCount: DEFAULT_TOGGLE_TAP_COUNT,
   dictationPrompt: DEFAULT_DICTATION_PROMPT,
@@ -376,6 +379,7 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_BACKEND = settings.dictationBackend;
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
+  process.env.MARSHAL_DICTATION_CLAUDE_APP = settings.dictationUseClaudeApp ? "1" : "0";
   process.env.MARSHAL_DICTATION_HOLD_DELAY_MS = String(settings.dictationHoldDelayMs);
   process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT = String(settings.dictationToggleTapCount);
   process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
@@ -546,6 +550,9 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,
+    dictationUseClaudeApp: typeof input.dictationUseClaudeApp === "boolean"
+      ? input.dictationUseClaudeApp
+      : DEFAULT_SETTINGS.dictationUseClaudeApp,
     dictationHoldDelayMs,
     dictationToggleTapCount,
     // settings.json stores the default's text, so an untouched old default is
