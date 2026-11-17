@@ -26,7 +26,8 @@
   `npm run test:e2e:capture` (редактор захоплення), `npm run test:e2e:region`
   (геометрія виділення області), `npm run test:e2e:history` (вікно історії знімків),
   `npm run test:e2e:meetings` (вікно записів дзвінків: «Finish» для перерваних,
-  «Transcribe & summarize» і нотатки),
+  «Transcribe & summarize» і нотатки; у history і meetings `MARSHAL_E2E_SHOTS=<тека>` знімає вікно в
+  Lumen і Neural),
   `npm run test:e2e:alternatives`
   (перекладач: клік по слову → альтернативи), `npm run test:e2e:captions` (живий рядок
   субтитрів), `npm run test:e2e:home` (вікно асистента: кожен стан, dock, тема, пауза
