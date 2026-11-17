@@ -64,6 +64,7 @@
       "dist/desktop/dictation/mic-list",
       "dist/desktop/presence/mic-users",
       "dist/desktop/assistant/wake/wake-listener",
+      "dist/desktop/assistant/wake/speech-wake",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/whisper-server",
@@ -105,7 +106,8 @@
         "LSUIElement": true,
         "NSMicrophoneUsageDescription": "Marshal needs microphone access to transcribe your voice dictation.",
         "NSAppleEventsUsageDescription": "Marshal uses Apple Events to auto-paste dictated text.",
-        "NSScreenCaptureUsageDescription": "Marshal captures a selected screen region for OCR translation."
+        "NSScreenCaptureUsageDescription": "Marshal captures a selected screen region for OCR translation.",
+        "NSSpeechRecognitionUsageDescription": "Marshal recognises the wake phrase on this Mac with macOS dictation."
       }
     },
     "dmg": {

@@ -119,4 +119,132 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", ()
     // Past the command (reading 22), not inside the comma pause.
     expect(sent).toBeGreaterThan(22);
   }, 10_000);
+
+  it("apple engine: holds the stretch once the name shows up and takes the final text as the command (#432)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    // Room talk first (no hold), then the name; held, it reports levels until Marshal says end.
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+const log = [];
+console.log("ready");
+console.log("partial поїхали на маршрут");
+console.log("partial Маршал");
+let timer = null;
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  log.push(line);
+  if (line === "hold") {
+    const levels = [-20, -20, -20, ...Array(25).fill(-60)];
+    let i = 0;
+    timer = setInterval(() => { if (i < levels.length) console.log("level " + levels[i++]); }, 100);
+  }
+  if (line === "end") {
+    clearInterval(timer);
+    console.log("final Маршал, відкрий перекладач. [" + log.join(",") + "]");
+  }
 });
+`
+    );
+    chmodSync(bin, 0o755);
+    const command = await new Promise<string>((resolve, reject) => {
+      const listener = new WakeListener({
+        engine: "apple",
+        binPath: bin,
+        transcribe: async () => reject(new Error("whisper is not needed")) as never,
+        allowed: async () => true,
+        onCommand: (text) => {
+          listener.stop();
+          resolve(text);
+        },
+        onNameOnly: () => reject(new Error("name only")),
+        onPhase: () => undefined
+      });
+      listener.start();
+    });
+    expect(command).toBe("відкрий перекладач. [hold,end]");
+  }, 10_000);
+
+  it("apple engine: a quiet voice still counts while its text keeps coming (#433)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    // Every reading is below speechDb; only the transcript shows the command arriving after a pause.
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+let last = "Маршал";
+console.log("partial " + last);
+const start = Date.now();
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  if (line === "hold") {
+    setInterval(() => console.log("level -45"), 100);
+    for (const [ms, text] of [[1300, "Маршал, відкрий"], [1900, "Маршал, відкрий пере"], [2500, "Маршал, відкрий перекладач"]]) {
+      setTimeout(() => console.log("partial " + (last = text)), ms);
+    }
+  }
+  if (line === "end") console.log("final " + last + " @" + (Date.now() - start));
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const command = await new Promise<string>((resolve, reject) => {
+      const listener = new WakeListener({
+        engine: "apple",
+        binPath: bin,
+        transcribe: async () => "",
+        allowed: async () => true,
+        onCommand: (text) => {
+          listener.stop();
+          resolve(text);
+        },
+        onNameOnly: () => reject(new Error("name only")),
+        onPhase: () => undefined
+      });
+      listener.start();
+    });
+    expect(command).toMatch(/^відкрий перекладач @\d+$/);
+  }, 10_000);
+
+  it("apple engine: after the name alone the next words are the command, no name needed (#433)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+let held = 0;
+let timer = null;
+console.log("partial Маршал");
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  if (line === "hold") {
+    held++;
+    timer = setInterval(() => console.log("level -60"), 100);
+  }
+  if (line === "end") {
+    clearInterval(timer);
+    console.log(held === 1 ? "final Маршал" : "final відкрий перекладач");
+    if (held === 1) setTimeout(() => console.log("partial відкрий"), 300);
+  }
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const command = await new Promise<string>((resolve, reject) => {
+      const listener = new WakeListener({
+        engine: "apple",
+        binPath: bin,
+        transcribe: async () => "",
+        allowed: async () => true,
+        onCommand: (text) => {
+          listener.stop();
+          resolve(text);
+        },
+        onNameOnly: () => listener.listenForCommand(3_000),
+        onPhase: () => undefined
+      });
+      listener.start();
+      setTimeout(() => reject(new Error("no command")), 9_000).unref();
+    });
+    expect(command).toBe("відкрий перекладач");
+  }, 10_000);
+});
+

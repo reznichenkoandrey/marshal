@@ -177,6 +177,12 @@ if (process.platform === "darwin") {
       fallbackNote: "the wake phrase («Маршал, …») will be unavailable"
     },
     {
+      src: path.join(root, "desktop", "assistant", "wake", "speech-wake.swift"),
+      out: path.join(root, "dist", "desktop", "assistant", "wake", "speech-wake"),
+      label: "speech-wake",
+      fallbackNote: "the wake phrase falls back to the sherpa keyword spotter (macOS 26 dictation needs a macOS 26 SDK)"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",

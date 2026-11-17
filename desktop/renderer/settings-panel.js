@@ -165,10 +165,11 @@ async function populateSpeechVoices(voiceUk, voiceEn, holosVoice) {
 
 async function refreshWakeState() {
   if (!api?.wakeStatus) return;
-  const { installed } = await api.wakeStatus().catch(() => ({ installed: false }));
+  const { installed, engine } = await api.wakeStatus().catch(() => ({ installed: false, engine: "sherpa" }));
   if (dom.settingsAssistantWakeInstall) dom.settingsAssistantWakeInstall.hidden = installed;
   if (dom.settingsAssistantWakeStatus) {
-    dom.settingsAssistantWakeStatus.textContent = t(installed ? "settings.assistantWakeHint" : "settings.wakeNotInstalled");
+    const missing = engine === "apple" ? "settings.wakeNotInstalledApple" : "settings.wakeNotInstalled";
+    dom.settingsAssistantWakeStatus.textContent = t(installed ? "settings.assistantWakeHint" : missing);
   }
 }
 

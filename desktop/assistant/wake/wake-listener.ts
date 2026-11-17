@@ -8,13 +8,19 @@
 //
 // The sherpa runtime and the model (~38 MB) are downloaded on demand into the
 // models dir, like Piper: nothing grows the app bundle.
+//
+// On macOS 26+ with Apple's Ukrainian dictation model the `apple` engine takes
+// over (#432): `speech-wake.swift` transcribes every stretch of sound on device,
+// so the name is found in text, not in a spotter, and the command comes back
+// as text too: no clip, no whisper.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, promises as fs, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { modelsDir } from "../../dictation/model-installer.ts";
 import { EndOfSpeech, endOfSpeechOptions, parseMeterLine } from "../../dictation/end-of-speech.ts";
@@ -37,7 +43,38 @@ function newEndOfSpeech(): EndOfSpeech {
   return new EndOfSpeech({ ...endOfSpeechOptions(), noSpeechMs: NAME_PAUSE_MS });
 }
 
-const DEFAULT_BIN = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "wake-listener");
+const HELPER_DIR = asarUnpacked(path.dirname(fileURLToPath(import.meta.url)));
+const DEFAULT_BIN = path.join(HELPER_DIR, "wake-listener");
+const SPEECH_BIN = path.join(HELPER_DIR, "speech-wake");
+const execFileAsync = promisify(execFile);
+
+export type WakeEngine = "apple" | "sherpa";
+type AppleSpeechStatus = "installed" | "supported" | "unsupported";
+
+let appleStatus: Promise<AppleSpeechStatus> | null = null;
+
+/** Whether macOS on-device dictation can serve the wake phrase in Ukrainian; asked once per run. */
+function appleSpeechStatus(refresh = false): Promise<AppleSpeechStatus> {
+  if (refresh || !appleStatus) {
+    appleStatus = execFileAsync(SPEECH_BIN, ["--status"], { timeout: 15_000 })
+      .then(({ stdout }) => {
+        const status = stdout.trim().replace(/^status /, "");
+        return status === "installed" || status === "supported" ? status : "unsupported";
+      })
+      .catch(() => "unsupported" as const);
+  }
+  return appleStatus;
+}
+
+/** `apple` wherever macOS 26 has the Ukrainian dictation model on offer; MARSHAL_WAKE_ENGINE=sherpa forces the spotter. */
+export async function wakeEngine(): Promise<WakeEngine> {
+  if (process.env.MARSHAL_WAKE_ENGINE === "sherpa") return "sherpa";
+  return (await appleSpeechStatus()) === "unsupported" ? "sherpa" : "apple";
+}
+
+export async function isWakeReady(): Promise<boolean> {
+  return (await wakeEngine()) === "apple" ? (await appleSpeechStatus()) === "installed" : isWakeInstalled();
+}
 
 export const WAKE_ARCHIVES: readonly PiperArchive[] = [
   {
@@ -76,6 +113,12 @@ export function isWakeInstalled(paths = wakePaths()): boolean {
 }
 
 export async function installWake(options: InstallOptions = {}): Promise<void> {
+  if ((await wakeEngine()) === "apple") {
+    // Apple downloads the model itself; it is shared with system dictation.
+    await execFileAsync(SPEECH_BIN, ["--install"], { timeout: 600_000 });
+    if ((await appleSpeechStatus(true)) !== "installed") throw new Error("macOS did not install the Ukrainian speech model.");
+    return;
+  }
   const root = wakeDir();
   await installArchives(root, WAKE_ARCHIVES, options);
   if (!isWakeInstalled()) throw new Error(`Wake phrase files unpacked into ${root}, but some are missing.`);
@@ -104,6 +147,8 @@ export type WakeListenerDeps = {
   onNameOnly: () => void;
   /** Drives the assistant state: hearing the command, then transcribing it. */
   onPhase: (phase: { dictating: boolean; transcribing: boolean }) => void;
+  /** `sherpa` when omitted. */
+  engine?: WakeEngine;
   binPath?: string;
   paths?: WakePaths;
 };
@@ -117,6 +162,13 @@ export class WakeListener {
   private capturing = false;
   private busy = false;
   private stopped = false;
+  // apple engine: the held stretch's text and the last sign the owner is still talking (#433).
+  private heldText = "";
+  private heldAt = 0;
+  private activityAt = 0;
+  // After the name alone: the next thing said is the command, no name needed (#433).
+  private followUpUntil = 0;
+  private followUp = false;
 
   constructor(private readonly deps: WakeListenerDeps) {}
 
@@ -127,17 +179,17 @@ export class WakeListener {
   start(): void {
     this.stopped = false;
     if (this.child) return;
+    const apple = this.deps.engine === "apple";
     const paths = this.deps.paths ?? wakePaths();
-    const bin = this.deps.binPath ?? DEFAULT_BIN;
+    const bin = this.deps.binPath ?? (apple ? SPEECH_BIN : DEFAULT_BIN);
     if (!existsSync(bin)) {
       console.warn(`[wake] helper missing at ${bin}; run npm run build`);
       return;
     }
-    writeFileSync(paths.keywords, KEYWORDS);
+    if (!apple) writeFileSync(paths.keywords, KEYWORDS);
     // ponytail: the AudioQueue binds to the default input at start; a new default mic needs a restart (toggle in Settings).
-    const child = spawn(bin, ["--lib", paths.lib, "--model", paths.model, "--keywords", paths.keywords], {
-      stdio: ["pipe", "pipe", "inherit"]
-    });
+    const args = apple ? [] : ["--lib", paths.lib, "--model", paths.model, "--keywords", paths.keywords];
+    const child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"] });
     this.child = child;
     createInterface({ input: child.stdout! }).on("line", (line) => this.onLine(line));
     child.on("error", (err) => console.warn("[wake] helper failed:", err.message));
@@ -168,6 +220,16 @@ export class WakeListener {
     this.endCapture();
   }
 
+  /**
+   * apple engine: whatever is said in the next `ms` is the command. Answering «Слухаю.» used to go
+   * through the dictation recorder, whose energy gate dropped a quiet voice as "nobody answered".
+   */
+  listenForCommand(ms: number): void {
+    // The command is already being heard; arming now would turn the next room talk into one.
+    if (this.capturing) return;
+    this.followUpUntil = Date.now() + ms;
+  }
+
   /** Marshal speaks, dictation records or transcribes: the mic hears Marshal or a command already, not a wake phrase. */
   setBusy(busy: boolean): void {
     if (busy === this.busy) return;
@@ -183,14 +245,44 @@ export class WakeListener {
   private onLine(line: string): void {
     if (line === "wake") {
       if (DEBUG) console.log(`[wake] candidate${this.capturing ? " (already capturing)" : ""}`);
-      if (this.capturing) return;
-      this.capturing = true;
-      this.nameTail = true;
-      this.endOfSpeech = newEndOfSpeech();
-      this.deps.onPhase({ dictating: true, transcribing: false });
+      this.beginCapture();
+      return;
+    }
+    if (line.startsWith("partial ")) {
+      const text = line.slice("partial ".length);
+      if (this.capturing) {
+        if (this.heldAt && text !== this.heldText) {
+          this.heldText = text;
+          this.activityAt = Date.now();
+        }
+        return;
+      }
+      // The apple helper's running text: the name at the start of a sentence holds the stretch open.
+      const followUp = Date.now() < this.followUpUntil && text.trim() !== "";
+      if (!followUp && wakeCommand(text) === null) return;
+      if (DEBUG) console.log(`[wake] ${followUp ? "follow-up" : "candidate"} ${JSON.stringify(text)}`);
+      this.followUpUntil = 0;
+      this.followUp = followUp;
+      this.beginCapture();
+      this.heldText = text;
+      this.heldAt = this.activityAt = Date.now();
+      this.send("hold");
+      return;
+    }
+    if (line === "final" || line.startsWith("final ")) {
+      const text = line.slice("final".length).trim();
+      if (this.capturing) void this.handleCandidate(async () => text, this.followUp);
       return;
     }
     const db = parseMeterLine(line);
+    if (db !== null && this.deps.engine === "apple") {
+      if (this.heldAt && this.heldEnded(db, Date.now())) {
+        if (DEBUG) console.log(`[wake] end ${JSON.stringify(this.heldText)}`);
+        this.heldAt = 0;
+        this.send("end");
+      }
+      return;
+    }
     if (db !== null) {
       // Restart at the first quiet reading: the pause after «Маршал,» then gets NAME_PAUSE_MS,
       // instead of the 0.9 s that ends a command and cut the clip before it began.
@@ -205,37 +297,63 @@ export class WakeListener {
       return;
     }
     if (line.startsWith("clip ")) {
-      void this.handleClip(line.slice("clip ".length));
+      const wavPath = line.slice("clip ".length);
+      void this.handleCandidate(() => this.deps.transcribe(wavPath)).finally(() => fs.unlink(wavPath).catch(() => undefined));
       return;
     }
     if (line.startsWith("error ")) console.warn(`[wake] ${line}`);
   }
 
-  private async handleClip(wavPath: string): Promise<void> {
+  /**
+   * Energy alone cut the command off: a quiet voice reads below speechDb, and the name's
+   * partial lands after the name is over (#433). New text counts as talking too.
+   */
+  private heldEnded(db: number, now: number): boolean {
+    const { speechDb, silenceMs, maxMs } = endOfSpeechOptions();
+    if (db >= speechDb) this.activityAt = now;
+    if (now - this.heldAt >= maxMs) return true;
+    const quietMs = this.followUp || wakeCommand(this.heldText) ? silenceMs : NAME_PAUSE_MS;
+    return now - this.activityAt >= quietMs;
+  }
+
+  private beginCapture(): void {
+    if (this.capturing) return;
+    this.capturing = true;
+    this.nameTail = true;
+    this.endOfSpeech = newEndOfSpeech();
+    this.deps.onPhase({ dictating: true, transcribing: false });
+  }
+
+  private async handleCandidate(transcribe: () => Promise<string>, followUp = false): Promise<void> {
     this.deps.onPhase({ dictating: false, transcribing: true });
+    let command: string | null = null;
     try {
       if (!(await this.deps.allowed())) {
         if (DEBUG) console.log("[wake] candidate dropped: open mic not allowed (call, recording, captions)");
         return;
       }
-      const transcript = await this.deps.transcribe(wavPath);
-      const command = wakeCommand(transcript);
+      const transcript = await transcribe();
+      // A follow-up may repeat the name; an empty one is dropped, not answered with another «Слухаю.».
+      command = followUp ? wakeCommand(transcript) || transcript.trim() || null : wakeCommand(transcript);
       if (DEBUG) console.log(`[wake] heard ${JSON.stringify(transcript)} → ${JSON.stringify(command)}`);
-      if (command === "") this.deps.onNameOnly();
-      else if (command !== null) this.deps.onCommand(command);
     } catch (err) {
-      console.warn("[wake] clip failed:", err instanceof Error ? err.message : String(err));
+      console.warn("[wake] candidate failed:", err instanceof Error ? err.message : String(err));
     } finally {
-      await fs.unlink(wavPath).catch(() => undefined);
       this.endCapture();
     }
+    // After endCapture: onNameOnly arms the follow-up window, which a capture under way refuses.
+    if (command === "") this.deps.onNameOnly();
+    else if (command !== null) this.deps.onCommand(command);
   }
+
 
   private endCapture(): void {
     if (!this.capturing) return;
     this.capturing = false;
     this.nameTail = false;
     this.endOfSpeech = null;
+    this.heldAt = 0;
+    this.followUp = false;
     this.deps.onPhase({ dictating: false, transcribing: false });
     if (this.busy) this.send("pause");
   }
