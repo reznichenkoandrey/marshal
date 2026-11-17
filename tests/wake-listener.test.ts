@@ -70,4 +70,46 @@ cat > /dev/null
     expect(command).toBe("відкрий перекладач.");
     expect(phases.slice(0, 2)).toEqual(["listening", "thinking"]);
   }, 10_000);
+
+  it("waits through the pause after the name instead of ending the clip there (#427)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-helper");
+    // Tail of the name (0.5 s), the comma pause (1.2 s), the command (0.5 s), then silence.
+    // The clip path says how many readings had gone out when Marshal asked for the clip.
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+echo ready
+echo wake
+(n=0
+for db in -20 -20 -20 -20 -20 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -20 -20 -20 -20 -20 \\
+  -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60 -60; do
+  echo "level $db"; n=$((n+1)); echo $n > "${dir}/sent"; sleep 0.1
+done) &
+read cmd clip
+echo "clip $(cat "${dir}/sent")"
+cat > /dev/null
+`
+    );
+    chmodSync(bin, 0o755);
+    const sent = await new Promise<number>((resolve, reject) => {
+      const listener = new WakeListener({
+        binPath: bin,
+        paths: { lib: dir, model: dir, keywords: path.join(dir, "keywords.txt") },
+        transcribe: async (wavPath) => {
+          listener.stop();
+          resolve(Number(wavPath));
+          return "";
+        },
+        allowed: async () => true,
+        onCommand: () => undefined,
+        onNameOnly: () => undefined,
+        onPhase: () => undefined
+      });
+      listener.start();
+      setTimeout(() => reject(new Error("no clip")), 8_000).unref();
+    });
+    // Past the command (reading 22), not inside the comma pause.
+    expect(sent).toBeGreaterThan(22);
+  }, 10_000);
 });

@@ -3386,6 +3386,10 @@ async function assistantVoiceAction(action: string): Promise<string> {
       runAssistantAction("translator");
       reply = t("Відкрив перекладач.", "The translator is open.");
       break;
+    case "translator-close":
+      translatorWindow?.hide();
+      reply = t("Закрив перекладач.", "The translator is closed.");
+      break;
     case "captions": {
       const wasOn = captionsService?.isRunning() ?? false;
       await toggleLiveCaptions();
@@ -3442,7 +3446,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
       break;
     }
     default:
-      return `Unknown action "${action}". Known: translator, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
   }
   sayAsAssistant(reply);
   return reply;

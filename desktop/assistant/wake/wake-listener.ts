@@ -29,6 +29,13 @@ const KEYWORDS = "▁MAR SH AL @MARSHAL\n";
 // After the name alone, this much quiet means "Маршал" was the whole utterance.
 const NAME_PAUSE_MS = 1_500;
 const DEBUG = process.env.MARSHAL_WAKE_DEBUG === "1";
+const RESTART_DELAY_MS = 3_000;
+// Dying sooner than this after a start is a crash loop (no mic, broken model): no restart.
+const CRASH_LOOP_MS = 10_000;
+
+function newEndOfSpeech(): EndOfSpeech {
+  return new EndOfSpeech({ ...endOfSpeechOptions(), noSpeechMs: NAME_PAUSE_MS });
+}
 
 const DEFAULT_BIN = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "wake-listener");
 
@@ -104,9 +111,12 @@ export type WakeListenerDeps = {
 export class WakeListener {
   private child: ChildProcess | null = null;
   private endOfSpeech: EndOfSpeech | null = null;
+  // The spot fires while the name is still being said; its tail is not the command (#427).
+  private nameTail = false;
   // From the spot until the clip is handled; one candidate at a time.
   private capturing = false;
   private busy = false;
+  private stopped = false;
 
   constructor(private readonly deps: WakeListenerDeps) {}
 
@@ -115,6 +125,7 @@ export class WakeListener {
   }
 
   start(): void {
+    this.stopped = false;
     if (this.child) return;
     const paths = this.deps.paths ?? wakePaths();
     const bin = this.deps.binPath ?? DEFAULT_BIN;
@@ -130,15 +141,25 @@ export class WakeListener {
     this.child = child;
     createInterface({ input: child.stdout! }).on("line", (line) => this.onLine(line));
     child.on("error", (err) => console.warn("[wake] helper failed:", err.message));
+    const startedAt = Date.now();
     child.on("exit", (code, signal) => {
-      if (this.child === child) this.child = null;
-      if (code !== 0 && signal === null) console.warn(`[wake] helper exited with ${code}`);
+      // stop() clears child first: only a helper that died on its own is still current.
+      const died = this.child === child;
+      if (died) this.child = null;
       this.endCapture();
+      if (!died) return;
+      console.warn(`[wake] helper exited (code ${code}, signal ${signal})`);
+      // A dead helper used to leave the wake phrase off until Marshal restarted (#429).
+      if (Date.now() - startedAt < CRASH_LOOP_MS) return;
+      setTimeout(() => {
+        if (!this.child && !this.stopped) this.start();
+      }, RESTART_DELAY_MS).unref();
     });
     if (this.busy) this.send("pause");
   }
 
   stop(): void {
+    this.stopped = true;
     const child = this.child;
     this.child = null;
     // EOF on stdin stops the helper; SIGTERM covers a wedged one.
@@ -164,12 +185,19 @@ export class WakeListener {
       if (DEBUG) console.log(`[wake] candidate${this.capturing ? " (already capturing)" : ""}`);
       if (this.capturing) return;
       this.capturing = true;
-      this.endOfSpeech = new EndOfSpeech({ ...endOfSpeechOptions(), noSpeechMs: NAME_PAUSE_MS });
+      this.nameTail = true;
+      this.endOfSpeech = newEndOfSpeech();
       this.deps.onPhase({ dictating: true, transcribing: false });
       return;
     }
     const db = parseMeterLine(line);
     if (db !== null) {
+      // Restart at the first quiet reading: the pause after «Маршал,» then gets NAME_PAUSE_MS,
+      // instead of the 0.9 s that ends a command and cut the clip before it began.
+      if (this.nameTail && this.endOfSpeech && db < endOfSpeechOptions().speechDb) {
+        this.nameTail = false;
+        this.endOfSpeech = newEndOfSpeech();
+      }
       if (this.endOfSpeech?.feed(db, Date.now())) {
         this.endOfSpeech = null;
         this.send(`end ${path.join(os.tmpdir(), `marshal-wake-${process.pid}-${Date.now()}.wav`)}`);
@@ -206,6 +234,7 @@ export class WakeListener {
   private endCapture(): void {
     if (!this.capturing) return;
     this.capturing = false;
+    this.nameTail = false;
     this.endOfSpeech = null;
     this.deps.onPhase({ dictating: false, transcribing: false });
     if (this.busy) this.send("pause");
