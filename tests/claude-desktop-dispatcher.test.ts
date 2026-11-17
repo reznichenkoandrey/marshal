@@ -15,7 +15,8 @@ import {
   DISPATCHER_START_PROMPT,
   sessionsForDispatcher
 } from "../desktop/assistant/dispatcher-files.ts";
-import { newSessionUrl, openDesktopSession, type DesktopSessionDeps } from "../desktop/claude-code/desktop-session.ts";
+import { newSessionUrl, openDesktopSession, readSessionSetup, setupMismatch, type DesktopSessionDeps } from "../desktop/claude-code/desktop-session.ts";
+import { VoiceTimeline } from "../desktop/assistant/voice-timing.ts";
 import type { FocusProbeResult } from "../desktop/dictation/focus-paste.ts";
 import { ClaudeHookService } from "../desktop/claude-code/hook-service.ts";
 import type { ClaudeSession } from "../desktop/claude-code/registry.ts";
@@ -260,5 +261,102 @@ describe("dispatcher in Claude desktop (#437)", () => {
     }
     // Marshal gone: the call is blocked, not let through.
     expect((await gate("{}")).code).toBe(2);
+  });
+});
+
+describe("the desktop dispatcher's model and mode (#448)", () => {
+  const transcript = [
+    '{"type":"assistant","message":{"model":"claude-opus-5-5"}',
+    JSON.stringify({ type: "user", permissionMode: "default", message: { content: "x" } }),
+    JSON.stringify({ type: "user", permissionMode: "bypassPermissions", message: { content: "Start the monitor" } }),
+    JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5", content: [] } }),
+    JSON.stringify({ type: "assistant", message: { model: "<synthetic>", content: [] } }),
+    ""
+  ].join("\n");
+
+  it("reads the last answer's model and the last turn's mode, past API errors and a cut first line", () => {
+    expect(readSessionSetup(transcript)).toEqual({ model: "claude-opus-5-5", permissionMode: "bypassPermissions" });
+    expect(readSessionSetup("")).toEqual({ model: null, permissionMode: null });
+  });
+
+  it("names the menu only when the session runs on something else than Settings ask for", () => {
+    expect(setupMismatch({ model: "claude-haiku-5-5", permissionMode: "bypassPermissions" }, "haiku", "bypass")).toBeNull();
+    expect(setupMismatch({ model: null, permissionMode: null }, "haiku", "bypass")).toBeNull();
+    expect(setupMismatch({ model: "claude-opus-5-5", permissionMode: "bypassPermissions" }, "haiku", "bypass")).toBe(
+      "Диспетчер у застосунку Claude має модель Opus 5.5 замість Haiku. Перемкни це в меню під полем вводу його сесії, один раз."
+    );
+    expect(setupMismatch({ model: "claude-haiku-5-5", permissionMode: "default" }, "claude-haiku-5-5", "bypass")).toContain("режим дозволів не Bypass permissions");
+  });
+
+  it("warns once per session when its monitor connects, not as an answer", () => {
+    const userDataDir = tmpDir();
+    const projectsDir = tmpDir();
+    const warned: string[] = [];
+    const said: string[] = [];
+    const dispatcherDir = path.join(userDataDir, "assistant", "dispatcher");
+    const live = [session({ pid: 7, sessionId: "d1", name: "Voice dispatcher", cwd: dispatcherDir, hostSessionId: "local_d" })];
+    fs.mkdirSync(path.join(projectsDir, "x"), { recursive: true });
+    fs.writeFileSync(path.join(projectsDir, "x", "d1.jsonl"), transcript);
+    const dispatcher = new AssistantDispatcher({
+      userDataDir,
+      hookDir: () => path.join(userDataDir, "claude-code"),
+      settings: () => ({ model: "haiku", generalDir: "", generalMode: "bypass", routingRoots: [] }),
+      liveSessions: () => live,
+      context: async () => "off",
+      say: (text) => said.push(text),
+      warn: (text) => warned.push(text),
+      projectsDir,
+      ask: async () => null,
+      runAction: async () => "",
+      announce: () => undefined,
+      focus: () => undefined,
+      insert: async () => "",
+      reply: async () => "ok",
+      desktop: { enabled: () => true, open: async () => "ok", openUrl: async () => undefined }
+    });
+    fs.mkdirSync(dispatcherDir, { recursive: true });
+    const res = { writeHead: () => res, flushHeaders: () => undefined, write: () => true, on: () => res };
+    dispatcher.respond("GET", "commands", "", res as unknown as http.ServerResponse);
+    dispatcher.respond("GET", "commands", "", res as unknown as http.ServerResponse);
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toContain("Opus 5.5");
+    expect(said).toEqual([]);
+  });
+});
+
+describe("voice command timing (#448)", () => {
+  function timeline() {
+    const lines: string[] = [];
+    let now = 0;
+    const clock = { set: (ms: number) => void (now = ms) };
+    return { lines, clock, timeline: new VoiceTimeline((line) => lines.push(line), () => now) };
+  }
+
+  it("logs each stage from the key-up to the first sound, once per command", () => {
+    const { lines, clock, timeline: t } = timeline();
+    for (const [ms, stage] of [[0, "key-up"], [700, "transcript"], [710, "sent"], [3_200, "answer"], [3_900, "audio"], [9_000, "audio"]] as const) {
+      clock.set(ms);
+      t.mark(stage);
+    }
+    expect(lines).toEqual([
+      "[assistant-timing] key-up→transcript 0.70s",
+      "[assistant-timing] transcript→sent 0.01s",
+      "[assistant-timing] sent→answer 2.49s",
+      "[assistant-timing] answer→audio 0.70s, key-up→audio 3.90s"
+    ]);
+  });
+
+  it("times a command without a key from its transcript, and ignores a dictation's old key-up", () => {
+    const { lines, clock, timeline: t } = timeline();
+    t.mark("key-up");
+    clock.set(60_000);
+    t.mark("transcript");
+    clock.set(61_000);
+    t.mark("answer");
+    clock.set(62_000);
+    t.mark("transcript");
+    clock.set(62_500);
+    t.mark("audio");
+    expect(lines).toEqual(["[assistant-timing] transcript→answer 1.00s", "[assistant-timing] transcript→audio 0.50s"]);
   });
 });

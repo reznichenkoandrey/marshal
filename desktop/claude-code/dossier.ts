@@ -156,7 +156,7 @@ export function readRecentTurns(session: Pick<ClaudeSession, "cwd" | "sessionId"
   return parseTranscriptTail(text, partial);
 }
 
-function readTail(filePath: string): { text: string; partial: boolean } {
+export function readTail(filePath: string): { text: string; partial: boolean } {
   const fd = fs.openSync(filePath, "r");
   try {
     const { size } = fs.fstatSync(fd);

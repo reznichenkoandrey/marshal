@@ -845,7 +845,19 @@
   Harbor чи Terminal. Сесію створює deep link `claude://code/new?q=<prompt>&folder=<тека>`, далі Marshal тисне Return,
   як у `reply`, і лише коли фокус у полі вводу Claude (`openDesktopSession`, `desktop/claude-code/desktop-session.ts`).
   **Модель і режим дає picker застосунку, не прапорці:** один раз постав сесії диспетчера Haiku і Bypass permissions
-  та закріпи її. Інакше вона працює на моделі за замовчуванням і питає дозволи на кожен `./marshal`. `hostSessionId`
+  та закріпи її. Інакше вона працює на моделі за замовчуванням. **Ззовні цього не задати** (#448, перевірено на 2.1.325):
+  deep link `code/new` пропускає лише `q`, `folder`, `file`, `ssh_*`, `environment`, `runner_pool`. App запускає CLI з
+  явними `--model=` і `--permission-mode=`, тож `model` і `permissions.defaultMode` у `.claude/settings.json` теки
+  диспетчера нічого не міняють. `set_session_model` для власної сесії app відхиляє, а пресети
+  (`ccd-session-presets.json`) — приватний стан app за акаунтом, і `permissionMode` renderer з них вирізає. Тому Marshal
+  лише перевіряє: коли Monitor диспетчера під'єднується, `readSessionSetup` читає з transcript модель останньої
+  відповіді (`message.model`) і `permissionMode` останнього user-запису. Якщо вони не збігаються з Settings
+  (`setupMismatch`), Marshal один раз на сесію за запуск каже вголос, що перемкнути в меню під полем вводу. Мікрофон
+  після цього не відкривається (`warn`, не `say`). Заміряно на живих командах: подія до сесії доходить за 0.22–0.33 с,
+  одна дія на haiku займає 1.0–1.5 с, на opus 1.8 с. «Що там по сесіях» займає ~3.6 с на обох, бо це два ходи моделі.
+  **`MARSHAL_ASSISTANT_DEBUG=1`** логує, куди йде час голосової команди (`desktop/assistant/voice-timing.ts`):
+  `key-up→transcript`, `transcript→sent` (команда в стрімі), `sent→answer` (`./marshal say` чи `do` дійшов до Marshal),
+  `answer→audio` (старт `afplay`/`say`) і сумарно до першого звуку. `hostSessionId`
   диспетчера Marshal пам'ятає в `<userData>/assistant/desktop-dispatcher-id`. Коли процесу сесії немає, Marshal
   відкриває саме її через `claude://code/continue` і не створює нову. Сесію без Monitor Marshal будить стартовим
   промптом через `reply`, лише в статусі `idle`. Сесій Claude desktop Marshal **не вбиває ніколи**: ні на stop, ні

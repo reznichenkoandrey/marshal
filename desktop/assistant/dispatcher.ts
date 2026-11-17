@@ -11,12 +11,14 @@ import path from "node:path";
 
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
-import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
+import { defaultProjectsDir, locateTranscript, readRecentTurns, readTail, type TranscriptTail } from "../claude-code/dossier.ts";
+import { readSessionSetup, setupMismatch } from "../claude-code/desktop-session.ts";
 import { harborCall, type HarborRequest, type HarborResponse } from "../claude-code/harbor.ts";
 import { desktopSessionLink } from "../claude-code/focus.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import type { CommandRoute } from "./command-log.ts";
+import { markVoice } from "./voice-timing.ts";
 import {
   appToolRefusal,
   buildGeneralPrompt,
@@ -112,6 +114,10 @@ export type DispatcherDeps = {
   context: () => Promise<string>;
   /** Spoken and shown in the home line. */
   say: (text: string) => void;
+  /** Spoken and shown, but not an answer: the mic does not open after it. Absent = `say`. */
+  warn?: (text: string) => void;
+  /** Where Claude Code keeps transcripts; ~/.claude/projects. */
+  projectsDir?: string;
   /** Speaks a question and listens for the reply without a key (#375); null when nobody answered. */
   ask: (question: string) => Promise<string | null>;
   /** Runs one of Marshal's own features; returns what was said about it. */
@@ -186,6 +192,8 @@ export class AssistantDispatcher implements AssistantRoutes {
   private previous: { target: string; sessionId?: string; at: number } | null = null;
   /** Sessions `./marshal spawn` opened, by session id: the idle timer that closes them. */
   private readonly spawned = new Map<string, NodeJS.Timeout | null>();
+  /** Desktop dispatchers whose model and mode were checked this run (#448). */
+  private readonly setupChecked = new Set<string>();
   private readonly runAppleScript: (script: string) => Promise<void>;
   private readonly kill: (pid: number) => void;
   private readonly idleMs: number;
@@ -314,6 +322,19 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (result !== "ok") this.deps.say("Claude відкрив сесію асистента, натисни в ній Return.");
   }
 
+  /** Once per session and run: the app's model menu, not Marshal, decides what a desktop dispatcher runs on (#448). */
+  private checkDesktopSetup(session: ClaudeSession): void {
+    if (this.setupChecked.has(session.sessionId)) return;
+    const file = locateTranscript(this.deps.projectsDir ?? defaultProjectsDir(), session.cwd, session.sessionId);
+    if (!file) return;
+    this.setupChecked.add(session.sessionId);
+    const setup = readSessionSetup(readTail(file).text);
+    this.deps.log?.(`[assistant] desktop dispatcher runs ${setup.model ?? "?"}, ${setup.permissionMode ?? "?"}`);
+    const { model, generalMode } = this.deps.settings();
+    const mismatch = setupMismatch(setup, model, generalMode);
+    if (mismatch) (this.deps.warn ?? this.deps.say)(mismatch);
+  }
+
   /** A Claude desktop dispatcher without its monitor is idle in the app: the start prompt, typed as the owner's input, wakes it. */
   private async wakeDesktop(dispatcher: ClaudeSession): Promise<void> {
     if (this.starting() || dispatcher.status !== "idle") return;
@@ -416,6 +437,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     this.deps.commands?.add(text);
     const previous = this.previous && Date.now() - this.previous.at <= FOLLOW_UP_MS ? this.previous.target : undefined;
     if (this.queue.submit(text, { previous })) {
+      markVoice("sent");
       this.deps.announce(text);
       return;
     }
@@ -444,6 +466,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       // A freshly opened desktop dispatcher is first seen here: remember it so a restart resumes it.
       const desktopDispatcher = this.dispatchers().find(inDesktop);
       if (desktopDispatcher) this.rememberDesktopDispatcher(desktopDispatcher);
+      if (desktopDispatcher) this.checkDesktopSetup(desktopDispatcher);
       this.stream(res);
       return;
     }
@@ -478,6 +501,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     if (method === "GET" && route === "context") return this.deps.context();
     if (method !== "POST") return null;
     if (route === "say") {
+      markVoice("answer");
       const text = args.join(" ");
       if (text) this.deps.say(text);
       if (text) this.deps.commands?.route({ kind: "general", target: "marshal", outcome: "answered" });
@@ -493,6 +517,7 @@ export class AssistantDispatcher implements AssistantRoutes {
       // Most actions are one word; `hub-login` takes the spoken profile too (#419).
       const action = args.join(" ");
       if (!action) return "usage: marshal do <action> [words]";
+      markVoice("answer");
       const said = await this.deps.runAction(action).catch((err: unknown) => {
         this.deps.commands?.route({ kind: "feature", target: action, outcome: "failed" });
         throw err;
