@@ -347,6 +347,18 @@ async function main() {
     panel?.actions.join(", ")
   );
 
+  // MARSHAL_E2E_SHOTS: how the window looks in the default look and in Neural (#439).
+  if (process.env.MARSHAL_E2E_SHOTS) {
+    for (const look of ["lumen", "neural"]) {
+      await win.webContents.executeJavaScript(
+        `localStorage.setItem("marshal-look", ${JSON.stringify(look)}); window.dispatchEvent(new Event("focus"));`
+      );
+      await sleep(300);
+      const image = await win.webContents.capturePage();
+      await fs.writeFile(path.join(process.env.MARSHAL_E2E_SHOTS, `meetings-${look}.png`), image.toPNG());
+    }
+  }
+
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));
 
   await finish(win, preloadPath);
