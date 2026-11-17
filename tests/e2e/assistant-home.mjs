@@ -287,7 +287,15 @@ async function main() {
     features: [{ name: "prefers-reduced-motion", value: "no-preference" }]
   });
   await setAppearance(win, "dark");
+  // localStorage outlives a run: start on the default look whatever the last suite left.
+  await setLook(win, "lumen");
   await sleep(300);
+
+  // ── The bundled UI font (#443) ──────────────────────────────────────────
+  const font = await win.webContents.executeJavaScript(
+    `document.fonts.load('16px "Fixel"').then((faces) => ({ loaded: faces.length, body: getComputedStyle(document.body).fontFamily }))`
+  );
+  record("the bundled Fixel font loads and is the UI font", font.loaded > 0 && /^"?Fixel"?,/.test(font.body), JSON.stringify(font));
 
   // ── The visual draws and moves ──────────────────────────────────────────
   const first = await win.webContents.executeJavaScript(CANVAS_STATS);

@@ -111,7 +111,8 @@ export function createNeuralRenderer({ onReady } = {}) {
     H = height / dpr;
     cx = W / 2;
     cy = H / 2;
-    R = Math.min(H * 0.34, W * 0.14, 84);
+    // A canvas laid out at zero size (settings view, hidden hero) would give arc() a negative radius.
+    R = Math.max(2, Math.min(H * 0.34, W * 0.14, 84));
     bandHalf = Math.min(H * 0.27, R * 0.55);
 
     const light = luma(colors.surface) > 128;
