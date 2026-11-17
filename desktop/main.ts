@@ -65,6 +65,7 @@ import {
   type AssistantInputs
 } from "./assistant/assistant-state.ts";
 import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistant/waiting-speech.ts";
+import { markVoice } from "./assistant/voice-timing.ts";
 import { reminderText } from "./calendar/reminders.ts";
 import { AssistantHomeWindow, type AssistantCommands, type AssistantStrip } from "./assistant/home-window.ts";
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
@@ -1642,6 +1643,7 @@ function initDictation(): void {
     void refreshTrayState();
   });
   dictationService.on("recording-stop", () => {
+    markVoice("key-up");
     isDictating = false;
     setAssistantInputs({ dictating: false });
     dictationIndicator?.hide();
@@ -3033,6 +3035,10 @@ function initAssistantDispatcher(): void {
       announceToAssistant(text);
       void answerAloud(text);
     },
+    warn: (text) => {
+      announceToAssistant(text);
+      void speechService?.speak(text, { key: "assistant:setup" });
+    },
     ask: askOwner,
     runAction: assistantVoiceAction,
     announce: announceToAssistant,
@@ -3222,6 +3228,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
 }
 
 function handleVoiceCommand(text: string): void {
+  markVoice("transcript");
   const sleep = matchSleepCommand(text);
   if (sleep) {
     setAssistantAsleep(sleep === "sleep");
@@ -3235,6 +3242,7 @@ function handleVoiceCommand(text: string): void {
 // An answer to a voice command keeps the conversation open (#411): once it is
 // spoken the mic listens for a follow-up without a key, and silence closes it.
 async function answerAloud(text: string, options: { key?: string } = {}): Promise<void> {
+  markVoice("answer");
   const spoken = await speechService?.speak(text, options);
   if (!spoken?.ok) return;
   const followUp = await listenAfterSpeech();

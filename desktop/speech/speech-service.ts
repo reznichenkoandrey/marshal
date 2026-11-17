@@ -20,6 +20,7 @@ import {
   type SystemVoice
 } from "./speech-policy.ts";
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
+import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
 
 const SAY_PATH = "/usr/bin/say";
@@ -232,7 +233,10 @@ export class SpeechService {
       try {
         const synthError = await this.synthesize(entry, phrase, wav, rate);
         if (entry.cut) return undefined;
-        if (!synthError) return await this.run(entry, AFPLAY_PATH, [wav]);
+        if (!synthError) {
+          markVoice("audio");
+          return await this.run(entry, AFPLAY_PATH, [wav]);
+        }
         console.warn(`[speech] ${phrase.engine} failed, falling back to say:`, synthError);
       } finally {
         await fs.promises.rm(wav, { force: true });
@@ -240,6 +244,7 @@ export class SpeechService {
       if (entry.cut) return undefined;
       if (!phrase.voice) return `${phrase.engine} failed and no macOS voice is installed for this language.`;
     }
+    markVoice("audio");
     // stdin, not argv: text that starts with "-" would otherwise parse as a flag.
     return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.text);
   }
