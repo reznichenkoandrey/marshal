@@ -221,8 +221,17 @@ export function sendPasteKeystroke(options: PasteOptions = {}): Promise<void> {
   return sendKeystroke("v", options);
 }
 
-/** ⌘C / ⌘V, or a bare Return / Escape (dictating into a Claude Code session, #264). */
-export function sendKeystroke(key: "c" | "v" | "return" | "escape", options: PasteOptions = {}): Promise<void> {
+/**
+ * The paste key goes to the Claude desktop app's own dictation (#450): the
+ * option is on and Claude is frontmost. Matched by bundle path, since the
+ * localized app name is not stable.
+ */
+export function useClaudeAppDictation(focus: FocusProbeResult, enabled: boolean): boolean {
+  return enabled && (focus.frontmostPath ?? "").endsWith("/Claude.app");
+}
+
+/** ⌘C / ⌘V / ⌘D, or a bare Return / Escape (dictating into a Claude Code session, #264). */
+export function sendKeystroke(key: "c" | "v" | "d" | "return" | "escape", options: PasteOptions = {}): Promise<void> {
   const binPath = options.binPath ?? DEFAULT_SEND_KEY_BIN;
   const timeoutMs = options.timeoutMs ?? PASTE_TIMEOUT_MS;
 

@@ -318,6 +318,8 @@ export const uk: Record<MessageKey, string> = {
   "settings.english": "English",
   "settings.pinALanguageIfAuto": "Зафіксуй мову, якщо автовизначення помиляється на коротких фразах — напр. українську розпізнає як російську. На довших фрагментах auto працює добре.",
   "settings.autoPasteTranscriptAfterDictation": "Вставляти текст після диктовки автоматично",
+  "settings.dictationUseClaudeApp": "У застосунку Claude правий ⌥ вмикає диктовку самого Claude",
+  "settings.dictationUseClaudeAppHint": "Поки Claude попереду, утримання правого ⌥ натискає ⌘D: диктовка Claude стартує, а на відпусканні зупиняється. Claude розпізнає мову у своїй хмарі, без промпту й glossary Marshal, і текст потрапляє лише в поле повідомлення Claude. В інших застосунках правий ⌥ лишається диктовкою Marshal.",
   "settings.initialPromptGlossary": "Початковий промпт (glossary)",
   "settings.claudeCodeIntegration": "Інтеграція з Claude Code",
   "settings.checking": "Перевіряю…",

@@ -13,6 +13,7 @@
 // Usage:
 //   send-keystroke c   — sends ⌘C
 //   send-keystroke v   — sends ⌘V
+//   send-keystroke d   — sends ⌘D (toggles the Claude app's dictation, #450)
 //   send-keystroke return | escape — the bare key, no modifiers
 
 import Cocoa
@@ -20,7 +21,7 @@ import Carbon.HIToolbox
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: send-keystroke c|v|return|escape\n".utf8))
+    FileHandle.standardError.write(Data("usage: send-keystroke c|v|d|return|escape\n".utf8))
     exit(1)
 }
 
@@ -29,6 +30,7 @@ var flags: CGEventFlags = .maskCommand
 switch args[1] {
 case "c": keyCode = CGKeyCode(kVK_ANSI_C)
 case "v": keyCode = CGKeyCode(kVK_ANSI_V)
+case "d": keyCode = CGKeyCode(kVK_ANSI_D)
 case "return": keyCode = CGKeyCode(kVK_Return); flags = []
 case "escape": keyCode = CGKeyCode(kVK_Escape); flags = []
 default:

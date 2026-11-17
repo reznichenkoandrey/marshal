@@ -27,6 +27,7 @@ const dom = {
   settingsClaudeRoutingRoots: document.getElementById("settings-claude-routing-roots"),
   settingsClaudeRoutingCount: document.getElementById("settings-claude-routing-count"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
+  settingsDictationClaudeApp: document.getElementById("settings-dictation-claude-app"),
   settingsDictationPrompt: document.getElementById("settings-dictation-prompt"),
   settingsDictationPromptReset: document.getElementById("settings-dictation-prompt-reset"),
   settingsDictationMicrophone: document.getElementById("settings-dictation-microphone"),
@@ -366,6 +367,9 @@ async function openSettings() {
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
+    if (dom.settingsDictationClaudeApp) {
+      dom.settingsDictationClaudeApp.checked = current.dictationUseClaudeApp ?? false;
+    }
     if (dom.settingsDictationPrompt) {
       dom.settingsDictationPrompt.value = current.dictationPrompt ?? "";
     }
@@ -604,6 +608,7 @@ async function saveSettingsFromForm() {
     claudeCodeRoutingRoots: dom.settingsClaudeRoutingRoots?.value ?? "",
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
+    dictationUseClaudeApp: dom.settingsDictationClaudeApp?.checked ?? false,
     dictationPrompt: dom.settingsDictationPrompt?.value ?? "",
     captionsHotkey: (dom.settingsCaptionsHotkey?.value ?? "").trim(),
     captionsOcrHotkey: (dom.settingsCaptionsOcrHotkey?.value ?? "").trim(),

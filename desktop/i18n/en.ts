@@ -316,6 +316,8 @@ export const en = {
   "settings.english": "English",
   "settings.pinALanguageIfAuto": "Pin a language if auto-detect misfires on short utterances — e.g. Ukrainian getting recognised as Russian. Auto works well for longer clips.",
   "settings.autoPasteTranscriptAfterDictation": "Auto-paste transcript after dictation",
+  "settings.dictationUseClaudeApp": "In the Claude app, right ⌥ uses Claude's own dictation",
+  "settings.dictationUseClaudeAppHint": "While Claude is frontmost, holding right ⌥ presses ⌘D to start Claude's dictation and again on release. Claude transcribes in its cloud, without Marshal's prompt or glossary, and the text only goes into Claude's message box. Elsewhere right ⌥ stays Marshal's dictation.",
   "settings.initialPromptGlossary": "Initial prompt (glossary)",
   "settings.claudeCodeIntegration": "Claude Code integration",
   "settings.checking": "Checking…",

@@ -403,6 +403,14 @@
               <span data-i18n="settings.autoPasteTranscriptAfterDictation">Auto-paste transcript after dictation</span>
             </label>
 
+            <label class="checkbox-row">
+              <input id="settings-dictation-claude-app" name="dictationUseClaudeApp" type="checkbox" />
+              <span data-i18n="settings.dictationUseClaudeApp">In the Claude app, right ⌥ uses Claude's own dictation</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.dictationUseClaudeAppHint">
+              While Claude is frontmost, holding right ⌥ presses ⌘D to start Claude's dictation and again on release. Claude transcribes in its cloud, without Marshal's prompt or glossary, and the text only goes into Claude's message box. Elsewhere right ⌥ stays Marshal's dictation.
+            </p>
+
             <div class="field">
               <label for="settings-dictation-prompt" data-i18n="settings.initialPromptGlossary">Initial prompt (glossary)</label>
               <textarea id="settings-dictation-prompt" name="dictationPrompt" rows="5"

@@ -22,7 +22,13 @@ import { BrowserWindow, clipboard } from "electron";
 import { createPushToTalkHotkey, type PushToTalkBackend } from "./hotkey-manager.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
 import { isLikelyHallucination } from "../captions/transcript-buffer.ts";
-import { deliverTranscript, probeFocusedElement, type DeliveryResult } from "./focus-paste.ts";
+import {
+  deliverTranscript,
+  probeFocusedElement,
+  sendKeystroke,
+  useClaudeAppDictation,
+  type DeliveryResult
+} from "./focus-paste.ts";
 import {
   createWhisperBackend,
   resolveBackendName,
@@ -135,6 +141,8 @@ export class DictationService extends EventEmitter {
   // Where `insert` lands: the app that was frontmost when the talk key went
   // down, since the dispatcher answers seconds later from anywhere (#361).
   private talkTarget: Promise<string> = Promise.resolve("");
+  // The current paste-key hold: true once it went to the Claude app's dictation (#450).
+  private pasteHold: Promise<boolean> | null = null;
   // Which hotkey started the current recording; the other one's events are ignored.
   private mode: DictationMode = "paste";
   private readonly backend: WhisperBackend;
@@ -179,9 +187,9 @@ export class DictationService extends EventEmitter {
       pasteHotkey === "" || pasteHotkey.toLowerCase() === "off"
         ? null
         : createPushToTalkHotkey(pasteHotkey, { toggleTapCount: 0 });
-    this.pasteHotkey?.on("hold-start", () => this.handleHoldStart("paste"));
-    this.pasteHotkey?.on("hold-end", () => this.handleHoldEnd("paste"));
-    this.pasteHotkey?.on("hold-cancel", () => this.handleHoldCancel("paste"));
+    this.pasteHotkey?.on("hold-start", () => this.pasteHoldStart());
+    this.pasteHotkey?.on("hold-end", () => this.pasteHoldEnd(() => this.handleHoldEnd("paste")));
+    this.pasteHotkey?.on("hold-cancel", () => this.pasteHoldEnd(() => this.handleHoldCancel("paste")));
   }
 
   async start(): Promise<void> {
@@ -292,6 +300,45 @@ export class DictationService extends EventEmitter {
     } else {
       this.startRecording(mode, options);
     }
+  }
+
+  /**
+   * With the Claude app option on (#450), a paste-key hold over Claude presses
+   * ⌘D and Claude dictates; the release presses it again. The frontmost check
+   * delays Marshal's own recording by one focus probe, so it runs only when
+   * the option is on.
+   */
+  private pasteHoldStart(): void {
+    if (process.env.MARSHAL_DICTATION_CLAUDE_APP !== "1") {
+      this.handleHoldStart("paste");
+      return;
+    }
+    this.pasteHold = probeFocusedElement().then((focus) => {
+      if (!useClaudeAppDictation(focus, true)) {
+        this.handleHoldStart("paste");
+        return false;
+      }
+      debug("hold-start → Claude app dictation");
+      this.pressClaudeDictation();
+      return true;
+    });
+  }
+
+  // Chained on the start decision, so a release during the probe still lands after it.
+  private pasteHoldEnd(marshalEnd: () => void): void {
+    const hold = this.pasteHold;
+    this.pasteHold = null;
+    if (!hold) {
+      marshalEnd();
+      return;
+    }
+    void hold.then((claude) => (claude ? this.pressClaudeDictation() : marshalEnd()));
+  }
+
+  private pressClaudeDictation(): void {
+    sendKeystroke("d").catch((err: unknown) => {
+      this.emit("error", err instanceof Error ? err : new Error(String(err)));
+    });
   }
 
   // endOnPause: no key to release, so a pause after speech ends the recording

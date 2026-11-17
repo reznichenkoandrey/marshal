@@ -170,6 +170,7 @@ const desktopApi = {
     claudeCodeContextRouting?: boolean;
     claudeCodeRoutingRoots?: string;
     dictationAutoPaste?: boolean;
+    dictationUseClaudeApp?: boolean;
     dictationHoldDelayMs?: number;
     dictationToggleTapCount?: number;
     dictationPrompt?: string;
