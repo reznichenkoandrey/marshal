@@ -70,4 +70,53 @@ cat > /dev/null
     expect(command).toBe("відкрий перекладач.");
     expect(phases.slice(0, 2)).toEqual(["listening", "thinking"]);
   }, 10_000);
+
+  it("waits through the pause after the name instead of ending the clip there (#427)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-helper");
+    // Tail of the name (0.5 s), the comma pause (1.2 s), the command (0.5 s), then silence.
+    // Readings go out on an absolute 100 ms clock: a shell `sleep` loop drifted past the
+    // 1.5 s name pause on a busy CI runner. The clip path is how many had gone out.
+    const levels = [...Array(5).fill(-20), ...Array(12).fill(-60), ...Array(5).fill(-20), ...Array(20).fill(-60)];
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+const levels = ${JSON.stringify(levels)};
+let sent = 0;
+console.log("ready");
+console.log("wake");
+const start = Date.now();
+const tick = () => {
+  if (sent >= levels.length) return;
+  console.log("level " + levels[sent++]);
+  setTimeout(tick, start + sent * 100 - Date.now());
+};
+tick();
+require("node:readline").createInterface({ input: process.stdin }).on("line", () => {
+  console.log("clip " + sent);
+  process.exit(0);
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const sent = await new Promise<number>((resolve, reject) => {
+      const listener = new WakeListener({
+        binPath: bin,
+        paths: { lib: dir, model: dir, keywords: path.join(dir, "keywords.txt") },
+        transcribe: async (wavPath) => {
+          listener.stop();
+          resolve(Number(wavPath));
+          return "";
+        },
+        allowed: async () => true,
+        onCommand: () => undefined,
+        onNameOnly: () => undefined,
+        onPhase: () => undefined
+      });
+      listener.start();
+      setTimeout(() => reject(new Error("no clip")), 8_000).unref();
+    });
+    // Past the command (reading 22), not inside the comma pause.
+    expect(sent).toBeGreaterThan(22);
+  }, 10_000);
 });
