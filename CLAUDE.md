@@ -780,6 +780,17 @@
   її таймер перезапустить наступний Stop. Наступна команда в цей проєкт відкриє сесію заново через
   `./marshal spawn`. Сесії власника таймера не мають і ніколи не закриваються. Вікно Terminal закривається разом
   із сесією (`; exit` у команді вкладки, #390).
+  **Сесії асистента відкриваються в Harbor, якщо він встановлений** (#425, `desktop/claude-code/harbor.ts`):
+  замість згорнутого вікна Terminal на кожну сесію всі вони лягають у закріплену групу **System** застосунку
+  Harbor (особистий термінал власника, `/Applications/Harbor.app`). Settings → Voice assistant → «Де
+  відкриваються сесії асистента» (`assistantTerminalHost`): `auto` (дефолт) — Harbor, якщо встановлений,
+  інакше Terminal; `harbor`; `terminal`. Зв'язок — сокет `~/Library/Application Support/Harbor/control.sock`
+  (0600, JSON lines): `open {name, cwd, command, reveal}`, `focus {tty | name}`, `list`. Команда та сама, що
+  у вкладці Terminal (`assistantCommand`: `env -u …` ключів і host-session env), сесія закривається разом
+  із нею. Harbor не запущений → Marshal стартує його `open -g -a Harbor --args --background` (без вікна;
+  LaunchServices дає йому env launchd, а не Marshal) і чекає сокет до 15 с. `reveal` і клік по сесії йдуть
+  через `focus`: `focusSession` (`focus.ts`) для сесії з хостом `Harbor.app` шле `focus {tty}`, тож і `claude`,
+  запущений у Harbor руками, підіймається точно. `reply` визначає хост за шляхом бандла, як і раніше.
   **У `bypass` кожна сесія асистента стартує з `--settings '{"skipDangerousModePermissionPrompt":true}'`** (#390).
   Диспетчер читає лише налаштування своєї теки (`--setting-sources project`) і не бачить
   `skipDangerousModePermissionPrompt` власника. Без прапорця він ставав на попередження Claude Code

@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { HarborRequest } from "../desktop/claude-code/harbor.ts";
 import { AssistantCommandQueue, MAX_QUEUED_COMMANDS, QUEUED_COMMAND_TTL_MS } from "../desktop/assistant/command-queue.ts";
 import {
   AssistantDispatcher,
@@ -384,6 +385,31 @@ describe("dispatcher over the hook receiver", () => {
     await dispatcher.start();
     expect(scripts).toHaveLength(3);
     expect(scripts[2]).toContain("--name general");
+  });
+
+  it("opens sessions in Harbor's System group instead of Terminal when Harbor is the host (#425)", async () => {
+    const requests: HarborRequest[] = [];
+    const { dispatcher, scripts } = setup([], {
+      useHarbor: () => true,
+      harbor: async (request) => {
+        requests.push(request);
+        return { ok: true };
+      }
+    });
+    await dispatcher.start();
+    expect(scripts).toEqual([]);
+    expect(requests.map((r) => r.op === "open" && [r.name, r.reveal])).toEqual([["marshal-dispatcher", false], ["general", false]]);
+    const open = requests[0]!;
+    expect(open.op === "open" && open.command).toMatch(/^env -u ANTHROPIC_API_KEY .*claude .*--name marshal-dispatcher/);
+    // Still starting: reveal asks Harbor to show it by name.
+    await dispatcher.reveal();
+    expect(requests.at(-1)).toEqual({ op: "focus", name: "marshal-dispatcher" });
+  });
+
+  it("reports Harbor's refusal as a launch failure", async () => {
+    const { dispatcher, said } = setup([], { useHarbor: () => true, harbor: async () => ({ ok: false, error: "No window record" }) });
+    await dispatcher.start();
+    expect(said.at(-1)).toContain("Harbor: No window record");
   });
 
   it("opens the dispatcher and general once, in minimised Terminal windows", async () => {

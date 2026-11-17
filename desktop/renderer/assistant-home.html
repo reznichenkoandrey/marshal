@@ -232,6 +232,16 @@
               <label for="settings-assistant-model" data-i18n="settings.dispatcherModel">Dispatcher model</label>
               <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
             </div>
+
+            <div class="field">
+              <label for="settings-assistant-terminal" data-i18n="settings.assistantTerminal">Where the assistant's sessions open</label>
+              <select id="settings-assistant-terminal" name="assistantTerminalHost">
+                <option value="auto" data-i18n="settings.terminalHostAuto">Harbor if installed, otherwise Terminal</option>
+                <option value="harbor" data-i18n="settings.terminalHostHarbor">Harbor — one System group</option>
+                <option value="terminal" data-i18n="settings.terminalHostTerminal">Terminal — a minimised window each</option>
+              </select>
+              <p class="field-hint" data-i18n="settings.terminalHostHint">Applies to sessions opened from now on.</p>
+            </div>
           </fieldset>
 
           <fieldset class="field-group">

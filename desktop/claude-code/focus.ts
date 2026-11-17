@@ -1,4 +1,4 @@
-// Bring a Claude Code session's window to the front: the exact Terminal/iTerm
+// Bring a Claude Code session's window to the front: the exact Terminal/iTerm/Harbor
 // tab when the session runs on a tty, the session itself in Claude desktop via
 // its claude://code/continue deep link, otherwise the app that hosts it
 // (VS Code, …).
@@ -6,6 +6,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { harborRequest } from "./harbor.ts";
 import { listLiveSessions, type ClaudeSession } from "./registry.ts";
 
 const execFileAsync = promisify(execFile);
@@ -118,6 +119,14 @@ export async function focusSession(pid: number): Promise<"tab" | "session" | "ap
   const target = findFocusTarget(parseProcessTable(stdout), pid);
   if (!target.appPath) return null;
 
+  if (target.tty && target.appPath.endsWith("/Harbor.app")) {
+    // Harbor finds any of its sessions by tty over its control socket (#425).
+    try {
+      if ((await harborRequest({ op: "focus", tty: target.tty })).ok) return "tab";
+    } catch (err) {
+      console.warn("[claude-sessions] Harbor focus failed:", err instanceof Error ? err.message : err);
+    }
+  }
   const script = target.tty ? terminalTabScript(target.appPath, target.tty) : null;
   if (script) {
     try {

@@ -63,6 +63,7 @@ const dom = {
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
+  settingsAssistantTerminal: document.getElementById("settings-assistant-terminal"),
   settingsSpeechEngine: document.getElementById("settings-speech-engine"),
   settingsSpeechPiperStatus: document.getElementById("settings-speech-piper-status"),
   settingsSpeechPiperInstall: document.getElementById("settings-speech-piper-install"),
@@ -422,6 +423,7 @@ async function openSettings() {
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
+    if (dom.settingsAssistantTerminal) dom.settingsAssistantTerminal.value = current.assistantTerminalHost ?? "auto";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     if (dom.settingsSpeechEngine) {
       dom.settingsSpeechEngine.value = ["piper", "holos"].includes(current.speechEngine) ? current.speechEngine : "macos";
@@ -629,6 +631,7 @@ async function saveSettingsFromForm() {
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
+    assistantTerminalHost: dom.settingsAssistantTerminal?.value ?? "auto",
     speechEngine: dom.settingsSpeechEngine?.value ?? "macos",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
     speechVoiceUk: dom.settingsSpeechVoiceUk?.value ?? "",
