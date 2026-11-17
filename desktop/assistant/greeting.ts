@@ -54,15 +54,18 @@ export function greetingFallback(facts: GreetingFacts): string {
 export function buildGreetingRequest(facts: GreetingFacts): { system: string; user: string } {
   const { lang, now, meeting, waiting } = facts;
   const language = lang === "uk" ? "Ukrainian" : "English";
+  // Only facts that exist: an absent one in the state gets announced ("no meetings today").
   const state = [
     `Time: ${now.toLocaleDateString("en-GB", { weekday: "long" })}, ${clock(now, "en")} (${dayPart(now)}).`,
-    meeting ? `Next meeting today: "${meeting.title}" at ${clock(meeting.start, "en")}.` : "No more meetings today.",
-    waiting.length > 0 ? `Claude Code sessions waiting for an answer: ${waiting.join(", ")}.` : "No session is waiting."
-  ].join("\n");
+    meeting ? `Next meeting today: "${meeting.title}" at ${clock(meeting.start, "en")}.` : null,
+    waiting.length > 0 ? `Claude Code sessions waiting for an answer: ${waiting.join(", ")}.` : null
+  ].filter(Boolean).join("\n");
   return {
     system:
-      `You are Marshal, the owner's voice assistant on their Mac, and you have just been switched on. ` +
+      `You are the owner's voice assistant on their Mac, and you have just been switched on. ` +
       `Greet the owner once, fitting the time of day, mention in passing what the state below says, then ask what we are doing today. ` +
+      `Never introduce yourself or say your name: the owner knows who is talking. ` +
+      `Never mention anything the state does not list, and never say that something is absent. ` +
       `Speak ${language}, warm and plain, at most 40 words, no markup, no emoji. ` +
       (lang === "uk" ? `Address the owner as «ти», never «ви» or «вам». ` : "") +
       `Do not read out the current time or date. Say every meeting time exactly as written (HH:MM), never round it. ` +

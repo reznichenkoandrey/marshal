@@ -62,6 +62,13 @@ describe("buildGreetingRequest", () => {
     expect(request.user).toContain('"Standup" at 10:00');
     expect(request.user).toContain("waiting for an answer: marshal");
   });
+
+  it("lists only facts that exist and forbids a self-introduction (#435)", () => {
+    const request = buildGreetingRequest({ lang: "uk", now: at(9), meeting: null, waiting: ["marshal"] });
+    expect(request.user).not.toMatch(/No more meetings|No session/);
+    expect(request.system).toContain("Never introduce yourself");
+    expect(request.system).not.toContain("You are Marshal");
+  });
 });
 
 describe("cleanGreeting", () => {
