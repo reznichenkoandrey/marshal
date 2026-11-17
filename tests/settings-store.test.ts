@@ -184,6 +184,11 @@ describe("saveSettings", () => {
     expect(saveSettings({ captureEditorAlwaysOnTop: true }).captureEditorAlwaysOnTop).toBe(true);
   });
 
+  it("keeps the Claude desktop host for the assistant (#437)", () => {
+    expect(saveSettings({ assistantTerminalHost: "claude-desktop" }).assistantTerminalHost).toBe("claude-desktop");
+    expect(loadSettings().assistantTerminalHost).toBe("claude-desktop");
+  });
+
   it("ignores a non-boolean captureEditorAlwaysOnTop instead of trusting it", () => {
     const saved = saveSettings({ captureEditorAlwaysOnTop: "yes" as unknown as boolean });
     expect(saved.captureEditorAlwaysOnTop).toBe(true);

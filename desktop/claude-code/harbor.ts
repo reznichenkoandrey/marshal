@@ -8,7 +8,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-export type TerminalHost = "auto" | "harbor" | "terminal";
+// `claude-desktop`: the dispatcher lives in a Claude desktop session (#437); `general` keeps Harbor or Terminal.
+export type TerminalHost = "auto" | "harbor" | "terminal" | "claude-desktop";
 
 export const HARBOR_APP = "/Applications/Harbor.app";
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -32,7 +33,7 @@ export function harborSocketPath(): string {
 
 /** `auto` = Harbor when it is installed, Terminal otherwise. */
 export function usesHarbor(host: TerminalHost, installed: boolean = fs.existsSync(HARBOR_APP)): boolean {
-  return host === "harbor" || (host === "auto" && installed);
+  return host === "harbor" || ((host === "auto" || host === "claude-desktop") && installed);
 }
 
 /** Harbor is not running, or quit and left no socket behind. */

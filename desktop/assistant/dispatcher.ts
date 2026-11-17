@@ -13,11 +13,15 @@ import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
 import { readRecentTurns, type TranscriptTail } from "../claude-code/dossier.ts";
 import { harborCall, type HarborRequest, type HarborResponse } from "../claude-code/harbor.ts";
+import { desktopSessionLink } from "../claude-code/focus.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import type { CommandRoute } from "./command-log.ts";
 import {
+  appToolRefusal,
   buildGeneralPrompt,
+  DESKTOP_SPAWN_PROMPT,
+  DISPATCHER_START_PROMPT,
   findNamedClaudePids,
   buildHelperScript,
   dispatcherCommandLine,
@@ -134,7 +138,21 @@ export type DispatcherDeps = {
   log?: (message: string) => void;
   /** Voice command log for the home dashboard (#398): each command, and where it went. */
   commands?: { add: (text: string) => void; route: (route: CommandRoute) => void };
+  /**
+   * The dispatcher and spawned sessions live in Claude desktop (#437);
+   * `general` stays in Harbor or Terminal. `open` returns "ok" once the
+   * prompt is sent, otherwise what went wrong; `openUrl` resumes a session.
+   */
+  desktop?: {
+    enabled: () => boolean;
+    open: (cwd: string, prompt: string, reveal: boolean) => Promise<string>;
+    openUrl: (url: string) => Promise<void>;
+  };
 };
+
+function inDesktop(session: Pick<ClaudeSession, "entrypoint">): boolean {
+  return session.entrypoint === "claude-desktop";
+}
 
 /** `ps -axo pid=,command=`; empty on failure, so the registry alone decides. */
 export function listProcesses(): string {
@@ -221,20 +239,91 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   /** Opens whatever of the dispatcher and `general` is not running yet. */
   async start(): Promise<void> {
-    await this.launch().catch((err: unknown) => this.deps.say(this.launchError(err)));
+    await this.launch().catch((err: unknown) => {
+      this.deps.log?.(`[assistant] launch failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.deps.say(this.launchError(err));
+    });
   }
 
   private async launch(): Promise<void> {
     this.writeFiles();
     const live = this.liveSessions();
-    const dispatchers = this.dispatchers(live);
-    // One dispatcher: a second one would read the same command stream.
-    for (const extra of dispatchers.slice(1)) this.kill(extra.pid);
-    if (dispatchers.length === 0) {
+    let dispatchers = this.dispatchers(live);
+    if (this.desktopMode()) {
+      // Host switched to the app: the Terminal or Harbor dispatcher gives way.
+      for (const old of dispatchers) if (!inDesktop(old)) this.kill(old.pid);
+      dispatchers = dispatchers.filter(inDesktop);
+    }
+    // One dispatcher: a second one would read the same command stream. Claude desktop's sessions are the owner's to close.
+    for (const extra of dispatchers.slice(1)) if (!inDesktop(extra)) this.kill(extra.pid);
+    const [dispatcher] = dispatchers;
+    if (dispatcher && inDesktop(dispatcher)) this.rememberDesktopDispatcher(dispatcher);
+    if (dispatcher && inDesktop(dispatcher) && !this.listening) await this.wakeDesktop(dispatcher);
+    if (!dispatcher) {
       this.trust(this.dispatcherDir);
-      await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
+      if (this.desktopMode()) await this.openDesktopDispatcher(false);
+      else await this.open(this.dispatcherDir, dispatcherCommandLine(this.deps.settings().model, this.deps.settings().generalMode), DISPATCHER_NAME);
     }
     if (!live.some((session) => session.name === GENERAL_NAME)) await this.openGeneral();
+  }
+
+  private desktopMode(): boolean {
+    return this.deps.desktop?.enabled() ?? false;
+  }
+
+  private get desktopIdPath(): string {
+    return path.join(this.assistantDir, "desktop-dispatcher-id");
+  }
+
+  /** The app keeps the session after its process ends: Marshal resumes that one instead of opening another (#437). */
+  private rememberDesktopDispatcher(session: ClaudeSession): void {
+    if (!session.hostSessionId) return;
+    try {
+      if (fs.readFileSync(this.desktopIdPath, "utf8").trim() === session.hostSessionId) return;
+    } catch {
+      // Not remembered yet.
+    }
+    fs.writeFileSync(this.desktopIdPath, `${session.hostSessionId}\n`, { mode: 0o600 });
+  }
+
+  private rememberedDesktopLink(): string | null {
+    try {
+      const id = fs.readFileSync(this.desktopIdPath, "utf8").trim();
+      return desktopSessionLink({ entrypoint: "claude-desktop", hostSessionId: id });
+    } catch {
+      return null;
+    }
+  }
+
+  private async openDesktopDispatcher(reveal: boolean): Promise<void> {
+    const desktop = this.deps.desktop;
+    if (!desktop || this.starting()) return;
+    this.launchedAt.set(DISPATCHER_NAME, Date.now());
+    const link = this.rememberedDesktopLink();
+    if (link) {
+      await desktop.openUrl(link);
+      const resumed = await this.waitFor(new Set(), (session) => this.isDispatcher(session));
+      if (resumed) {
+        this.launchedAt.delete(DISPATCHER_NAME);
+        await this.wakeDesktop(resumed);
+        return;
+      }
+    }
+    const result = await desktop.open(this.dispatcherDir, DISPATCHER_START_PROMPT, reveal);
+    this.deps.log?.(`[assistant] desktop dispatcher opened: ${result}`);
+    if (result !== "ok") this.deps.say("Claude відкрив сесію асистента, натисни в ній Return.");
+  }
+
+  /** A Claude desktop dispatcher without its monitor is idle in the app: the start prompt, typed as the owner's input, wakes it. */
+  private async wakeDesktop(dispatcher: ClaudeSession): Promise<void> {
+    if (this.starting() || dispatcher.status !== "idle") return;
+    this.launchedAt.set(DISPATCHER_NAME, Date.now());
+    const result = await this.deps.reply(dispatcher, DISPATCHER_START_PROMPT);
+    if (result !== "ok") this.deps.log?.(`[assistant] desktop dispatcher not woken: ${result}`);
+  }
+
+  private starting(): boolean {
+    return Date.now() - (this.launchedAt.get(DISPATCHER_NAME) ?? 0) < STARTING_MS;
   }
 
   /**
@@ -247,7 +336,13 @@ export class AssistantDispatcher implements AssistantRoutes {
       this.deps.focus(dispatcher.pid);
       return;
     }
-    if (Date.now() - (this.launchedAt.get(DISPATCHER_NAME) ?? 0) < STARTING_MS) {
+    if (this.desktopMode()) {
+      this.writeFiles();
+      this.trust(this.dispatcherDir);
+      await this.openDesktopDispatcher(true);
+      return;
+    }
+    if (this.starting()) {
       // Opened minimised a moment ago and not registered yet: its tab still carries the title.
       if (this.deps.useHarbor?.()) await this.harbor({ op: "focus", name: DISPATCHER_NAME });
       else await this.runAppleScript(unminimiseTerminalScript(DISPATCHER_NAME));
@@ -261,7 +356,7 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   /** The owner turned the assistant off or quit Marshal: the dispatcher goes, `general` may hold work and stays. */
   stop(): void {
-    for (const dispatcher of this.dispatchers()) this.kill(dispatcher.pid);
+    for (const dispatcher of this.dispatchers()) if (!inDesktop(dispatcher)) this.kill(dispatcher.pid);
     for (const timer of this.spawned.values()) if (timer) clearTimeout(timer);
     this.spawned.clear();
   }
@@ -330,8 +425,13 @@ export class AssistantDispatcher implements AssistantRoutes {
       void this.start();
       return;
     }
-    if (Date.now() - (this.launchedAt.get(DISPATCHER_NAME) ?? 0) < STARTING_MS) {
+    if (this.starting()) {
       this.deps.say("Асистент ще запускається, команда дочекається.");
+      return;
+    }
+    if (inDesktop(dispatcher)) {
+      this.deps.say("Асистент прокидається, команда дочекається.");
+      void this.wakeDesktop(dispatcher);
       return;
     }
     // Alive without its monitor: stopped at a prompt in its Terminal window.
@@ -341,7 +441,16 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   respond(method: string, route: string, body: string, res: http.ServerResponse): void {
     if (method === "GET" && route === "commands") {
+      // A freshly opened desktop dispatcher is first seen here: remember it so a restart resumes it.
+      const desktopDispatcher = this.dispatchers().find(inDesktop);
+      if (desktopDispatcher) this.rememberDesktopDispatcher(desktopDispatcher);
       this.stream(res);
+      return;
+    }
+    if (method === "POST" && route === "gate") {
+      // The PreToolUse payload as it came: fail closed on anything but "allow".
+      const refusal = appToolRefusal(body, this.liveSessions(), this.deps.settings().routingRoots, this.dispatcherDir);
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(refusal ?? "allow");
       return;
     }
     void this.answer(method, route, parseHelperArgs(body))
@@ -442,6 +551,13 @@ export class AssistantDispatcher implements AssistantRoutes {
       if (general) return `Ready: ${GENERAL_NAME}`;
       await this.openGeneral();
       return describeSpawn(await this.waitFor(new Set(before.map((s) => s.sessionId)), (s) => s.name === GENERAL_NAME));
+    }
+
+    if (this.desktopMode() && this.deps.desktop) {
+      // Claude desktop names its sessions itself; Marshal finds the new one by folder.
+      const result = await this.deps.desktop.open(cwd, DESKTOP_SPAWN_PROMPT, false);
+      if (result !== "ok") return result;
+      return describeSpawn(await this.waitFor(new Set(before.map((s) => s.sessionId)), (s) => path.resolve(s.cwd) === path.resolve(cwd)));
     }
 
     const name = rawName?.trim().replace(/\s+/g, "-") || null;

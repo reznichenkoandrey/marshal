@@ -826,6 +826,29 @@
   LaunchServices дає йому env launchd, а не Marshal) і чекає сокет до 15 с. `reveal` і клік по сесії йдуть
   через `focus`: `focusSession` (`focus.ts`) для сесії з хостом `Harbor.app` шле `focus {tty}`, тож і `claude`,
   запущений у Harbor руками, підіймається точно. `reply` визначає хост за шляхом бандла, як і раніше.
+  **Диспетчер у застосунку Claude — `assistantTerminalHost: "claude-desktop"`** (#437, Settings → «Застосунок
+  Claude — диспетчер і нові сесії»). Диспетчер стає сесією Claude desktop у своїй теці
+  (`<userData>/assistant/dispatcher`), а `./marshal spawn` відкриває сесію проєкту там само. `general` лишається в
+  Harbor чи Terminal. Сесію створює deep link `claude://code/new?q=<prompt>&folder=<тека>`, далі Marshal тисне Return,
+  як у `reply`, і лише коли фокус у полі вводу Claude (`openDesktopSession`, `desktop/claude-code/desktop-session.ts`).
+  **Модель і режим дає picker застосунку, не прапорці:** один раз постав сесії диспетчера Haiku і Bypass permissions
+  та закріпи її. Інакше вона працює на моделі за замовчуванням і питає дозволи на кожен `./marshal`. `hostSessionId`
+  диспетчера Marshal пам'ятає в `<userData>/assistant/desktop-dispatcher-id`. Коли процесу сесії немає, Marshal
+  відкриває саме її через `claude://code/continue` і не створює нову. Сесію без Monitor Marshal будить стартовим
+  промптом через `reply`, лише в статусі `idle`. Сесій Claude desktop Marshal **не вбиває ніколи**: ні на stop, ні
+  як зайвий диспетчер, ні по простою. Вимкнений асистент лишає `watch` у циклі перепідключення. Це ~один хід haiku
+  на 30 хв, бо `watch`, що виходить на 404, зламав би перепідключення в Terminal-режимі.
+  **Інструменти застосунку (`mcp__ccd_session_mgmt__*`) і межа #303.** `list_sessions` бачить **усі** сесії
+  застосунку, робочі теж. Тому transcript-інструменти (`list_events`, `search_session_transcripts`,
+  `export_transcript`), `delete_session`, `set_session_permission_mode` і `start_session` у deny
+  `DISPATCHER_SETTINGS`. `archive_session`, `set_session_model` і `get_session` проходять PreToolUse-hook
+  `./marshal gate` → `POST /assistant/gate` → `appToolRefusal`. Пропускає лише живу сесію з дозволених тек
+  (`claudeCodeRoutingRoots`) і ніколи сам диспетчер. Будь-яка помилка блокує виклик (exit 2), зокрема коли Marshal не
+  відповідає. Архівація — лише після `./marshal ask "Архівувати <name>?"` і чіткого «так». `send_message`
+  застосунку не замінює `./marshal reply`: такі повідомлення Claude Code не приймає як згоду власника.
+  `./marshal sessions` додає `id` (`hostSessionId`) сесіям застосунку. Сесія диспетчера в застосунку вантажить hooks
+  власника, тож Stop/Notification з теки диспетчера `ClaudeHooksController.setIgnoredFolder` викидає. Промпт
+  диспетчера вимагає повних речень для `say`/`ask`, хоч би що казали стильові плагіни.
   **У `bypass` кожна сесія асистента стартує з `--settings '{"skipDangerousModePermissionPrompt":true}'`** (#390).
   Диспетчер читає лише налаштування своєї теки (`--setting-sources project`) і не бачить
   `skipDangerousModePermissionPrompt` власника. Без прапорця він ставав на попередження Claude Code

@@ -41,6 +41,7 @@ import { isSharedWhisperServerRunning, stopSharedWhisperServer } from "./dictati
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
 import { focusSession } from "./claude-code/focus.ts";
 import { usesHarbor } from "./claude-code/harbor.ts";
+import { openDesktopSession } from "./claude-code/desktop-session.ts";
 import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
@@ -3056,9 +3057,28 @@ function initAssistantDispatcher(): void {
     },
     processList: listProcesses,
     log: (message) => console.log(message),
-    commands: assistantCommandLog()
+    commands: assistantCommandLog(),
+    desktop: {
+      enabled: () => loadSettings().assistantTerminalHost === "claude-desktop",
+      open: (cwd, prompt, reveal) =>
+        openDesktopSession(cwd, prompt, reveal, {
+          openUrl: async (url) => {
+            await execFileAsync("open", [url]);
+          },
+          probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
+          sendKey: (key) => sendKeystroke(key),
+          activate: async (app) => {
+            await execFileAsync("open", ["-a", app]);
+          }
+        }),
+      openUrl: async (url) => {
+        await execFileAsync("open", [url]);
+      }
+    }
   });
   hooks.setAssistantRoutes(assistantDispatcher);
+  // The dispatcher's own turns are plumbing, not news for the owner (#437).
+  hooks.setIgnoredFolder(assistantDispatcher.dispatcherDir);
   void syncAssistantDispatcher();
 }
 
