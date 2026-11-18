@@ -15,6 +15,13 @@ describe("isLikelyHallucination", () => {
     }
   });
 
+  it("rejects what whisper writes for music and machinery in the room (#453)", () => {
+    for (const text of ["Звучить музика.", "Звук виробництва.", "Музика", "Играет музыка."]) {
+      expect(isLikelyHallucination(text), text).toBe(true);
+    }
+    expect(isLikelyHallucination("Увімкни музику в Spotify")).toBe(false);
+  });
+
   it("keeps real speech, including short technical answers", () => {
     for (const text of ["We use Kafka for the event bus.", "Так, деплой у п'ятницю.", "O(n log n)", "Redis"]) {
       expect(isLikelyHallucination(text), text).toBe(false);
