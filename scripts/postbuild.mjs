@@ -31,6 +31,15 @@ const staticAssets = [
     to: path.join(distDir, "src", "sidepanel", "design-tokens.css")
   },
   {
+    // design-tokens.css points at ./fonts/; the one copy of the font lives with the desktop renderer.
+    from: path.join(root, "desktop", "renderer", "fonts", "FixelVariable.woff2"),
+    to: path.join(distDir, "src", "sidepanel", "fonts", "FixelVariable.woff2")
+  },
+  {
+    from: path.join(root, "desktop", "renderer", "fonts", "OFL.txt"),
+    to: path.join(distDir, "src", "sidepanel", "fonts", "OFL.txt")
+  },
+  {
     from: path.join(root, "chrome-extension", "src", "sidepanel", "icons.js"),
     to: path.join(distDir, "src", "sidepanel", "icons.js")
   }

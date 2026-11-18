@@ -15,9 +15,18 @@
  * below are derived from the seeds, so components never see the difference.
  */
 
+/* Fixel by MacPaw (SIL OFL 1.1, fonts/OFL.txt), bundled so the app looks the same offline (#443). */
+@font-face {
+  font-family: "Fixel";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/FixelVariable.woff2") format("woff2");
+}
+
 :root {
   /* Typography */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: "Fixel", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 

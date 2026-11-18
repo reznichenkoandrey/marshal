@@ -357,6 +357,8 @@ async function main() {
       const image = await win.webContents.capturePage();
       await fs.writeFile(path.join(process.env.MARSHAL_E2E_SHOTS, `meetings-${look}.png`), image.toPNG());
     }
+    // Electron keeps localStorage between e2e runs; leave the next suite on the default look.
+    await win.webContents.executeJavaScript(`localStorage.removeItem("marshal-look")`);
   }
 
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));
