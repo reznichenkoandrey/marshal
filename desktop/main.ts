@@ -3228,12 +3228,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
 }
 
-// Follow-ups heard on the open mic in a row; the name, a key or the dock mic resets it (#453).
-const MAX_OPEN_MIC_FOLLOW_UPS = 3;
-let openMicFollowUps = 0;
-
-function handleVoiceCommand(text: string, followUp = false): void {
-  openMicFollowUps = followUp ? openMicFollowUps + 1 : 0;
+function handleVoiceCommand(text: string): void {
   markVoice("transcript");
   const sleep = matchSleepCommand(text);
   if (sleep) {
@@ -3245,14 +3240,10 @@ function handleVoiceCommand(text: string, followUp = false): void {
   speechService?.warmUp();
 }
 
-// An answer to a voice command keeps the conversation open (#411): once it is
-// spoken the mic listens for a follow-up without a key, and silence closes it.
+// No open mic after an answer: a command starts with the name or a key, never room talk (#455).
 async function answerAloud(text: string, options: { key?: string } = {}): Promise<void> {
   markVoice("answer");
-  const spoken = await speechService?.speak(text, options);
-  if (!spoken?.ok || openMicFollowUps >= MAX_OPEN_MIC_FOLLOW_UPS) return;
-  const followUp = await listenAfterSpeech();
-  if (followUp) handleVoiceCommand(followUp, true);
+  await speechService?.speak(text, options);
 }
 
 // Opens the mic once Marshal stops talking, no key needed (#375); null when nobody answered.
