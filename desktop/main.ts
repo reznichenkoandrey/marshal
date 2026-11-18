@@ -1654,7 +1654,7 @@ function initDictation(): void {
   dictationService.on("double-tap", () => {
     void toggleMeetingRecording("audio");
   });
-  dictationService.on("assistant-command", handleVoiceCommand);
+  dictationService.on("assistant-command", (text: string) => handleVoiceCommand(text));
   dictationService.on("transcribed", ({ text }) => {
     if (!Notification.isSupported()) return;
     const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text;
@@ -3179,9 +3179,7 @@ async function greetOnLaunch(): Promise<void> {
   if (!result.ok) return;
   announceToAssistant(text);
   writeLastGreeted(file, Date.now());
-  // The greeting ends with "що робимо сьогодні?": listen for the answer.
-  const answer = await listenAfterSpeech();
-  if (answer) handleVoiceCommand(answer);
+  // No open mic here: a launch nobody asked for turned room talk into commands (#453).
 }
 
 // «Маршал, …» without a key (#274). Asleep it still listens: «Маршал, прокинься» is the way back.
@@ -3200,7 +3198,7 @@ async function syncWakeListener(): Promise<void> {
     engine,
     transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
-    onCommand: handleVoiceCommand,
+    onCommand: (text) => handleVoiceCommand(text),
     // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {
       const ack = uiLanguage() === "uk" ? "Слухаю." : "Listening.";
@@ -3230,7 +3228,12 @@ async function listenForWakeCommand(ack: string): Promise<void> {
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
 }
 
-function handleVoiceCommand(text: string): void {
+// Follow-ups heard on the open mic in a row; the name, a key or the dock mic resets it (#453).
+const MAX_OPEN_MIC_FOLLOW_UPS = 3;
+let openMicFollowUps = 0;
+
+function handleVoiceCommand(text: string, followUp = false): void {
+  openMicFollowUps = followUp ? openMicFollowUps + 1 : 0;
   markVoice("transcript");
   const sleep = matchSleepCommand(text);
   if (sleep) {
@@ -3247,9 +3250,9 @@ function handleVoiceCommand(text: string): void {
 async function answerAloud(text: string, options: { key?: string } = {}): Promise<void> {
   markVoice("answer");
   const spoken = await speechService?.speak(text, options);
-  if (!spoken?.ok) return;
+  if (!spoken?.ok || openMicFollowUps >= MAX_OPEN_MIC_FOLLOW_UPS) return;
   const followUp = await listenAfterSpeech();
-  if (followUp) handleVoiceCommand(followUp);
+  if (followUp) handleVoiceCommand(followUp, true);
 }
 
 // Opens the mic once Marshal stops talking, no key needed (#375); null when nobody answered.

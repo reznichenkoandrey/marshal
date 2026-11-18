@@ -172,8 +172,14 @@ describe("pronounceForUkrainian", () => {
     expect(pronounceForUkrainian("Тест AAT і CI зелені")).toBe("Тест ей-ей-ті і сі-ай зелені");
   });
 
-  it("leaves words that only contain a term alone", () => {
-    expect(pronounceForUkrainian("prompts, PRX1, bugfix, APIv2")).toBe("prompts, PRX1, bugfix, APIv2");
+  it("does not read a term inside a longer word as that term", () => {
+    expect(pronounceForUkrainian("prompts, PRX1, bugfix, APIv2")).toBe("промптс, PRX1, бугфікс, APIv2");
+  });
+
+  it("spells leftover Latin in Cyrillic so no voice swallows it", () => {
+    expect(pronounceForUkrainian("У проєкті cpap одна сесія чекає")).toBe("У проєкті сі-пап одна сесія чекає");
+    expect(pronounceForUkrainian("У проєкті snoriq і funky rabbit")).toBe("У проєкті снорік і функі раббіт");
+    expect(pronounceForUkrainian("Snoriq готовий")).toBe("Снорік готовий");
   });
 
   it("keeps Ukrainian text and inflection suffixes after a hyphen", () => {

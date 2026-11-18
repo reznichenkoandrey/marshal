@@ -158,6 +158,7 @@ export const SPOKEN_TERMS: Readonly<Record<string, string>> = {
   JavaScript: "джаваскрипт",
   Python: "пайтон",
   Magento: "маджента",
+  CPAP: "сі-пап",
   Hyva: "хайва",
   deploy: "деплой",
   commit: "коміт",
@@ -203,12 +204,36 @@ const SPOKEN_TERM_PATTERN = new RegExp(
 );
 const SPOKEN_TERM_LOOKUP = new Map(Object.entries(SPOKEN_TERMS).map(([term, spoken]) => [term.toLowerCase(), spoken]));
 const ABBREVIATION = /(?<![\p{L}\d])[A-Z]{2,6}(?![\p{L}\d])/gu;
+const LEFTOVER_LATIN = /(?<![\p{L}\d])[A-Za-z]+(?![\p{L}\d])/gu;
+const LATIN_SOUNDS: ReadonlyArray<[string, string]> = [
+  ["sch", "ш"], ["sh", "ш"], ["ch", "ч"], ["zh", "ж"], ["kh", "х"], ["th", "т"], ["ph", "ф"],
+  ["ck", "к"], ["qu", "кв"], ["oo", "у"], ["ee", "і"],
+  ["a", "а"], ["b", "б"], ["c", "к"], ["d", "д"], ["e", "е"], ["f", "ф"], ["g", "г"], ["h", "х"], ["i", "і"],
+  ["j", "дж"], ["k", "к"], ["l", "л"], ["m", "м"], ["n", "н"], ["o", "о"], ["p", "п"], ["q", "к"], ["r", "р"],
+  ["s", "с"], ["t", "т"], ["u", "у"], ["v", "в"], ["w", "в"], ["x", "кс"], ["y", "і"], ["z", "з"]
+];
+
+// ponytail: letter-by-letter reading, not English phonetics; a name that sounds wrong goes into SPOKEN_TERMS.
+function transliterate(word: string): string {
+  let rest = word.toLowerCase();
+  let spoken = "";
+  while (rest) {
+    const [latin, cyrillic] = LATIN_SOUNDS.find(([sound]) => rest.startsWith(sound)) ?? [rest[0], rest[0]];
+    spoken += cyrillic;
+    rest = rest.slice(latin.length);
+  }
+  return word[0] === word[0].toUpperCase() ? spoken[0].toUpperCase() + spoken.slice(1) : spoken;
+}
 
 /** Rewrites English terms of a Ukrainian phrase the way the team says them (#371). */
 export function pronounceForUkrainian(text: string): string {
-  return text
-    .replace(SPOKEN_TERM_PATTERN, (match) => SPOKEN_TERM_LOOKUP.get(match.toLowerCase()) ?? match)
-    .replace(ABBREVIATION, (match) => [...match].map((letter) => LETTER_NAMES[letter]).join("-"));
+  return (
+    text
+      .replace(SPOKEN_TERM_PATTERN, (match) => SPOKEN_TERM_LOOKUP.get(match.toLowerCase()) ?? match)
+      .replace(ABBREVIATION, (match) => [...match].map((letter) => LETTER_NAMES[letter]).join("-"))
+      // Any Latin left (a project folder like `snoriq`) lost its first letters in Holos (#453).
+      .replace(LEFTOVER_LATIN, transliterate)
+  );
 }
 
 /** `macos` = `say`; `piper` (#325) and `holos` (#333) = downloaded local neural Ukrainian voices. */
