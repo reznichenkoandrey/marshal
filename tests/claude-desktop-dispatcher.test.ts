@@ -248,6 +248,8 @@ describe("dispatcher in Claude desktop (#437)", () => {
       const file = path.join(path.dirname(hookDir), "helper.sh");
       fs.writeFileSync(file, buildHelperScript(hookDir), { mode: 0o700 });
       const child = execFile("/bin/sh", [file, "gate"], (err, _stdout, stderr) => resolve({ code: err ? (err as { code?: number }).code ?? 1 : 0, stderr }));
+      // The helper may exit before reading stdin (Marshal gone); EPIPE then is expected (#457).
+      child.stdin?.on("error", () => undefined);
       child.stdin?.end(payload);
     });
     try {
