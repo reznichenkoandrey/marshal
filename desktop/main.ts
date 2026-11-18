@@ -3170,7 +3170,10 @@ async function greetOnLaunch(): Promise<void> {
       .filter((session) => session.status === "waiting" && !assistantDispatcher?.isDispatcher(session))
       .map((session) => session.name)
   };
-  const reply = await completeOnce({ ...buildGreetingRequest(facts), maxTokens: 160, label: "greeting" });
+  // Nothing to report: the short fixed greeting, so the model cannot announce what is absent (#435).
+  const reply = facts.meeting || facts.waiting.length > 0
+    ? await completeOnce({ ...buildGreetingRequest(facts), maxTokens: 160, label: "greeting" })
+    : null;
   const text = cleanGreeting(reply) ?? greetingFallback(facts);
   const result = await speechService.speak(text, { lang: facts.lang });
   if (!result.ok) return;
