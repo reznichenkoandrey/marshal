@@ -402,6 +402,8 @@ const meetingHistoryApi = {
   summarize: (id: string, language: string) => ipcRenderer.invoke("marshal:meeting-history:summarize", { id, language }),
   cancelNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:cancel-notes", { id }),
   readNotes: (id: string) => ipcRenderer.invoke("marshal:meeting-history:read-notes", { id }),
+  sendTask: (input: { task: string; title: string; startedAt: string; language: string }) =>
+    ipcRenderer.invoke("marshal:meeting-history:send-task", input),
   openNotesFile: (id: string, file: "notes" | "transcript") =>
     ipcRenderer.invoke("marshal:meeting-history:open-notes-file", { id, file }),
   refresh: () => ipcRenderer.invoke("marshal:meeting-history:refresh"),

@@ -64,3 +64,38 @@ export async function collectSessions(
   }
   return facts;
 }
+
+/** Every transcript under ~/.claude/projects/<folder>/<sessionId>.jsonl, named by its live session when there is one. */
+export async function listTranscripts(
+  projectsDir: string,
+  live: readonly { sessionId: string; name: string; status: string | null; cwd: string }[]
+): Promise<{ file: string; name: string; status: string | null; project: string }[]> {
+  const byId = new Map(live.map((session) => [session.sessionId, session]));
+  const out: { file: string; name: string; status: string | null; project: string }[] = [];
+  let folders: string[];
+  try {
+    folders = await fs.readdir(projectsDir);
+  } catch {
+    return out;
+  }
+  for (const folder of folders) {
+    let files: string[];
+    try {
+      files = await fs.readdir(path.join(projectsDir, folder));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const sessionId = file.slice(0, -".jsonl".length);
+      const session = byId.get(sessionId);
+      out.push({
+        file: path.join(projectsDir, folder, file),
+        name: session?.name ?? sessionId.slice(0, 8),
+        status: session?.status ?? null,
+        project: session ? path.basename(session.cwd) : folder.split("-").filter(Boolean).at(-1) ?? folder
+      });
+    }
+  }
+  return out;
+}

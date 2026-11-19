@@ -247,6 +247,10 @@ function renderNotes(entry) {
           setTimeout(() => (copy.textContent = t("meetings.copy")), 1200);
         });
         row.append(copy);
+        const send = button(t("meetings.sendToSession"), () => {
+          void api.sendTask({ task: task.task, title: notes.title || "", startedAt: entry.startedAt, language: notes.language || "en" });
+        });
+        row.append(send);
         list.append(row);
       }
       box.append(list);
