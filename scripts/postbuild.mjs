@@ -33,6 +33,14 @@ const staticAssets = [
   {
     from: path.join(root, "chrome-extension", "src", "sidepanel", "icons.js"),
     to: path.join(distDir, "src", "sidepanel", "icons.js")
+  },
+  {
+    from: path.join(root, "chrome-extension", "src", "sidepanel", "fonts", "Fixel-Variable.woff2"),
+    to: path.join(distDir, "src", "sidepanel", "fonts", "Fixel-Variable.woff2")
+  },
+  {
+    from: path.join(root, "chrome-extension", "src", "sidepanel", "fonts", "OFL-Fixel.txt"),
+    to: path.join(distDir, "src", "sidepanel", "fonts", "OFL-Fixel.txt")
   }
 ];
 

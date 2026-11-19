@@ -15,9 +15,20 @@
  * below are derived from the seeds, so components never see the difference.
  */
 
+/* MacPaw Fixel (SIL OFL 1.1, see fonts/OFL-Fixel.txt), subset to Latin and
+ * Cyrillic. Bundled so every window looks the same offline (#443). */
+@font-face {
+  font-family: "Fixel";
+  src: url("./fonts/Fixel-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 87.5% 100%;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   /* Typography */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: "Fixel", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
