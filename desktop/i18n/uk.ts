@@ -866,4 +866,8 @@ export const uk: Record<MessageKey, string> = {
   "crop.release": "Відпусти, щоб перекласти",
   "crop.hint": "Виділи область, яку треба перекласти",
   "crop.esc": "Esc — скасувати",
+  "crop.capture.release": "Відпусти, щоб зняти",
+  "crop.capture.hint": "Виділи область, яку треба зняти",
+  "crop.captions.release": "Відпусти, щоб задати область субтитрів",
+  "crop.captions.hint": "Виділи область, з якої субтитри читають контекст",
 };
