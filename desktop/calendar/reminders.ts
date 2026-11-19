@@ -171,3 +171,91 @@ export function trayLabel(event: CalendarEvent, lang: ReminderLanguage, now: Dat
   const prefix = event.start.getTime() <= now.getTime() ? text.now : text.next;
   return `${prefix}: ${formatTime(event.start, lang, now)} ${event.title}`;
 }
+
+// ── Typed and spoken reminders (#270) ─────────────────────────────────────
+// Same clock rules as meeting reminders above: the service owns timers and
+// persistence; these functions decide what a phrase means and when it fires.
+
+export type ReminderTrigger = { kind: "at"; at: number } | { kind: "session"; session: string };
+
+export type TimedReminder = {
+  id: string;
+  text: string;
+  trigger: ReminderTrigger;
+  createdAt: number;
+  done: boolean;
+};
+
+const DURATION_PATTERNS: ReadonlyArray<{ pattern: RegExp; unitMs: number }> = [
+  { pattern: /^(?:remind me )?in (\d{1,4}) ?(?:min|mins|minutes?)$/i, unitMs: MINUTE_MS },
+  { pattern: /^(?:remind me )?in (\d{1,3}) ?(?:h|hr|hrs|hours?)$/i, unitMs: 60 * MINUTE_MS },
+  { pattern: /^(?:через|за) (\d{1,4}) ?(?:хв|хвилин[уи]?)$/iu, unitMs: MINUTE_MS },
+  { pattern: /^(?:через|за) (\d{1,3}) ?(?:год|годин[уи]?)$/iu, unitMs: 60 * MINUTE_MS }
+];
+
+const SESSION_PATTERNS: readonly RegExp[] = [
+  /^after (.+)$/i,
+  /^коли (?:сесія |сесія)?(.+?) (?:закінчиться|завершиться|скінчиться)$/iu
+];
+
+/**
+ * Reads a reminder phrase: `in 30 min`, `через 2 год`, `after <session>`,
+ * `коли <сесія> закінчиться`. Null when the phrase is none of these — the
+ * caller then tries other readings instead of guessing a time.
+ */
+export function parseReminderPhrase(input: string, now: number): ReminderTrigger | null {
+  const phrase = input.trim().replace(/\s+/g, " ");
+  if (phrase === "") return null;
+  for (const { pattern, unitMs } of DURATION_PATTERNS) {
+    const match = phrase.match(pattern);
+    if (match) {
+      const amount = Number(match[1]);
+      if (amount <= 0) return null;
+      return { kind: "at", at: now + amount * unitMs };
+    }
+  }
+  for (const pattern of SESSION_PATTERNS) {
+    const match = phrase.match(pattern);
+    if (match && match[1].trim() !== "") return { kind: "session", session: match[1].trim() };
+  }
+  return null;
+}
+
+/** A session that went from busy to idle has finished its turn. */
+export function sessionFinished(previous: string | null, next: string | null): boolean {
+  return previous === "busy" && next === "idle";
+}
+
+/**
+ * Reminders that fire now: time has come, or the named session just finished.
+ * Done reminders never fire again; the caller marks them done after delivery.
+ */
+export function dueTimedReminders(
+  reminders: readonly TimedReminder[],
+  now: number,
+  finishedSessions: ReadonlySet<string>
+): TimedReminder[] {
+  return reminders.filter((reminder) => {
+    if (reminder.done) return false;
+    if (reminder.trigger.kind === "at") return reminder.trigger.at <= now;
+    return finishedSessions.has(reminder.trigger.session);
+  });
+}
+
+/** Reads the persisted list; anything malformed is dropped rather than failing the whole file. */
+export function parseStoredReminders(raw: unknown): TimedReminder[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TimedReminder[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const trigger = r.trigger as Record<string, unknown> | undefined;
+    if (typeof r.id !== "string" || typeof r.text !== "string" || !trigger) continue;
+    if (trigger.kind === "at" && typeof trigger.at === "number" && Number.isFinite(trigger.at)) {
+      out.push({ id: r.id, text: r.text, trigger: { kind: "at", at: trigger.at }, createdAt: Number(r.createdAt) || 0, done: r.done === true });
+    } else if (trigger.kind === "session" && typeof trigger.session === "string" && trigger.session !== "") {
+      out.push({ id: r.id, text: r.text, trigger: { kind: "session", session: trigger.session }, createdAt: Number(r.createdAt) || 0, done: r.done === true });
+    }
+  }
+  return out;
+}
