@@ -297,7 +297,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantDispatcherModel: "haiku",
   assistantGeneralDir: "",
   assistantGeneralPermissionMode: "bypass",
-  assistantTerminalHost: "auto"
+  assistantTerminalHost: "claude-desktop"
 };
 
 const VALID_DICTATION_BACKENDS: readonly DictationBackend[] = ["whisper-cpp", "groq", "hybrid"];
