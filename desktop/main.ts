@@ -83,7 +83,7 @@ import {
   parsePermissionRequest,
   permissionHookOutput,
   questionHookOutput,
-  voiceQuestion
+  voiceQuestions
 } from "./claude-code/permission-voice.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
@@ -3272,8 +3272,8 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
   const settings = loadSettings();
   if (!request || !settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
   if (!isUnderRoots(request.cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return "";
-  const question = voiceQuestion(request);
-  if (!question && !isVoicePermission(request)) return "";
+  const questions = voiceQuestions(request);
+  if (!questions && !isVoicePermission(request)) return "";
   const startedAt = Date.now();
   const late = () => Date.now() - startedAt > PERMISSION_DEADLINE_MS;
   const turn = permissionTurn.then(async (): Promise<string> => {
@@ -3282,14 +3282,22 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
     const lang = uiLanguage();
     const uk = lang === "uk";
     permissionAskedAt.set(request.sessionId, Date.now());
-    const answer = await askOwner(question ? describeQuestion(name, question, lang) : describePermission(name, request, lang));
-    if (late()) return "";
-    if (question) {
-      const index = answer ? matchQuestionAnswer(answer, question.labels) : null;
-      if (index !== null) sayAsAssistant(uk ? `Відповів: ${question.labels[index]}.` : `Answered: ${question.labels[index]}.`);
-      else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
-      return questionHookOutput(request, question, index);
+    if (questions) {
+      // Questions go one by one; the first unclear answer hands the whole call to the session.
+      const indexes: Array<number | null> = [];
+      for (const q of questions) {
+        const answer = await askOwner(describeQuestion(name, q, lang));
+        if (late()) return "";
+        const index = answer ? matchQuestionAnswer(answer, q.labels) : null;
+        if (index !== null) sayAsAssistant(uk ? `Відповів: ${q.labels[index]}.` : `Answered: ${q.labels[index]}.`);
+        else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+        indexes.push(index);
+        if (index === null) break;
+      }
+      return questionHookOutput(request, questions, indexes);
     }
+    const answer = await askOwner(describePermission(name, request, lang));
+    if (late()) return "";
     const decision = answer ? classifyPermissionAnswer(answer) : null;
     if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
     else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");

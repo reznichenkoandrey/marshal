@@ -9,7 +9,7 @@ import {
   parsePermissionRequest,
   permissionHookOutput,
   questionHookOutput,
-  voiceQuestion,
+  voiceQuestions,
   type PermissionRequest
 } from "../desktop/claude-code/permission-voice.ts";
 
@@ -97,16 +97,25 @@ const colour = {
   options: [{ label: "Red", description: "warm" }, { label: "Blue sky" }, { label: "Blue" }]
 };
 
-describe("voiceQuestion", () => {
+describe("voiceQuestions", () => {
   it("takes one single-select choice question", () => {
-    expect(voiceQuestion(ask([colour]))).toEqual({ question: colour.question, labels: ["Red", "Blue sky", "Blue"] });
+    expect(voiceQuestions(ask([colour]))).toEqual([{ question: colour.question, labels: ["Red", "Blue sky", "Blue"] }]);
   });
 
-  it("leaves several questions, multi-select and free text to the session", () => {
-    expect(voiceQuestion(ask([colour, colour]))).toBeNull();
-    expect(voiceQuestion(ask([{ ...colour, multiSelect: true }]))).toBeNull();
-    expect(voiceQuestion(ask([{ question: "Name?", kind: "text" }]))).toBeNull();
-    expect(voiceQuestion(request("Bash", { command: "ls" }))).toBeNull();
+  it("takes up to three single-select questions in order", () => {
+    const shape = { question: "Size?", options: [{ label: "S" }, { label: "M" }] };
+    expect(voiceQuestions(ask([colour, shape]))).toEqual([
+      { question: colour.question, labels: ["Red", "Blue sky", "Blue"] },
+      { question: "Size?", labels: ["S", "M"] }
+    ]);
+    expect(voiceQuestions(ask([colour, shape, shape, shape]))).toBeNull();
+  });
+
+  it("leaves multi-select, free text and empty calls to the session", () => {
+    expect(voiceQuestions(ask([colour, { ...colour, multiSelect: true }]))).toBeNull();
+    expect(voiceQuestions(ask([{ question: "Name?", kind: "text" }]))).toBeNull();
+    expect(voiceQuestions(ask([]))).toBeNull();
+    expect(voiceQuestions(request("Bash", { command: "ls" }))).toBeNull();
   });
 
   it("keeps question tools out of the yes/no permission path", () => {
@@ -166,19 +175,26 @@ describe("matchQuestionAnswer", () => {
 });
 
 describe("questionHookOutput", () => {
-  it("answers the same call through updatedInput", () => {
-    const req = ask([colour]);
-    const q = voiceQuestion(req)!;
-    expect(JSON.parse(questionHookOutput(req, q, 1))).toEqual({
+  const shape = { question: "Size?", options: [{ label: "S" }, { label: "M" }] };
+
+  it("answers every question of the same call through updatedInput", () => {
+    const req = ask([colour, shape]);
+    const qs = voiceQuestions(req)!;
+    expect(JSON.parse(questionHookOutput(req, qs, [1, 0]))).toEqual({
       hookSpecificOutput: {
         hookEventName: "PermissionRequest",
-        decision: { behavior: "allow", updatedInput: { questions: [colour], answers: { [colour.question]: "Blue sky" } } }
+        decision: {
+          behavior: "allow",
+          updatedInput: { questions: [colour, shape], answers: { [colour.question]: "Blue sky", "Size?": "S" } }
+        }
       }
     });
   });
 
-  it("prints nothing without an answer", () => {
-    const req = ask([colour]);
-    expect(questionHookOutput(req, voiceQuestion(req)!, null)).toBe("");
+  it("prints nothing unless every question has an answer", () => {
+    const req = ask([colour, shape]);
+    const qs = voiceQuestions(req)!;
+    expect(questionHookOutput(req, qs, [1, null])).toBe("");
+    expect(questionHookOutput(req, qs, [1])).toBe("");
   });
 });
