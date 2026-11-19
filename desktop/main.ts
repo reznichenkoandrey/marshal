@@ -252,19 +252,6 @@ let wakeListenerEngine: WakeEngine | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 let isQuitting = false;
 
-type DesktopTaskSubmission = {
-  sessionId: string;
-  projectId?: string;
-  text: string;
-  route: unknown;
-  attachments: unknown[];
-  workingDir?: string;
-};
-
-type DesktopWorkspaceRequest = {
-  sessionId: string;
-  projectId?: string;
-};
 
 void bootstrap();
 
@@ -414,41 +401,6 @@ async function bootstrap(): Promise<void> {
 
 function registerIpcHandlers(): void {
   registerUiLanguageIpc();
-  handleIpc("marshal:get-health", () => backendClient.invoke("getHealth"));
-  handleIpc("marshal:list-projects", () => backendClient.invoke("listProjects"));
-  handleIpc("marshal:create-project", (_event, name?: string) => backendClient.invoke("createProject", name));
-  handleIpc("marshal:list-sessions", (_event, projectId?: string) =>
-    backendClient.invoke("listSessions", projectId)
-  );
-  handleIpc("marshal:create-session", (_event, input?: { title?: string; projectId?: string }) =>
-    backendClient.invoke("createSession", input)
-  );
-  handleIpc("marshal:read-session", (_event, input: { sessionId: string; projectId?: string }) =>
-    backendClient.invoke("readSession", input)
-  );
-  handleIpc("marshal:delete-session", (_event, input: { sessionId: string; projectId?: string }) =>
-    backendClient.invoke("deleteSession", input)
-  );
-  handleIpc("marshal:submit-task", (_event, input: DesktopTaskSubmission) =>
-    backendClient.invoke("submitTask", {
-      sessionId: input.sessionId,
-      projectId: input.projectId,
-      text: String(input.text ?? ""),
-      route: input.route,
-      uploads: Array.isArray(input.attachments) ? input.attachments : [],
-      workingDir: typeof input.workingDir === "string" ? input.workingDir : undefined
-    })
-  );
-  handleIpc("marshal:open-workspace", async (_event, input: DesktopWorkspaceRequest) => {
-    const sessionPaths = await backendClient.invoke<{
-      workspaceDir: string;
-    }>("getSessionPaths", input);
-    const failure = await shell.openPath(sessionPaths.workspaceDir);
-    if (failure) {
-      throw new Error(failure);
-    }
-    return sessionPaths.workspaceDir;
-  });
   handleIpc("marshal:select-directory", async (event) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     if (!parent) return null;
@@ -457,10 +409,6 @@ function registerIpcHandlers(): void {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
-  });
-  handleIpc("marshal:restart-app", async () => {
-    app.relaunch();
-    app.exit(0);
   });
 
   handleIpc("marshal:get-settings", () => loadSettings());
@@ -791,13 +739,6 @@ function registerIpcHandlers(): void {
       throw new Error("Translator window is not initialized.");
     }
     translatorWindow.hide();
-  });
-
-  handleIpc("marshal:translator-open", () => {
-    if (!translatorWindow) {
-      throw new Error("Translator window is not initialized.");
-    }
-    openTranslator();
   });
 
   handleIpc("marshal:translator-expand", () => {
