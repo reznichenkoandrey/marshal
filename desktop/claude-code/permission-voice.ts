@@ -110,21 +110,32 @@ export function isVoicePermission(request: PermissionRequest): boolean {
   return request.toolName !== QUESTION_TOOL && !SESSION_ONLY_TOOLS.has(request.toolName);
 }
 
-/** The one question of an AskUserQuestion call Marshal can ask aloud; null = leave it to the session. */
+/** One single-choice question of an AskUserQuestion call, as Marshal says it aloud. */
 export type VoiceQuestion = { question: string; labels: string[] };
 
-export function voiceQuestion(request: PermissionRequest): VoiceQuestion | null {
+// More questions take longer to hear than to click through; past this the session asks.
+const MAX_VOICE_QUESTIONS = 3;
+
+/**
+ * The questions of an AskUserQuestion call Marshal can ask aloud, in order;
+ * null = leave the whole call to the session. Multi-select and free-text
+ * boxes are not spoken: a misheard list would answer for the owner.
+ */
+export function voiceQuestions(request: PermissionRequest): VoiceQuestion[] | null {
   if (request.toolName !== QUESTION_TOOL) return null;
   const questions = request.toolInput.questions;
-  // Several questions, multi-select or a free-text box take longer to say than to click.
-  if (!Array.isArray(questions) || questions.length !== 1) return null;
-  const q = questions[0] as Record<string, unknown>;
-  if (typeof q !== "object" || q === null || q.multiSelect === true) return null;
-  if (q.kind !== undefined && q.kind !== "choice") return null;
-  const question = str(q.question);
-  const labels = Array.isArray(q.options) ? q.options.map((option) => str((option as Record<string, unknown>)?.label)) : [];
-  if (!question || labels.length < 2 || labels.some((label) => !label)) return null;
-  return { question, labels };
+  if (!Array.isArray(questions) || questions.length === 0 || questions.length > MAX_VOICE_QUESTIONS) return null;
+  const result: VoiceQuestion[] = [];
+  for (const raw of questions) {
+    const q = raw as Record<string, unknown>;
+    if (typeof q !== "object" || q === null || q.multiSelect === true) return null;
+    if (q.kind !== undefined && q.kind !== "choice") return null;
+    const question = str(q.question);
+    const labels = Array.isArray(q.options) ? q.options.map((option) => str((option as Record<string, unknown>)?.label)) : [];
+    if (!question || labels.length < 2 || labels.some((label) => !label)) return null;
+    result.push({ question, labels });
+  }
+  return result;
 }
 
 const MAX_SPOKEN_QUESTION_WORDS = 12;
@@ -187,9 +198,10 @@ export function matchQuestionAnswer(text: string, labels: readonly string[]): nu
   return [...chosen][0];
 }
 
-/** stdout of the hook: the same call, answered — Claude Code then shows no dialog. */
-export function questionHookOutput(request: PermissionRequest, q: VoiceQuestion, index: number | null): string {
-  if (index === null) return "";
-  const updatedInput = { ...request.toolInput, answers: { [q.question]: q.labels[index] } };
+/** stdout of the hook: the same call, answered — Claude Code then shows no dialog. Any unanswered question = "" (the session asks). */
+export function questionHookOutput(request: PermissionRequest, questions: readonly VoiceQuestion[], indexes: ReadonlyArray<number | null>): string {
+  if (indexes.length !== questions.length || indexes.some((index) => index === null)) return "";
+  const answers = Object.fromEntries(questions.map((q, i) => [q.question, q.labels[indexes[i] as number]]));
+  const updatedInput = { ...request.toolInput, answers };
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput } } });
 }
