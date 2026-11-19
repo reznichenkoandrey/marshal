@@ -174,7 +174,7 @@ describe("saveSettings", () => {
       assistantDispatcherModel: "haiku",
       assistantGeneralDir: "~/htdocs",
       assistantGeneralPermissionMode: "bypass",
-      assistantTerminalHost: "auto"
+      assistantTerminalHost: "claude-desktop"
     });
   });
 
