@@ -42,9 +42,14 @@ export interface CropSelection {
   height: number;
 }
 
+/** Which feature opened the overlay; picks the hint text the user sees (#331). */
+export type CropPurpose = "translate" | "capture" | "captions-region";
+
 export interface CropOverlayOptions {
   /** Display to cover — the overlay matches its bounds exactly. */
   display: Display;
+  /** Feature that opened the overlay, for the hint copy. */
+  purpose: CropPurpose;
   /** Absolute path to the Electron preload script. */
   preloadPath: string;
   /** Directory holding the compiled renderer assets. */
@@ -117,6 +122,7 @@ export function openCropOverlay(opts: CropOverlayOptions): Promise<CropSelection
       if (cropWindow.isDestroyed()) return;
       cropWindow.webContents.send("crop-init", {
         dataUrl: opts.screenshotDataUrl,
+        purpose: opts.purpose,
         channels: { select: selectChannel, cancel: cancelChannel, ready: readyChannel }
       });
     });

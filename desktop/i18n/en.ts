@@ -864,6 +864,10 @@ export const en = {
   "crop.release": "Release to translate",
   "crop.hint": "Drag to select region to translate",
   "crop.esc": "Press Esc to cancel",
+  "crop.capture.release": "Release to capture",
+  "crop.capture.hint": "Drag to select an area to capture",
+  "crop.captions.release": "Release to set the captions region",
+  "crop.captions.hint": "Drag to select the area captions read for context",
 } as const;
 
 export type MessageKey = keyof typeof en;

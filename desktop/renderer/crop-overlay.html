@@ -148,17 +148,24 @@
       <div class="corner corner-tr"></div>
       <div class="corner corner-bl"></div>
       <div class="corner corner-br"></div>
-      <div id="sel-hint" data-i18n="crop.release">Release to translate</div>
+      <div id="sel-hint"></div>
     </div>
 
     <div id="hint">
-      <div data-i18n="crop.hint">Drag to select region to translate</div>
+      <div id="hint-text"></div>
       <span data-i18n="crop.esc">Press Esc to cancel</span>
     </div>
     <div id="size-label"></div>
 
     <script>
       const api = window.marshalTranslator;
+      // Catalog keys for the hint copy, chosen by the feature that opened the overlay (#331).
+      const CROP_COPY = {
+        translate: { release: "crop.release", hint: "crop.hint" },
+        capture: { release: "crop.capture.release", hint: "crop.capture.hint" },
+        "captions-region": { release: "crop.captions.release", hint: "crop.captions.hint" }
+      };
+      const hintText = document.getElementById("hint-text");
       const sel = document.getElementById("selection");
       const hint = document.getElementById("hint");
       const selHint = document.getElementById("sel-hint");
@@ -180,6 +187,9 @@
           selectChannel = payload.channels.select ?? selectChannel;
           cancelChannel = payload.channels.cancel ?? cancelChannel;
         }
+        const copy = CROP_COPY[payload.purpose] ?? CROP_COPY.translate;
+        selHint.textContent = window.MarshalI18n.t(copy.release);
+        hintText.textContent = window.MarshalI18n.t(copy.hint);
         if (payload.dataUrl) {
           frozen.src = payload.dataUrl;
           // A failed decode still opens the overlay; the user can Esc out.

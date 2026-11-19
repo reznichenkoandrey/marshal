@@ -84,6 +84,7 @@ export async function pickArea(opts: PickAreaOptions): Promise<PickResult | null
 
   const region = await openCropOverlay({
     display,
+    purpose: "capture",
     preloadPath: opts.preloadPath,
     rendererDir,
     screenshotDataUrl: fullDataUrl

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { BrowserWindow, screen, systemPreferences } from "electron";
 import type { Display } from "electron";
 
-import { openCropOverlay } from "../capture/crop-overlay.ts";
+import { openCropOverlay, type CropPurpose } from "../capture/crop-overlay.ts";
 import { captureDisplay } from "../capture/display-capture.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -41,7 +41,7 @@ export class ScreenshotService {
     const { image: thumbnail, scaleFactor, display } = await captureDisplay();
 
     // Open crop overlay and wait for region selection
-    const region = await this.openCropOverlay(thumbnail.toDataURL(), display);
+    const region = await this.openCropOverlay(thumbnail.toDataURL(), display, "translate");
     if (!region) return null;
 
     // Crop the nativeImage
@@ -66,7 +66,7 @@ export class ScreenshotService {
     this.assertScreenRecordingGranted();
     const display = screen.getPrimaryDisplay();
     const { image } = await captureDisplay(display);
-    return this.openCropOverlay(image.toDataURL(), display);
+    return this.openCropOverlay(image.toDataURL(), display, "captions-region");
   }
 
   private assertScreenRecordingGranted(): void {
@@ -83,12 +83,17 @@ export class ScreenshotService {
     }
   }
 
-  private openCropOverlay(screenshotDataUrl: string, display: Display): Promise<CropRegion | null> {
+  private openCropOverlay(
+    screenshotDataUrl: string,
+    display: Display,
+    purpose: CropPurpose
+  ): Promise<CropRegion | null> {
     // One shared overlay for the capture studio, this OCR crop and the
     // live-captions region — including the macOS geometry fix it carries
     // (see capture/crop-overlay.ts and #223).
     return openCropOverlay({
       display,
+      purpose,
       preloadPath: this.preloadPath,
       rendererDir: this.rendererDir,
       screenshotDataUrl,
