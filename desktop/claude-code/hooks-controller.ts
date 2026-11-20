@@ -51,7 +51,9 @@ export class ClaudeHooksController {
     // Session results read aloud for the voice assistant (#318).
     speak: (event: SpokenSessionEvent) => void = () => {},
     // Permission prompts answered by voice (#375): the hook's stdout, "" = the usual prompt.
-    askPermission: (raw: string) => Promise<string> = async () => ""
+    askPermission: (raw: string) => Promise<string> = async () => "",
+    // Call check (#267): finished results are held while a call is active.
+    callCheck: () => Promise<boolean> = async () => false
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -60,6 +62,7 @@ export class ClaudeHooksController {
     this.notifier = new SessionNotifier({
       notify: (title, body, onClick) => this.notify(title, body, onClick),
       speak,
+      onCall: callCheck,
       language: uiLanguage,
       summarize: (text) => summarizeAnswer(text, loadSettings().claudeCodeSummaryLanguage),
       findSession: (sessionId) => listLiveSessions().find((session) => session.sessionId === sessionId),

@@ -8,6 +8,7 @@ import path from "node:path";
 import { shortAnswer, WAITING_REMINDER_MS, type HookEvent } from "./hook-events.ts";
 import type { ClaudeSession } from "./registry.ts";
 import { translate, type UiLanguage } from "../i18n/catalog.ts";
+import { shouldHoldNotification } from "../presence/call-policy.ts";
 
 /** What the owner hears (#318): a finished turn's summary, or that a session waits. */
 export type SpokenSessionEvent =
@@ -24,10 +25,17 @@ export type NotifierDeps = {
   clearTimer?: (timer: NodeJS.Timeout) => void;
   /** UI language of the notification text; English when not given. */
   language?: () => UiLanguage;
+  /** True while a call is active (#267); finished results are held until it ends. */
+  onCall?: () => Promise<boolean>;
 };
+
+// Held results are checked only while something is held: no timer at idle (#281).
+const HOLD_CHECK_MS = 30_000;
 
 export class SessionNotifier {
   private readonly reminders = new Map<string, NodeJS.Timeout>();
+  private readonly held: Array<{ title: string; body: string }> = [];
+  private holdTimer: NodeJS.Timeout | null = null;
   private readonly setTimer: (fn: () => void, ms: number) => NodeJS.Timeout;
   private readonly clearTimer: (timer: NodeJS.Timeout) => void;
 
@@ -44,7 +52,10 @@ export class SessionNotifier {
 
     if (event.type === "stop") {
       const summary = shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
-      this.deps.notify(translate(lang, "claude.finished", { name }), summary ?? translate(lang, "claude.finishedFallback"), onClick);
+      const title = translate(lang, "claude.finished", { name });
+      const body = summary ?? translate(lang, "claude.finishedFallback");
+      if (shouldHoldNotification(false, (await this.deps.onCall?.()) ?? false)) this.hold(title, body);
+      else this.deps.notify(title, body, onClick);
       this.deps.speak?.({ kind: "finished", sessionId: event.sessionId, name, summary });
       return;
     }
@@ -65,6 +76,30 @@ export class SessionNotifier {
   dispose(): void {
     for (const timer of this.reminders.values()) this.clearTimer(timer);
     this.reminders.clear();
+    if (this.holdTimer) this.clearTimer(this.holdTimer);
+    this.holdTimer = null;
+    this.held.length = 0;
+  }
+
+  private hold(title: string, body: string): void {
+    this.held.push({ title, body });
+    if (!this.holdTimer) this.holdTimer = this.setTimer(() => void this.releaseHeld(), HOLD_CHECK_MS);
+  }
+
+  private async releaseHeld(): Promise<void> {
+    this.holdTimer = null;
+    if (this.held.length === 0) return;
+    if (await this.deps.onCall?.()) {
+      this.holdTimer = this.setTimer(() => void this.releaseHeld(), HOLD_CHECK_MS);
+      return;
+    }
+    const lang = this.deps.language?.() ?? "en";
+    const [first] = this.held;
+    const notice = this.held.length === 1 && first
+      ? first
+      : { title: translate(lang, "call.digestTitle", { count: this.held.length }), body: this.held.map((item) => item.title).join("\n") };
+    this.held.length = 0;
+    this.deps.notify(notice.title, notice.body, () => {});
   }
 
   private cancelReminder(sessionId: string): void {

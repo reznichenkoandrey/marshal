@@ -164,6 +164,10 @@ export const en = {
   "claude.needsConfirmation": "{name} needs your confirmation",
   "claude.needsInput": "{name} needs your input",
   "claude.stillWaiting": "{name} is still waiting",
+  "call.digestTitle": "While you were on a call: {count} finished",
+  "call.recordOfferTitle": "Call detected — record?",
+  "call.recordOfferBody": "Record the meeting audio?",
+  "call.recordScreen": "Audio + Screen",
   "claude.onlyTerminal": "Marshal can type only into Terminal and iTerm sessions.",
   "claude.onlyTerminalClipboard": "Marshal can type only into Terminal and iTerm sessions. The command is on the clipboard.",
   // ── Setup health ──

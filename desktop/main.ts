@@ -96,6 +96,7 @@ import {
 } from "./claude-code/permission-voice.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
+import { CallMonitor } from "./presence/call-policy.ts";
 import { completeOnce } from "./claude-code/answer-summary.ts";
 import {
   buildGreetingRequest,
@@ -218,6 +219,9 @@ let isMeetingRecording = false;
 const SESSIONS_REFRESH_DEBOUNCE_MS = 250;
 // Shared by speech and the open mic (#359, #375): the probe caches its answer for 2 s.
 const isOnCall = createCallPresence();
+// Checked on demand only (tray open, a Claude Code event): no resident poller (#281, #267).
+const callMonitor = new CallMonitor(isOnCall, () => isMeetingRecording || (meetingRecorder?.isRecording() ?? false), offerRecordingForCall);
+let callOfferNotice: Notification | null = null;
 // A question queued behind other phrases (or held by captions) is stale after this.
 const ANSWER_QUIET_WAIT_MS = 30_000;
 // After «Маршал» alone, how long the next words still count as the command.
@@ -356,7 +360,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice);
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check());
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
@@ -2023,6 +2027,23 @@ function sendMeetingTask(input: { task: string; title: string; startedAt: string
   Menu.buildFromTemplate(items).popup();
 }
 
+// Offered once per call with no recording running (#267). Click records audio; the button adds the screen.
+function offerRecordingForCall(): void {
+  if (!Notification.isSupported()) return;
+  const notice = new Notification({
+    title: t("call.recordOfferTitle"),
+    body: t("call.recordOfferBody"),
+    actions: [{ type: "button", text: t("call.recordScreen") }]
+  });
+  callOfferNotice = notice;
+  notice.on("click", () => void startMeetingRecording("audio"));
+  notice.on("action", () => void startMeetingRecording("screen"));
+  notice.on("close", () => {
+    if (callOfferNotice === notice) callOfferNotice = null;
+  });
+  notice.show();
+}
+
 function initCalendar(): void {
   calendarService = createCalendarService({
     dataDir: app.getPath("userData"),
@@ -2878,6 +2899,7 @@ function createTray(): void {
   tray.setToolTip("Marshal");
   tray.on("click", () => toggleAssistantHome());
   tray.on("right-click", () => {
+    void callMonitor.check();
     tray?.popUpContextMenu(buildTrayMenu());
   });
 
