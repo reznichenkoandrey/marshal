@@ -110,16 +110,16 @@ export function isVoicePermission(request: PermissionRequest): boolean {
   return request.toolName !== QUESTION_TOOL && !SESSION_ONLY_TOOLS.has(request.toolName);
 }
 
-/** One single-choice question of an AskUserQuestion call, as Marshal says it aloud. */
-export type VoiceQuestion = { question: string; labels: string[] };
+/** One question of an AskUserQuestion call, as Marshal says it aloud. */
+export type VoiceQuestion = { question: string; labels: string[]; multiSelect: boolean };
 
 // More questions take longer to hear than to click through; past this the session asks.
 const MAX_VOICE_QUESTIONS = 3;
 
 /**
  * The questions of an AskUserQuestion call Marshal can ask aloud, in order;
- * null = leave the whole call to the session. Multi-select and free-text
- * boxes are not spoken: a misheard list would answer for the owner.
+ * null = leave the whole call to the session. Free-text boxes are not spoken:
+ * there is no list to name an answer from.
  */
 export function voiceQuestions(request: PermissionRequest): VoiceQuestion[] | null {
   if (request.toolName !== QUESTION_TOOL) return null;
@@ -128,12 +128,12 @@ export function voiceQuestions(request: PermissionRequest): VoiceQuestion[] | nu
   const result: VoiceQuestion[] = [];
   for (const raw of questions) {
     const q = raw as Record<string, unknown>;
-    if (typeof q !== "object" || q === null || q.multiSelect === true) return null;
+    if (typeof q !== "object" || q === null) return null;
     if (q.kind !== undefined && q.kind !== "choice") return null;
     const question = str(q.question);
     const labels = Array.isArray(q.options) ? q.options.map((option) => str((option as Record<string, unknown>)?.label)) : [];
     if (!question || labels.length < 2 || labels.some((label) => !label)) return null;
-    result.push({ question, labels });
+    result.push({ question, labels, multiSelect: q.multiSelect === true });
   }
   return result;
 }
@@ -148,9 +148,11 @@ function clip(text: string, maxWords: number): string {
 
 export function describeQuestion(name: string, q: VoiceQuestion, lang: UiLanguage): string {
   const options = q.labels.map((label, i) => `${i + 1}: ${clip(label, MAX_SPOKEN_LABEL_WORDS)}`).join(", ");
-  return lang === "uk"
-    ? `${name} питає: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Варіанти — ${options}.`
-    : `${name} asks: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Options — ${options}.`;
+  const uk = lang === "uk";
+  const hint = q.multiSelect ? (uk ? " Можна кілька." : " Several allowed.") : "";
+  return uk
+    ? `${name} питає: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Варіанти — ${options}.${hint}`
+    : `${name} asks: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Options — ${options}.${hint}`;
 }
 
 const ORDINALS: ReadonlyArray<ReadonlySet<string>> = [
@@ -173,14 +175,19 @@ function indexOfRun(haystack: readonly string[], needle: readonly string[]): num
   return -1;
 }
 
+// Joiners that may sit between two named options ("перший і третій").
+const JOINERS = new Set(["і", "та", "й", "and", "plus"]);
+// "All of them" is never guessed from a partial list: the session asks.
+const ALL_OPTIONS = new Set(["усі", "всі", "всіх", "обидва", "обидві", "обоє", "all", "both", "every"]);
+
 /**
- * Index of the option the owner named, by number or by label, or null.
- * Conservative: two different options named, a "no" outside a label, or a
- * long answer all mean no answer — the session keeps its own dialog.
+ * Indexes of the options the owner named, by number or label, in label order.
+ * Conservative: a "no" outside a label, "all" or a long answer name nothing,
+ * so the session keeps its own dialog.
  */
-export function matchQuestionAnswer(text: string, labels: readonly string[]): number | null {
+function namedOptions(text: string, labels: readonly string[]): number[] {
   let rest = words(text);
-  if (rest.length === 0) return null;
+  if (rest.length === 0 || rest.some((word) => ALL_OPTIONS.has(word))) return [];
   const chosen = new Set<number>();
   // Longest labels first, so "Blue sky" is not read as "Blue".
   const byLength = labels.map((label, i) => ({ i, run: words(label) })).sort((a, b) => b.run.length - a.run.length);
@@ -193,15 +200,79 @@ export function matchQuestionAnswer(text: string, labels: readonly string[]): nu
   ORDINALS.slice(0, labels.length).forEach((set, i) => {
     if (rest.some((word) => set.has(word))) chosen.add(i);
   });
-  rest = rest.filter((word) => !ORDINALS.some((set) => set.has(word)));
-  if (chosen.size !== 1 || rest.some((word) => NO.has(word)) || rest.length > MAX_EXTRA_WORDS) return null;
-  return [...chosen][0];
+  rest = rest.filter((word) => !ORDINALS.some((set) => set.has(word)) && !JOINERS.has(word));
+  if (rest.some((word) => NO.has(word)) || rest.length > MAX_EXTRA_WORDS) return [];
+  return [...chosen].sort((a, b) => a - b);
+}
+
+/** Index of the single option the owner named, or null. Two options named = null. */
+export function matchQuestionAnswer(text: string, labels: readonly string[]): number | null {
+  const chosen = namedOptions(text, labels);
+  return chosen.length === 1 ? chosen[0] : null;
+}
+
+/** Indexes of every option the owner named for a multi-select question, or null. */
+export function matchMultiAnswer(text: string, labels: readonly string[]): number[] | null {
+  const chosen = namedOptions(text, labels);
+  return chosen.length > 0 ? chosen : null;
+}
+
+/** Chosen option indexes for one question, or null when the answer is unclear. */
+export function matchVoiceAnswer(text: string, q: VoiceQuestion): number[] | null {
+  if (q.multiSelect) return matchMultiAnswer(text, q.labels);
+  const index = matchQuestionAnswer(text, q.labels);
+  return index === null ? null : [index];
+}
+
+/** One answer per question: indexes from matchVoiceAnswer, null = unclear. */
+export function answerChoices(q: VoiceQuestion, picks: number[] | null): string | null {
+  if (!picks || picks.length === 0) return null;
+  if (!q.multiSelect) return picks.length === 1 ? q.labels[picks[0]] : null;
+  return picks.map((index) => q.labels[index]).join(", ");
 }
 
 /** stdout of the hook: the same call, answered — Claude Code then shows no dialog. Any unanswered question = "" (the session asks). */
-export function questionHookOutput(request: PermissionRequest, questions: readonly VoiceQuestion[], indexes: ReadonlyArray<number | null>): string {
-  if (indexes.length !== questions.length || indexes.some((index) => index === null)) return "";
-  const answers = Object.fromEntries(questions.map((q, i) => [q.question, q.labels[indexes[i] as number]]));
+export function questionHookOutput(request: PermissionRequest, questions: readonly VoiceQuestion[], picks: ReadonlyArray<number[] | null>): string {
+  if (picks.length !== questions.length) return "";
+  const values = questions.map((q, i) => answerChoices(q, picks[i]));
+  if (values.some((value) => value === null)) return "";
+  const answers = Object.fromEntries(questions.map((q, i) => [q.question, values[i] as string]));
   const updatedInput = { ...request.toolInput, answers };
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput } } });
+}
+
+// Elicitation (MCP server asks the owner): only a pure confirmation, with no
+// fields to fill, is spoken. Anything with a form stays in the session.
+export type ElicitationRequest = { sessionId: string; cwd: string; server: string; message: string };
+
+export function parseElicitationRequest(raw: string): ElicitationRequest | null {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof data !== "object" || data === null) return null;
+  const o = data as Record<string, unknown>;
+  if (o.hook_event_name !== "Elicitation" || typeof o.session_id !== "string") return null;
+  const schema = typeof o.requested_schema === "object" && o.requested_schema !== null ? (o.requested_schema as Record<string, unknown>) : {};
+  const properties = typeof schema.properties === "object" && schema.properties !== null ? (schema.properties as Record<string, unknown>) : {};
+  const message = str(o.message);
+  if (Object.keys(properties).length > 0 || !message) return null;
+  return { sessionId: o.session_id, cwd: typeof o.cwd === "string" ? o.cwd : "", server: str(o.mcp_server_name), message };
+}
+
+export function describeElicitation(name: string, request: ElicitationRequest, lang: UiLanguage): string {
+  const message = clip(request.message, MAX_SPOKEN_QUESTION_WORDS);
+  const server = request.server ? ` (${request.server})` : "";
+  return lang === "uk"
+    ? `${name}${server} просить підтвердити: ${message} Дозволити?`
+    : `${name}${server} asks to confirm: ${message} Allow?`;
+}
+
+/** stdout of the hook: accept on a yes, decline on a no, nothing if unclear. */
+export function elicitationHookOutput(decision: PermissionDecision | null): string {
+  if (!decision) return "";
+  const action = decision === "allow" ? "accept" : "decline";
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "Elicitation", action } });
 }

@@ -9,10 +9,12 @@ import path from "node:path";
 
 export const HOOK_SCRIPT_NAME = "marshal-claude-hook.sh";
 export const HOOK_EVENTS = ["Stop", "Notification"] as const;
-// Synchronous, unlike the others: Claude Code waits for a voice answer (#375).
+// Synchronous, unlike the others: Claude Code waits for a voice answer (#375, #381).
 export const PERMISSION_EVENT = "PermissionRequest";
+export const ELICITATION_EVENT = "Elicitation";
+const SYNC_EVENTS = [PERMISSION_EVENT, ELICITATION_EVENT] as const;
 const PERMISSION_TIMEOUT_S = 60;
-const ALL_EVENTS = [...HOOK_EVENTS, PERMISSION_EVENT];
+const ALL_EVENTS = [...HOOK_EVENTS, ...SYNC_EVENTS];
 
 type HookCommand = { type?: unknown; command?: unknown; [key: string]: unknown };
 type HookGroup = { matcher?: unknown; hooks?: unknown; [key: string]: unknown };
@@ -49,9 +51,9 @@ export function hasMarshalHooks(settings: Settings): boolean {
   return HOOK_EVENTS.every((event) => hasMarshalHook(settings, event));
 }
 
-/** Installed before #375: Stop and Notification without the permission hook. */
+/** Installed before #375 (no permission hook) or #381 (no Elicitation hook). */
 export function needsPermissionHook(settings: Settings): boolean {
-  return hasMarshalHooks(settings) && !hasMarshalHook(settings, PERMISSION_EVENT);
+  return hasMarshalHooks(settings) && SYNC_EVENTS.some((event) => !hasMarshalHook(settings, event));
 }
 
 /** Drop Marshal's commands; a group left with no commands goes with them. */
@@ -87,8 +89,10 @@ export function addMarshalHooks(settings: Settings, command: string): Settings {
     // Marshal never delays the session.
     hooks[event] = [...groups, { hooks: [{ type: "command", command, async: true }] }];
   }
-  const permission = Array.isArray(hooks[PERMISSION_EVENT]) ? (hooks[PERMISSION_EVENT] as unknown[]) : [];
-  hooks[PERMISSION_EVENT] = [...permission, { hooks: [{ type: "command", command: `${command} permission`, timeout: PERMISSION_TIMEOUT_S }] }];
+  for (const event of SYNC_EVENTS) {
+    const groups = Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : [];
+    hooks[event] = [...groups, { hooks: [{ type: "command", command: `${command} permission`, timeout: PERMISSION_TIMEOUT_S }] }];
+  }
   return { ...base, hooks };
 }
 

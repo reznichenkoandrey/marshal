@@ -5,7 +5,8 @@
 
 import type { UiLanguage } from "../i18n/catalog.ts";
 
-export type WaitingSession = { project: string; question: boolean };
+/** `name` is the registry session name, when known; spoken only for a lone question. */
+export type WaitingSession = { project: string; question: boolean; name?: string };
 
 export type WaitingSignal = {
   /** The hook said permission_prompt; elicitation dialogs arrive as input. */
@@ -42,32 +43,40 @@ function ukForm(count: number): "one" | "few" | "many" {
   return "many";
 }
 
-function ukSessions(count: number, question: boolean): string {
+function ukSessions(count: number, question: boolean, name: string | null): string {
+  if (name && count === 1) return `сесія ${name} чекає ${question ? "відповіді" : "дозволу"}`;
   const form = ukForm(count);
   const noun = form === "one" ? "сесія" : form === "few" ? "сесії" : "сесій";
   const verb = form === "one" ? "чекає" : "чекають";
   return `${UK_FEMININE[count] ?? String(count)} ${noun} ${verb} ${question ? "відповіді" : "дозволу"}`;
 }
 
-function enSessions(count: number, question: boolean): string {
+function enSessions(count: number, question: boolean, name: string | null): string {
+  if (name && count === 1) return `session ${name} needs ${question ? "an answer" : "permission"}`;
   const noun = count === 1 ? "session needs" : "sessions need";
   return `${EN_NUMBERS[count] ?? String(count)} ${noun} ${question ? "an answer" : "permission"}`;
 }
 
-/** "У проєкті marshal дві сесії чекають відповіді. У проєкті 100 balloons одна сесія чекає дозволу." */
+/**
+ * "У проєкті marshal дві сесії чекають відповіді. У проєкті 100 balloons одна сесія чекає дозволу."
+ * A lone question names its session: the owner has to go to that one.
+ */
 export function describeWaiting(sessions: readonly WaitingSession[], lang: UiLanguage): string {
-  const projects = new Map<string, { questions: number; permissions: number }>();
+  const projects = new Map<string, { questions: number; permissions: number; questionNames: string[] }>();
   for (const session of sessions) {
-    const counts = projects.get(session.project) ?? { questions: 0, permissions: 0 };
-    if (session.question) counts.questions += 1;
-    else counts.permissions += 1;
+    const counts = projects.get(session.project) ?? { questions: 0, permissions: 0, questionNames: [] };
+    if (session.question) {
+      counts.questions += 1;
+      if (session.name) counts.questionNames.push(session.name);
+    } else counts.permissions += 1;
     projects.set(session.project, counts);
   }
   const uk = lang === "uk";
-  return [...projects].map(([project, { questions, permissions }]) => {
+  return [...projects].map(([project, { questions, permissions, questionNames }]) => {
     const parts: string[] = [];
-    if (questions) parts.push(uk ? ukSessions(questions, true) : enSessions(questions, true));
-    if (permissions) parts.push(uk ? ukSessions(permissions, false) : enSessions(permissions, false));
+    const lone = questions === 1 && questionNames.length === 1 ? speakableProject(questionNames[0]) : null;
+    if (questions) parts.push(uk ? ukSessions(questions, true, lone) : enSessions(questions, true, lone));
+    if (permissions) parts.push(uk ? ukSessions(permissions, false, null) : enSessions(permissions, false, null));
     const name = speakableProject(project);
     return uk ? `У проєкті ${name} ${parts.join(", ")}.` : `In ${name}, ${parts.join(", ")}.`;
   }).join(" ");

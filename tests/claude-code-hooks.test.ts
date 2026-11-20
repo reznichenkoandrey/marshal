@@ -85,6 +85,17 @@ describe("hook installer", () => {
     expect(needsPermissionHook(userSettings)).toBe(false);
   });
 
+  it("adds a synchronous Elicitation hook too, and upgrades installs that lack it (#381)", () => {
+    const next = addMarshalHooks(userSettings, command);
+    expect((next.hooks as Record<string, unknown>).Elicitation).toEqual([
+      { hooks: [{ type: "command", command: `${command} permission`, timeout: 60 }] }
+    ]);
+    const older = structuredClone(next);
+    delete (older.hooks as Record<string, unknown>).Elicitation;
+    expect(needsPermissionHook(older)).toBe(true);
+    expect(removeMarshalHooks(next)).toEqual(userSettings);
+  });
+
   it("install then uninstall on a file with no hooks leaves no hooks key", () => {
     expect(removeMarshalHooks(addMarshalHooks({ theme: "dark" }, command))).toEqual({ theme: "dark" });
   });

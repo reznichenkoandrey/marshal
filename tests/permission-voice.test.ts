@@ -10,7 +10,14 @@ import {
   permissionHookOutput,
   questionHookOutput,
   voiceQuestions,
-  type PermissionRequest
+  matchMultiAnswer,
+  matchVoiceAnswer,
+  answerChoices,
+  parseElicitationRequest,
+  describeElicitation,
+  elicitationHookOutput,
+  type PermissionRequest,
+  type VoiceQuestion
 } from "../desktop/claude-code/permission-voice.ts";
 
 const request = (toolName: string, toolInput: Record<string, unknown>): PermissionRequest => ({
@@ -99,20 +106,25 @@ const colour = {
 
 describe("voiceQuestions", () => {
   it("takes one single-select choice question", () => {
-    expect(voiceQuestions(ask([colour]))).toEqual([{ question: colour.question, labels: ["Red", "Blue sky", "Blue"] }]);
+    expect(voiceQuestions(ask([colour]))).toEqual([{ question: colour.question, labels: ["Red", "Blue sky", "Blue"], multiSelect: false }]);
   });
 
   it("takes up to three single-select questions in order", () => {
     const shape = { question: "Size?", options: [{ label: "S" }, { label: "M" }] };
     expect(voiceQuestions(ask([colour, shape]))).toEqual([
-      { question: colour.question, labels: ["Red", "Blue sky", "Blue"] },
-      { question: "Size?", labels: ["S", "M"] }
+      { question: colour.question, labels: ["Red", "Blue sky", "Blue"], multiSelect: false },
+      { question: "Size?", labels: ["S", "M"], multiSelect: false }
     ]);
     expect(voiceQuestions(ask([colour, shape, shape, shape]))).toBeNull();
   });
 
-  it("leaves multi-select, free text and empty calls to the session", () => {
-    expect(voiceQuestions(ask([colour, { ...colour, multiSelect: true }]))).toBeNull();
+  it("takes multi-select questions too, marked as such", () => {
+    expect(voiceQuestions(ask([{ ...colour, multiSelect: true }]))).toEqual([
+      { question: colour.question, labels: ["Red", "Blue sky", "Blue"], multiSelect: true }
+    ]);
+  });
+
+  it("leaves free text and empty calls to the session", () => {
     expect(voiceQuestions(ask([{ question: "Name?", kind: "text" }]))).toBeNull();
     expect(voiceQuestions(ask([]))).toBeNull();
     expect(voiceQuestions(request("Bash", { command: "ls" }))).toBeNull();
@@ -180,7 +192,7 @@ describe("questionHookOutput", () => {
   it("answers every question of the same call through updatedInput", () => {
     const req = ask([colour, shape]);
     const qs = voiceQuestions(req)!;
-    expect(JSON.parse(questionHookOutput(req, qs, [1, 0]))).toEqual({
+    expect(JSON.parse(questionHookOutput(req, qs, [[1], [0]]))).toEqual({
       hookSpecificOutput: {
         hookEventName: "PermissionRequest",
         decision: {
@@ -194,7 +206,91 @@ describe("questionHookOutput", () => {
   it("prints nothing unless every question has an answer", () => {
     const req = ask([colour, shape]);
     const qs = voiceQuestions(req)!;
-    expect(questionHookOutput(req, qs, [1, null])).toBe("");
-    expect(questionHookOutput(req, qs, [1])).toBe("");
+    expect(questionHookOutput(req, qs, [[1], null])).toBe("");
+    expect(questionHookOutput(req, qs, [[1]])).toBe("");
+  });
+});
+
+describe("matchMultiAnswer", () => {
+  const labels = ["Red", "Blue sky", "Blue", "Green"];
+
+  it("takes every option named, by number, ordinal or label", () => {
+    expect(matchMultiAnswer("перший і третій", labels)).toEqual([0, 2]);
+    expect(matchMultiAnswer("Red and Green", labels)).toEqual([0, 3]);
+    expect(matchMultiAnswer("два та чотири", labels)).toEqual([1, 3]);
+  });
+
+  it("takes a single option too", () => {
+    expect(matchMultiAnswer("Green", labels)).toEqual([3]);
+  });
+
+  it("refuses 'all', nothing named, a no, or a long answer", () => {
+    expect(matchMultiAnswer("усі три", labels)).toBeNull();
+    expect(matchMultiAnswer("both", labels)).toBeNull();
+    expect(matchMultiAnswer("ні", labels)).toBeNull();
+    expect(matchMultiAnswer("Red, но не Green", labels)).toBeNull();
+    expect(matchMultiAnswer("давай червоний і зелений і ще щось довге про це", labels)).toBeNull();
+  });
+});
+
+describe("matchVoiceAnswer and answerChoices", () => {
+  const single: VoiceQuestion = { question: "Colour?", labels: ["Red", "Blue"], multiSelect: false };
+  const multi: VoiceQuestion = { ...single, multiSelect: true };
+
+  it("keeps a single-select question to one option", () => {
+    expect(matchVoiceAnswer("Red and Blue", single)).toBeNull();
+    expect(matchVoiceAnswer("Blue", single)).toEqual([1]);
+    expect(answerChoices(single, [1])).toBe("Blue");
+    expect(answerChoices(single, [0, 1])).toBeNull();
+  });
+
+  it("joins several picks for a multi-select answer", () => {
+    expect(matchVoiceAnswer("Red and Blue", multi)).toEqual([0, 1]);
+    expect(answerChoices(multi, [0, 1])).toBe("Red, Blue");
+    expect(answerChoices(multi, null)).toBeNull();
+  });
+});
+
+describe("parseElicitationRequest", () => {
+  const raw = (extra: Record<string, unknown>) => JSON.stringify({
+    hook_event_name: "Elicitation",
+    session_id: "e1",
+    cwd: "/htdocs/marshal",
+    mcp_server_name: "github",
+    message: "Create the issue now?",
+    requested_schema: { type: "object", properties: {} },
+    ...extra
+  });
+
+  it("reads a pure confirmation (no fields to fill)", () => {
+    expect(parseElicitationRequest(raw({}))).toEqual({
+      sessionId: "e1",
+      cwd: "/htdocs/marshal",
+      server: "github",
+      message: "Create the issue now?"
+    });
+  });
+
+  it("leaves forms, other events and empty messages to the session", () => {
+    const form = { properties: { title: { type: "string" } } };
+    expect(parseElicitationRequest(raw({ requested_schema: form }))).toBeNull();
+    expect(parseElicitationRequest(raw({ message: "" }))).toBeNull();
+    expect(parseElicitationRequest(raw({ hook_event_name: "PermissionRequest" }))).toBeNull();
+    expect(parseElicitationRequest("not json")).toBeNull();
+  });
+});
+
+describe("describeElicitation and elicitationHookOutput", () => {
+  const req = { sessionId: "e1", cwd: "/x", server: "github", message: "Create the issue now?" };
+
+  it("says the request and the server briefly", () => {
+    expect(describeElicitation("marshal", req, "en")).toBe("marshal (github) asks to confirm: Create the issue now? Allow?");
+    expect(describeElicitation("marshal", req, "uk")).toBe("marshal (github) просить підтвердити: Create the issue now? Дозволити?");
+  });
+
+  it("accepts on a yes, declines on a no, prints nothing when unclear", () => {
+    expect(JSON.parse(elicitationHookOutput("allow"))).toEqual({ hookSpecificOutput: { hookEventName: "Elicitation", action: "accept" } });
+    expect(JSON.parse(elicitationHookOutput("deny"))).toEqual({ hookSpecificOutput: { hookEventName: "Elicitation", action: "decline" } });
+    expect(elicitationHookOutput(null)).toBe("");
   });
 });
