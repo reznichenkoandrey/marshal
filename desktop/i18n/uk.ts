@@ -166,6 +166,10 @@ export const uk: Record<MessageKey, string> = {
   "claude.needsConfirmation": "{name} чекає на дозвіл",
   "claude.needsInput": "{name} чекає на відповідь",
   "claude.stillWaiting": "{name} досі чекає",
+  "call.digestTitle": "Поки був дзвінок: готово {count}",
+  "call.recordOfferTitle": "Дзвінок — записати?",
+  "call.recordOfferBody": "Записати аудіо зустрічі?",
+  "call.recordScreen": "Аудіо + екран",
   "claude.onlyTerminal": "Marshal уміє друкувати лише в сесії Terminal та iTerm.",
   "claude.onlyTerminalClipboard": "Marshal уміє друкувати лише в сесії Terminal та iTerm. Команда в буфері обміну.",
   // ── Setup health ──
