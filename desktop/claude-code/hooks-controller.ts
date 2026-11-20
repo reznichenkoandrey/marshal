@@ -40,6 +40,7 @@ export class ClaudeHooksController {
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
   private ignoredFolder: string | null = null;
+  private readonly stopListeners: Array<(sessionId: string) => void> = [];
 
   constructor(
     userDataDir: string,
@@ -72,6 +73,7 @@ export class ClaudeHooksController {
       if (this.ignoredFolder && event.cwd && path.resolve(event.cwd) === this.ignoredFolder) return;
       void this.notifier.handle(event);
       this.onSessionEvent();
+      if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId);
       // A finished turn is when "what it is doing now" changes.
       if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
@@ -87,6 +89,11 @@ export class ClaudeHooksController {
     await this.service.start().catch((err: unknown) => {
       console.warn("[claude-hooks] receiver failed to start:", err instanceof Error ? err.message : err);
     });
+  }
+
+  /** Called with the session id on every finished turn (Stop hook), for reminders after a session (#270). */
+  onSessionStop(listener: (sessionId: string) => void): void {
+    this.stopListeners.push(listener);
   }
 
   /** Events from this folder are dropped: the dispatcher's turns in Claude desktop also run the owner's hooks (#437). */

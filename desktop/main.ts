@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -66,7 +67,11 @@ import {
 } from "./assistant/assistant-state.ts";
 import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistant/waiting-speech.ts";
 import { markVoice } from "./assistant/voice-timing.ts";
-import { reminderText } from "./calendar/reminders.ts";
+import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
+import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
+import { buildDayReview } from "./standup/day-review.ts";
+import { sendTaskToSession, taskMessage, type TaskCall } from "./meeting/meeting-tasks.ts";
+import { parseNotesLanguage } from "./meeting/meeting-notes.ts";
 import { AssistantHomeWindow, type AssistantCommands, type AssistantStrip } from "./assistant/home-window.ts";
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
@@ -246,6 +251,7 @@ let captionsAccelerators: { toggle: string; ocr: string } = {
 
 let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
+let meetingLibrary: MeetingLibrary | null = null;
 let assistantDispatcher: AssistantDispatcher | null = null;
 let wakeListener: WakeListener | null = null;
 let wakeListenerEngine: WakeEngine | null = null;
@@ -349,6 +355,7 @@ async function bootstrap(): Promise<void> {
       claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice);
       void claudeHooks.startIfInstalled();
       initCalendar();
+      initTimedReminders();
       initSpeech();
       initAssistantDispatcher();
       registerAssistantHotkey();
@@ -474,6 +481,11 @@ function registerIpcHandlers(): void {
   });
   handleIpc("marshal:meeting-history:summarize", async (_event, input: { id: string; language: string }) => {
     return (await meetingHistoryWindow?.summarize(input.id, input.language)) ?? { ok: false, error: "Meeting recorder not initialized" };
+  });
+  handleIpc("marshal:meeting-history:send-task", (_event, input: { task: string; title: string; startedAt: string; language: unknown }) => {
+    if (typeof input?.task !== "string" || input.task.trim() === "") return false;
+    sendMeetingTask({ ...input, task: input.task.trim(), title: String(input.title ?? ""), startedAt: String(input.startedAt ?? "") });
+    return true;
   });
   handleIpc("marshal:meeting-history:cancel-notes", (_event, input: { id: string }) => {
     return meetingHistoryWindow?.cancelNotes(input.id) ?? false;
@@ -1680,7 +1692,7 @@ function initMeetingRecorder(): void {
   const recorder = meetingRecorder;
   meetingHistoryWindow = new MeetingHistoryWindow(
     preloadPath,
-    new MeetingLibrary(meetingsRoot),
+    (meetingLibrary = new MeetingLibrary(meetingsRoot)),
     meetingsRoot,
     () => recorder.activeId()
   );
@@ -1911,6 +1923,100 @@ async function toggleLiveCaptions(): Promise<void> {
   } catch {
     // Reported through the service's "error" event as a notification.
   }
+}
+
+// Deps for typing into a session (dispatcher replies, #394, and meeting tasks, #294).
+function replyDeps() {
+  return {
+    hostApp: hostAppOf,
+    focusSession,
+    // The app-level fallback waits up to 500 ms for an Electron tree to appear.
+    probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
+    writeClipboard: (value: string) => clipboard.writeText(value),
+    sendKey: (key: "v" | "return") => sendKeystroke(key),
+    activate: async (app: string) => {
+      await execFileAsync("open", ["-a", app]);
+    }
+  };
+}
+
+let timedReminders: TimedReminderStore | null = null;
+
+// Typed reminders (#270). The file lives in userData; the tick runs only while one is pending.
+function initTimedReminders(): void {
+  timedReminders = new TimedReminderStore(path.join(app.getPath("userData"), "timed-reminders.json"), (reminder) => {
+    const body = reminder.text;
+    new Notification({ title: t("notify.reminder"), body, silent: true }).show();
+    announceToAssistant(`${t("notify.reminder")}: ${body}`);
+  });
+  timedReminders.arm();
+  claudeHooks?.onSessionStop((sessionId) => {
+    const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name;
+    if (name) timedReminders?.sessionFinished(name);
+  });
+}
+
+function addReminderFromTray(phrase: string): void {
+  const trigger = parseReminderPhrase(phrase, Date.now());
+  if (trigger) timedReminders?.add(phrase, trigger, Date.now());
+}
+
+function remindMenuItems(): Electron.MenuItemConstructorOptions[] {
+  const sessions = listLiveSessions().slice(0, 5);
+  return [
+    { label: t("tray.remindIn30"), click: () => addReminderFromTray(`in 30 min`) },
+    { label: t("tray.remindIn1h"), click: () => addReminderFromTray(`in 1 hour`) },
+    ...sessions.map((session) => ({
+      label: t("tray.remindWhenDone", { name: session.name }),
+      click: () => addReminderFromTray(`after ${session.name}`)
+    }))
+  ];
+}
+
+// Standup card from local facts (#272): copied to the clipboard, nothing is sent.
+async function showDayReview(): Promise<void> {
+  const settings = loadSettings();
+  const meetings = (meetingLibrary?.list(null) ?? []).map((entry) => ({
+    title: t("dayReview.call"),
+    startedAt: entry.startedAt
+  }));
+  const card = await buildDayReview({
+    roots: parseRoutingRoots(settings.claudeCodeRoutingRoots),
+    author: (await execFileAsync("git", ["config", "--global", "user.name"]).then((r) => r.stdout.trim()).catch(() => "")),
+    projectsDir: path.join(os.homedir(), ".claude", "projects"),
+    live: listLiveSessions(),
+    meetings,
+    now: new Date(),
+    language: uiLanguage()
+  });
+  clipboard.writeText(card);
+  new Notification({ title: t("notify.dayReview"), body: card.split("\n").slice(0, 3).join(" · "), silent: true }).show();
+}
+
+// Pop up live sessions for one meeting task; nothing is typed until a session is picked (#294).
+function sendMeetingTask(input: { task: string; title: string; startedAt: string; language: unknown }): void {
+  const call: TaskCall = {
+    title: input.title || t("meetings.notesFallbackTitle"),
+    startedAt: input.startedAt,
+    language: parseNotesLanguage(input.language) === "uk" ? "uk" : "en"
+  };
+  const message = taskMessage({ task: input.task, owner: null, mine: false }, call);
+  const sessions = listLiveSessions();
+  const items: Electron.MenuItemConstructorOptions[] = sessions.length === 0
+    ? [{ label: t("meetings.noSessions"), enabled: false }]
+    : sessions.map((session) => ({
+        label: session.name,
+        click: () => {
+          void sendTaskToSession(session, session.name, message, replyDeps()).then((result) => {
+            new Notification({
+              title: result === "ok" ? t("notify.taskSent", { name: session.name }) : t("notify.taskNotSent"),
+              body: result === "ok" ? input.task : result,
+              silent: true
+            }).show();
+          });
+        }
+      }));
+  Menu.buildFromTemplate(items).popup();
 }
 
 function initCalendar(): void {
@@ -2404,6 +2510,8 @@ function buildTrayMenu(): Electron.Menu {
     { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { label: t("tray.openHub"), click: () => void openSmartHub() },
+    { label: t("tray.myDay"), click: () => void showDayReview() },
+    { label: t("tray.remindMe"), submenu: remindMenuItems() },
     { type: "separator" },
     // Dictation toggle — the path to start/stop recording when the hotkey
     // listener is dead (#84). No global accelerator: Cmd+Alt+M sat next to the
@@ -2987,18 +3095,7 @@ function initAssistantDispatcher(): void {
       void focusSession(pid).catch(() => undefined);
     },
     insert: async (text) => (dictationService ? dictationService.insert(text) : "not running"),
-    reply: (session, text) =>
-      replyToSession(session, text, {
-        hostApp: hostAppOf,
-        focusSession,
-        // The app-level fallback waits up to 500 ms for an Electron tree to appear.
-        probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
-        writeClipboard: (value) => clipboard.writeText(value),
-        sendKey: (key) => sendKeystroke(key),
-        activate: async (app) => {
-          await execFileAsync("open", ["-a", app]);
-        }
-      }),
+    reply: (session, text) => replyToSession(session, text, replyDeps()),
     runAppleScript: async (script) => {
       await execFileAsync("osascript", ["-e", script], { env: launchEnv });
     },
