@@ -31,6 +31,7 @@
 
 import AudioToolbox
 import AVFoundation
+import CoreAudio
 import Foundation
 import Speech
 
@@ -327,6 +328,63 @@ Task {
   emit("ready")
 }
 
+// MARK: - Built-in microphone (#449)
+
+// A Bluetooth headset drops from A2DP to HFP (call quality) as soon as any app opens its
+// input, and stays there while it is open. Wake listening needs only the room's sound, so
+// with a Bluetooth default input the queue is pinned to the built-in mic.
+// Same code in wake-listener.swift: helpers compile one file each, so keep both in sync.
+private func globalAudioProperty(_ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
+  AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+}
+
+private func transportType(of device: AudioDeviceID) -> UInt32? {
+  var address = globalAudioProperty(kAudioDevicePropertyTransportType)
+  var transport: UInt32 = 0
+  var size = UInt32(MemoryLayout<UInt32>.size)
+  guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport) == noErr else { return nil }
+  return transport
+}
+
+private func hasInput(_ device: AudioDeviceID) -> Bool {
+  var address = globalAudioProperty(kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput)
+  var size: UInt32 = 0
+  return AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr && size > 0
+}
+
+private func defaultInputDevice() -> AudioDeviceID? {
+  var address = globalAudioProperty(kAudioHardwarePropertyDefaultInputDevice)
+  var device = AudioDeviceID(kAudioObjectUnknown)
+  var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+  guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+        device != kAudioObjectUnknown else { return nil }
+  return device
+}
+
+private func builtInInputUID() -> CFString? {
+  let system = AudioObjectID(kAudioObjectSystemObject)
+  var address = globalAudioProperty(kAudioHardwarePropertyDevices)
+  var size: UInt32 = 0
+  guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
+  var devices = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+  guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &devices) == noErr else { return nil }
+  for device in devices where transportType(of: device) == kAudioDeviceTransportTypeBuiltIn && hasInput(device) {
+    var uidAddress = globalAudioProperty(kAudioDevicePropertyDeviceUID)
+    var uid: CFString = "" as CFString
+    var uidSize = UInt32(MemoryLayout<CFString>.size)
+    if AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, &uid) == noErr { return uid }
+  }
+  return nil
+}
+
+// Call after AudioQueueNewInput and before AudioQueueStart.
+private func pinBuiltInMicrophoneIfBluetooth(_ queue: AudioQueueRef) {
+  guard let input = defaultInputDevice(), let transport = transportType(of: input),
+        transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE,
+        var uid = builtInInputUID() else { return }
+  AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &uid, UInt32(MemoryLayout<CFString>.size))
+}
+
 // MARK: - Audio in
 
 // A C callback cannot capture script state, so it reaches it through inUserData.
@@ -361,6 +419,7 @@ func startMicrophone(_ deliver: @escaping ([Float]) -> Void) {
   }
   var status = AudioQueueNewInput(&format, callback, Unmanaged.passUnretained(sink).toOpaque(), nil, nil, 0, &audioQueue)
   guard status == noErr, let queue = audioQueue else { fail("cannot open the microphone (\(status))") }
+  pinBuiltInMicrophoneIfBluetooth(queue)
   for _ in 0..<3 {
     var buffer: AudioQueueBufferRef?
     AudioQueueAllocateBuffer(queue, UInt32(chunkSamples * 4), &buffer)
