@@ -92,7 +92,7 @@ export function addMarshalHooks(settings: Settings, command: string): Settings {
   return { ...base, hooks };
 }
 
-function readSettings(filePath: string): { settings: Settings; indent: string } {
+export function readSettings(filePath: string): { settings: Settings; indent: string } {
   let raw: string;
   try {
     raw = fs.readFileSync(filePath, "utf8");
@@ -109,7 +109,7 @@ function readSettings(filePath: string): { settings: Settings; indent: string } 
   return { settings: settings as Settings, indent };
 }
 
-function writeSettings(filePath: string, settings: Settings, indent: string): void {
+export function writeSettings(filePath: string, settings: Settings, indent: string): void {
   // A dotfiles setup symlinks settings.json; replace the file it points to,
   // not the link, and keep its permissions.
   const target = fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath;
