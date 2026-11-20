@@ -27,7 +27,7 @@
 
 - `desktop/claude-code/permission-voice.ts` — hook `PermissionRequest` (Claude Code 2.1.322). Marshal питає вголос, слухає і повертає `allow`/`deny` або нічого (тоді показується звичайний prompt у сесії). `classifyPermissionAnswer` (`permission-voice.ts:86`) — **дозвільний** класифікатор: будь-яке слово «ні/не/стоп» дає deny; коротка відповідь (до 5 слів) зі словом «так/давай» дає allow. Для грошей і відправки він занадто м'який (див. §5).
 - `isVoicePermission` (`permission-voice.ts:109`) виключає `AskUserQuestion` і `ExitPlanMode`. Решта інструментів, включно з `Bash`, іде голосом.
-- Hook встановлюється глобально через `hook-installer.ts`: `HOOK_EVENTS = ["Stop", "Notification"]`, плюс `PERMISSION_EVENT = "PermissionRequest"`. Тобто hook діє на **всі** сесії, включно з `general`.
+- Hook встановлюється глобально через `hook-installer.ts`: `HOOK_EVENTS = ["Stop", "Notification"]`, плюс синхронні `SYNC_EVENTS = ["PermissionRequest", "Elicitation"]` (#381). Тобто hook діє на **всі** сесії, включно з `general`.
 - **Непідтверджено:** у режимі `bypassPermissions` Claude Code не показує prompt, тож `PermissionRequest` не має спрацьовувати. Це треба перевірити наживо до того, як на нього спиратися (див. етап 0).
 
 Наслідок: голосове «так» на дії `general` працює **лише** якщо `general` у режимі `default` або `auto`, і тоді на кожен Bash-виклик, що потребує дозволу, піде питання вголос.

@@ -55,3 +55,21 @@ describe("SpeechQueue.has", () => {
     expect(queue.has("session:waiting")).toBe(false);
   });
 });
+
+describe("describeWaiting names a lone question's session (#381)", () => {
+  it("says the session and project when one session waits for an answer", () => {
+    expect(describeWaiting([{ project: "marshal", question: true, name: "release-check" }], "uk"))
+      .toBe("У проєкті marshal сесія release check чекає відповіді.");
+    expect(describeWaiting([{ project: "marshal", question: true, name: "release-check" }], "en"))
+      .toBe("In marshal, session release check needs an answer.");
+  });
+
+  it("keeps the count when several sessions wait, or no name is known", () => {
+    expect(describeWaiting([
+      { project: "marshal", question: true, name: "a" },
+      { project: "marshal", question: true, name: "b" }
+    ], "en")).toBe("In marshal, two sessions need an answer.");
+    expect(describeWaiting([{ project: "marshal", question: true }], "en")).toBe("In marshal, one session needs an answer.");
+  });
+});
+
