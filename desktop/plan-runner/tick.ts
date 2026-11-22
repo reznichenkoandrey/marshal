@@ -74,15 +74,21 @@ export function stepPrompt(plan: Pick<Plan, "title" | "limits">, step: PlanStep)
     ...(step.check === null ? [] : [`Done when: ${step.check}`]),
     `Rules: work only inside this folder. ${FORBIDDEN_RULE} ` +
       "If you need a decision from the owner, do not guess: ask one question and stop.",
-    "End your reply with one last line, exactly one of:\nPLAN-STEP: done\nPLAN-STEP: failed\nPLAN-STEP: question"
+    // The step id in the marker ties an answer to its step: a late answer to a repeated prompt is not the next step's result.
+    `End your reply with one last line, exactly one of:\nPLAN-STEP ${step.id}: done\nPLAN-STEP ${step.id}: failed\nPLAN-STEP ${step.id}: question`
   ].join("\n\n");
+}
+
+/** The marker on the last line of a session's answer: the outcome and the step it names (null when it names none). */
+export function readMarker(answer: string): { outcome: StepOutcome; stepId: string | null } | null {
+  const last = answer.trimEnd().split(/\r?\n/u).at(-1) ?? "";
+  const match = /^PLAN-STEP(?:\s+([A-Za-z0-9_-]+))?:\s*(done|failed|question)$/iu.exec(last.replace(/[`*]/gu, "").trim());
+  return match ? { outcome: match[2].toLowerCase() as StepOutcome, stepId: match[1] ?? null } : null;
 }
 
 /** The outcome the session declared on the last line of its answer, or null when it did not. */
 export function parseMarker(answer: string): StepOutcome | null {
-  const last = answer.trimEnd().split(/\r?\n/u).at(-1) ?? "";
-  const match = /^PLAN-STEP:\s*(done|failed|question)$/iu.exec(last.replace(/[`*_]/gu, "").trim());
-  return match ? (match[1].toLowerCase() as StepOutcome) : null;
+  return readMarker(answer)?.outcome ?? null;
 }
 
 const squash = (text: string): string => text.toLowerCase().replace(/\s+/gu, " ").trim();
@@ -109,7 +115,9 @@ function findSession(lane: PlanLane, sessions: readonly SessionFact[]): Lookup {
 }
 
 export function tick(current: Plan, facts: TickFacts): TickResult {
-  if (current.status !== "running") return { plan: current, actions: [], changed: false };
+  if (current.status !== "running" && current.status !== "paused") return { plan: current, actions: [], changed: false };
+  // A paused plan sends nothing, but a step that was in flight may still report its result.
+  if (current.status === "paused" && !facts.results?.length) return { plan: current, actions: [], changed: false };
   const plan = structuredClone(current);
   const actions: PlanAction[] = [];
   const { now } = facts;
@@ -137,8 +145,10 @@ export function tick(current: Plan, facts: TickFacts): TickResult {
   // 1. Results declared by the sessions.
   for (const result of facts.results ?? []) {
     const step = steps.get(result.stepId);
-    if (!step || (step.state !== "running" && step.state !== "blocked")) continue;
+    // A step in `question` reports again once the owner answered it in the session.
+    if (!step || (step.state !== "running" && step.state !== "blocked" && step.state !== "question")) continue;
     if (result.outcome === "done") {
+      step.question = null;
       step.state = "done";
       step.reason = null;
       step.finishedAt = now;
@@ -155,6 +165,15 @@ export function tick(current: Plan, facts: TickFacts): TickResult {
     } else {
       fail(step, "fix-rounds-exhausted");
     }
+  }
+
+  if (plan.status === "paused") {
+    holdDependents(plan.steps);
+    if (plan.steps.every((step) => TERMINAL.includes(step.state))) {
+      plan.status = "done";
+      actions.push({ type: "finish" });
+    }
+    return { plan, actions, changed: true };
   }
 
   // 2. What the registry says about steps in flight.

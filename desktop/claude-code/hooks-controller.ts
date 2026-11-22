@@ -60,8 +60,8 @@ export class ClaudeHooksController {
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
   private ignoredFolder: string | null = null;
+  private readonly stopListeners: Array<(sessionId: string, lastMessage: string) => void> = [];
   private readonly quietFolders = new Set<string>();
-  private readonly stopListeners: Array<(sessionId: string) => void> = [];
   private readonly chromeGuard: ChromeGuard;
 
   constructor(
@@ -101,7 +101,7 @@ export class ClaudeHooksController {
       if (event.cwd && this.quietFolders.has(path.resolve(event.cwd))) return;
       void this.notifier.handle(event);
       this.onSessionEvent();
-      if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId);
+      if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId, event.lastMessage);
       // A finished turn is when "what it is doing now" changes.
       if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
@@ -124,8 +124,8 @@ export class ClaudeHooksController {
     });
   }
 
-  /** Called with the session id on every finished turn (Stop hook), for reminders after a session (#270). */
-  onSessionStop(listener: (sessionId: string) => void): void {
+  /** Called with the session id and its last answer on every finished turn (Stop hook): reminders after a session (#270), plan steps (#278). */
+  onSessionStop(listener: (sessionId: string, lastMessage: string) => void): void {
     this.stopListeners.push(listener);
   }
 
