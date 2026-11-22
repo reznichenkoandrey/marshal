@@ -395,6 +395,19 @@ const meetingHistoryApi = {
 
 contextBridge.exposeInMainWorld("marshalMeetingHistory", meetingHistoryApi);
 
+// ── Dashboards API (#279) ──
+// Used exclusively by renderer/dashboards.html; its handlers live on that window's webContents.
+const dashboardsApi = {
+  onState: (cb: (event: IpcRendererEvent, state: unknown) => void) =>
+    registerListener<[unknown]>("marshal:dashboards-state", cb),
+  build: (prompt: string) => ipcRenderer.invoke("marshal:dashboards:build", { prompt }),
+  refresh: () => ipcRenderer.invoke("marshal:dashboards:refresh"),
+  pickFolder: () => ipcRenderer.invoke("marshal:dashboards:pick-folder"),
+  close: () => ipcRenderer.invoke("marshal:dashboards:close")
+};
+
+contextBridge.exposeInMainWorld("marshalDashboards", dashboardsApi);
+
 // ── Live captions API ──
 // The overlay is a view only: main pushes fully rendered updates. The
 // renderer reports the pointer over its header bar (hover, drag) and has one
@@ -546,6 +559,7 @@ declare global {
     marshalMeeting: typeof meetingApi;
     marshalMeetingHistory: typeof meetingHistoryApi;
     marshalCaptions: typeof captionsApi;
+    marshalDashboards: typeof dashboardsApi;
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
     marshalAssistant: typeof assistantApi;
