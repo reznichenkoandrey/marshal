@@ -131,6 +131,7 @@ describe("saveSettings", () => {
       claudeCodeSummaryLanguage: "en",
       claudeCodeContextRouting: false,
       claudeCodeRoutingRoots: "~/htdocs",
+      automationIdeas: false,
       claudeCodeRemoteSessions: true,
       claudeCodeRemoteHosts: "devbox: ~/code",
       dictationAutoPaste: true,

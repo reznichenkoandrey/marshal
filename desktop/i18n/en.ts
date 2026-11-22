@@ -342,6 +342,8 @@ export const en = {
   "settings.routeACommandThatNames": "Tell the assistant what each session works on",
   "settings.keepsA3LineSummary": "Keeps a 3-line summary of each live session in the allowed folders (built from its recent turns, at most every 10 minutes). The voice assistant\'s dispatcher uses it to pick the session for a command that names none.",
   "settings.foldersWhoseSessionsMayBe": "Folders whose sessions may be read",
+  "settings.automationIdeas": "Look for requests I repeat",
+  "settings.automationIdeasHint": "Once a week Marshal reads your own prompts from the last 7 days of sessions in the folders above and keeps the repeated ones as candidates for a skill. Nothing leaves this Mac. Off by default.",
   "settings.remoteSessions": "List sessions on other machines over ssh (read-only)",
   "settings.remoteHosts": "Allowed hosts and their folders",
   "settings.remoteHostsHint": "One host per line: an alias from ~/.ssh/config, a colon, then folders on that host (devbox: ~/code, /srv/app). Only sessions under those folders are listed, as name@host, when this window or the tray menu opens. Marshal runs the system ssh, stores no key or password, never accepts a new host key and changes nothing on the host. Off or empty: no connection is made.",
