@@ -957,6 +957,39 @@
   без відповіді, а не вгадується), тоді `smart-browser login <project>/<env>/<role>`. Тести —
   `tests/smart-hub.test.ts`, у них і підставний хаб, що пише port/token 0600 і відповідає лише на
   правильний токен.
+- **Scheduled workflows, етап 1 — `desktop/workflows/`** (#280, spec — `docs/SCHEDULED_WORKFLOWS.md`).
+  Workflow — запуск `claude -p` за cron-розкладом, локально і під логіном власника. Поки є лише ядро:
+  definition пишеться руками, результат іде тільки в журнал. Побудови з тексту, озвучення, нотифікацій
+  і вікна ще немає (етапи 2–4). Файли — `<userData>/workflows/`: `definitions.json`
+  (`{ "schemaVersion": 1, "workflows": [...] }`), `state.json` (`nextRunAt`, лічильник запусків за день,
+  збої поспіль), `runs/<id>.ndjson` (рядок на запуск або пропуск, 2 МБ, далі ротація в `<id>.1.ndjson`),
+  `memory/<id>.json`. Запис атомарний (tmp + `rename`). Файл, що не парситься, переноситься в
+  `*.corrupt-<ts>`; невалідний запис пропускається з причинами в лог, решта працює.
+  **Один `setTimeout` до найближчого запуску** (`WorkflowScheduler.rearm`, `scheduler.ts`), не tick і не
+  `TimedReminderStore`: той тікає раз на 30 с, а spec tick відкидає (#281). Без увімкнених workflow
+  таймера немає. Запуск далі ніж за добу досягається перевзведенням раз на добу. `rearm()` викликають
+  старт Marshal, `powerMonitor` `resume` і сам таймер; **файл definitions читається лише тоді**, тож
+  правка руками діє після наступного `rearm` (рестарт, пробудження або найближчий запуск).
+  **Cron — власний розбір** (`cron.ts`: п'ять числових полів, списки, діапазони, кроки; імен днів і
+  `@daily` немає) у часовому поясі з definition. Час у весняній «дірці» DST запускається одразу після
+  неї, час, що повторюється восени, — один раз. `dom` і `dow`, обмежені обидва, з'єднуються через «або».
+  **Пропущений запуск** (`decideDue`): `catchUp: "once"` — запізнення до 30 хв дає один запуск, більше
+  — запис `skipped: slept`; `"skip"` — запуск лише вчасно (до 1 хв). Кілька пропущених слотів зливаються
+  в один. Дефолт: `skip` для правила з однією годиною й хвилиною, `once` для решти. `runAtStart` запускає
+  на старті Marshal. Ще пропуски: `overlap` (попередній запуск іще йде) і `daily-cap` (`maxRunsPerDay`,
+  дефолт 24, день рахується в поясі workflow). Три збої поспіль ставлять `paused: "failing"` у
+  `state.json`; зняти паузу — вимкнути й увімкнути workflow (`enabled`), стан вимкненого стирається.
+  **Лише читання** (`definition.ts`, перевірка при завантаженні): tool проходить, якщо у власному імені
+  (не в імені сервера) є слово `get / list / read / search / query / fetch` і немає `create / update /
+  delete / write / send / post / merge / close / set`, або це `Read`, `Grep`, `Glob`. Маски й аргументи
+  (`mcp__x__*`, `Bash(git:*)`) відхиляються, MCP-tool вимагає свій сервер у `mcpServers`.
+  **`writes: true` у файлі відхиляється завжди**: записувальний доступ дасть лише клік у вікні (етап 4).
+  Запуск (`runner.ts`): `claude -p --output-format json --model <model> --permission-mode dontAsk
+  --allowedTools …`, промпт через stdin, env без `ANTHROPIC_*` (#322) і без session env Claude desktop
+  (#388), бінарник — `MARSHAL_CLAUDE_BIN`. Таймаут (`timeoutMs`, дефолт 10 хв) — SIGTERM, через 5 с
+  SIGKILL. Пам'ять читається лише з тим самим `memoryKey` (хеш промпту й списку tools): змінили їх —
+  стара пам'ять не передається. Запис пам'яті з виводу з'явиться разом із контрактом (етап 3).
+  Тести — `tests/workflows-definition.test.ts`, `tests/workflows-scheduler.test.ts`.
 - **Plan runner — `desktop/plan-runner/`** (#278, `docs/PLAN_RUNNER.md`). Поки що лише Етапи 0 і 1 зі
   спеки: логіка і сховище. **Жодної сесії цей код не запускає і нічого нікуди не шле**: до `main.ts`,
   диспетчера й hooks він не підключений, таймерів і процесів немає (#281). План — файл
