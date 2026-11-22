@@ -3920,8 +3920,9 @@ async function assistantVoiceAction(action: string): Promise<string> {
         : t("Plan runner недоступний.", "The plan runner is not available.");
       break;
     default:
-      return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, brainstorm, board-close, skip, next-meeting, join-meeting.`;
       return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, brainstorm, board-close, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
+      return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
   }
   sayAsAssistant(reply);
   return reply;
