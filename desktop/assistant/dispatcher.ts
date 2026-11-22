@@ -8,6 +8,7 @@ import fs from "node:fs";
 import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ClaudeSession } from "../claude-code/registry.ts";
 import type { AssistantRoutes } from "../claude-code/hook-service.ts";
@@ -16,6 +17,8 @@ import { readSessionSetup, setupMismatch } from "../claude-code/desktop-session.
 import { harborCall, type HarborRequest, type HarborResponse } from "../claude-code/harbor.ts";
 import { desktopSessionLink } from "../claude-code/focus.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
+import { actionLogLine, classifyAction, actionDecision, generalSettings, type GateContext } from "../computer-control/action-gate.ts";
+import { asarUnpacked } from "../utils/asar-paths.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import type { CommandRoute } from "./command-log.ts";
 import { markVoice } from "./voice-timing.ts";
@@ -93,6 +96,11 @@ export function unregisteredOwnSessions(
       statusUpdatedAt: null
     })));
 }
+
+// The read-only gate on `general` (#460); `MARSHAL_GENERAL_GATE=off` starts it ungated, as before.
+export const generalGateEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.MARSHAL_GENERAL_GATE?.trim().toLowerCase() !== "off";
+const FOCUS_PROBE = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "..", "dictation", "focus-probe");
+const ACTION_LOG_MAX_BYTES = 512 * 1024;
 
 // Where Claude Code opens a session's messaging socket (`messagingSocketPath` in the registry).
 const SOCKETS_DIR = "/tmp/cc-socks";
@@ -235,6 +243,40 @@ export class AssistantDispatcher implements AssistantRoutes {
 
   private get generalPromptPath(): string {
     return path.join(this.assistantDir, "general-prompt.md");
+  }
+
+  private get generalSettingsPath(): string {
+    return path.join(this.assistantDir, "general-settings.json");
+  }
+
+  /** Every tool call of `general` and the gate's verdict, one JSON line each (#460). */
+  get actionLogPath(): string {
+    return path.join(this.assistantDir, "action-log.jsonl");
+  }
+
+  private gateContext(): GateContext {
+    const roots = [this.generalDir(), ...this.deps.settings().routingRoots, path.join(this.deps.userDataDir, "capture-history")];
+    return { helperPath: this.helperPath, probePath: FOCUS_PROBE, home: os.homedir(), readRoots: roots.map((root) => path.resolve(root)) };
+  }
+
+  private gateAction(body: string): string {
+    const context = this.gateContext();
+    try {
+      // Half the file goes once it is full: the log is for the owner to read, not an archive.
+      if (fs.statSync(this.actionLogPath).size > ACTION_LOG_MAX_BYTES) {
+        const kept = fs.readFileSync(this.actionLogPath, "utf8").split("\n");
+        fs.writeFileSync(this.actionLogPath, kept.slice(Math.floor(kept.length / 2)).join("\n"));
+      }
+    } catch {
+      // No log yet.
+    }
+    try {
+      fs.mkdirSync(this.assistantDir, { recursive: true });
+      fs.appendFileSync(this.actionLogPath, actionLogLine(body, classifyAction(body, context), new Date()), { mode: 0o600 });
+    } catch (err) {
+      this.deps.log?.(`[assistant] action log: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return actionDecision(body, context);
   }
 
   generalDir(): string {
@@ -476,6 +518,10 @@ export class AssistantDispatcher implements AssistantRoutes {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(refusal ?? "allow");
       return;
     }
+    if (method === "POST" && route === "gate-action") {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(this.gateAction(body));
+      return;
+    }
     void this.answer(method, route, parseHelperArgs(body))
       .then((reply) => {
         if (reply === null) res.writeHead(404).end();
@@ -611,7 +657,8 @@ export class AssistantDispatcher implements AssistantRoutes {
     const dir = this.generalDir();
     fs.mkdirSync(dir, { recursive: true });
     this.trust(dir);
-    await this.open(dir, generalCommandLine(this.generalPromptPath, this.deps.settings().generalMode), GENERAL_NAME);
+    const settingsFile = generalGateEnabled() ? this.generalSettingsPath : undefined;
+    await this.open(dir, generalCommandLine(this.generalPromptPath, this.deps.settings().generalMode, settingsFile), GENERAL_NAME);
   }
 
   private async open(cwd: string, commandLine: string, title: string, minimised = true): Promise<void> {
@@ -645,7 +692,8 @@ export class AssistantDispatcher implements AssistantRoutes {
     fs.writeFileSync(path.join(this.dispatcherDir, ".claude", "settings.json"), `${JSON.stringify(DISPATCHER_SETTINGS, null, 2)}\n`);
     fs.writeFileSync(this.helperPath, buildHelperScript(this.deps.hookDir()), { mode: 0o700 });
     fs.chmodSync(this.helperPath, 0o700);
-    fs.writeFileSync(this.generalPromptPath, buildGeneralPrompt(this.helperPath));
+    fs.writeFileSync(this.generalPromptPath, buildGeneralPrompt(this.helperPath, FOCUS_PROBE, generalGateEnabled()));
+    fs.writeFileSync(this.generalSettingsPath, `${JSON.stringify(generalSettings(this.helperPath, this.deps.settings().generalMode === "bypass"), null, 2)}\n`);
   }
 
   /** Marks the folder trusted in ~/.claude.json, once, with an atomic replace. */
