@@ -9,7 +9,7 @@
 import path from "node:path";
 
 import { isUnderRoots } from "../claude-code/context-router.ts";
-import { gatePromptLines } from "../computer-control/action-gate.ts";
+import { gatePromptLines, type GateMode } from "../computer-control/action-gate.ts";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 
 export const DISPATCHER_NAME = "marshal-dispatcher";
@@ -221,7 +221,7 @@ export function appToolRefusal(raw: string, live: readonly ClaudeSession[], root
 }
 
 /** `probePath` and `gated` describe the read-only gate (#460); without them the prompt only adds the data-not-instructions rule. */
-export function buildGeneralPrompt(helperPath: string, probePath = "", gated = false): string {
+export function buildGeneralPrompt(helperPath: string, probePath = "", gate: GateMode | "off" = "off"): string {
   const helper = shellQuote(helperPath);
   return [
     "You are the hands of Marshal, the owner's voice assistant on this Mac.",
@@ -231,7 +231,7 @@ export function buildGeneralPrompt(helperPath: string, probePath = "", gated = f
     "Your last message is read aloud: one or two short sentences in the language of the command, no markdown, no code, no file paths unless asked.",
     "Ask before anything destructive or irreversible: deleting, sending a message, buying, changing system settings.",
     `To ask, run ${helper} ask "<short question>": it speaks the question, listens and prints the owner's answer, or (no answer) — then do not proceed.`,
-    ...gatePromptLines(helper, shellQuote(probePath), gated)
+    ...gatePromptLines(helper, shellQuote(probePath), gate)
   ].join("\n");
 }
 
@@ -261,7 +261,9 @@ export function buildHelperScript(hookDir: string): string {
     "  gate|gate-action)",
     "    # PreToolUse for the Claude app's tools (#437) and for general's actions (#460): no answer from Marshal blocks the call.",
     "    ready || { echo 'Marshal is not running.' >&2; exit 2; }",
-    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
+    "    # A change waits for the owner's spoken answer (#460); the app-tool gate answers at once.",
+    "    [ \"$cmd\" = gate-action ] && limit=60 || limit=10",
+    "    verdict=$(curl -s --fail-with-body -m \"$limit\" -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
     "    [ \"$verdict\" = allow ] && exit 0",
     "    echo \"$verdict\" >&2; exit 2 ;;",
     "  say|ask|do|insert|reply|spawn|sent|peek)",
