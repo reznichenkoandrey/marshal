@@ -141,6 +141,8 @@ function sessionButton(session) {
   button.type = "button";
   button.dataset.pid = String(session.pid);
   button.dataset.status = session.status ?? "idle";
+  // A session on another machine is listed only: there is nothing here to focus (#288).
+  if (session.remote) button.disabled = true;
   const tag = t(`home.status.${SESSION_STATUSES.has(session.status) ? session.status : "idle"}`);
   button.title = session.waitingFor ? `${session.name} — ${session.waitingFor}` : session.name;
   const label = el("span");
@@ -152,7 +154,8 @@ function sessionButton(session) {
 
 // Waiting sessions are the alerts that block work; what Marshal said is info.
 function alerts() {
-  const waiting = groups.flatMap(({ sessions }) => sessions).filter((session) => session.status === "waiting");
+  // Remote sessions are listed as of the last fetch, so they never raise an alert (#288).
+  const waiting = groups.flatMap(({ sessions }) => sessions).filter((session) => session.status === "waiting" && !session.remote);
   return [
     ...waiting.map((session) => {
       const permission = /permission|дозв/i.test(session.waitingFor ?? "");
@@ -238,7 +241,7 @@ function signed(value) {
 }
 
 function renderMetrics() {
-  const all = groups.flatMap(({ sessions }) => sessions);
+  const all = groups.flatMap(({ sessions }) => sessions).filter((session) => !session.remote);
   const waiting = all.filter((session) => session.status === "waiting").length;
   setMetric("sessions", String(all.length), t("home.metric.sessions", { waiting }));
 
