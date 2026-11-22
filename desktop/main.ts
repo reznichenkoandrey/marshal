@@ -12,6 +12,8 @@ import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
 import { CaptureWindow } from "./capture/capture-window.ts";
 import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
+import { parseDeckRequest } from "./decks/deck-generator.ts";
+import { DeckWindow } from "./decks/deck-window.ts";
 import { CaptureArchive } from "./capture/capture-archive.ts";
 import { pickProfile, readProfiles, SmartHubService, type HubProfile, type HubState } from "./smart-tools/hub.ts";
 import { SmartHubWindow } from "./smart-tools/hub-window.ts";
@@ -185,6 +187,7 @@ let screenshotService: ScreenshotService | null = null;
 let captureService: CaptureService | null = null;
 let captureWindow: CaptureWindow | null = null;
 let captureHistoryWindow: CaptureHistoryWindow | null = null;
+let deckWindow: DeckWindow | null = null;
 let captureArchive: CaptureArchive | null = null;
 // The archive entry the open editor is backed by, so annotating and then
 // copying updates that one entry instead of leaving the original plus a
@@ -1346,6 +1349,7 @@ async function performTeardown(): Promise<void> {
   workflows?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
+  deckWindow?.close();
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
@@ -2434,6 +2438,10 @@ function buildCaptureSubmenu(): Electron.MenuItemConstructorOptions[] {
     {
       label: t("tray.captureHistory"),
       click: () => captureHistoryWindow?.open()
+    },
+    {
+      label: t("tray.decks"),
+      click: () => openDeckWindow().open()
     },
     {
       label: t(floatingToolbar?.isOpen() ? "tray.hideToolbar" : "tray.showToolbar"),
@@ -3678,6 +3686,29 @@ function hubUnavailable(kind: Exclude<HubState["kind"], "running">): string {
   return uk ? "Хаб не запустився." : "The hub did not start.";
 }
 
+function openDeckWindow(): DeckWindow {
+  return (deckWindow ??= new DeckWindow(preloadPath, app.getPath("userData")));
+}
+
+/**
+ * `./marshal do deck <words>` (#277). Answers at once and builds in the
+ * background: the helper's request times out long before a deck is done.
+ */
+function buildDeckByVoice(words: string): string {
+  const request = parseDeckRequest(words);
+  if (!request) return t("deck.voice.noTopic");
+  if (!DeckWindow.canBuild()) return t("deck.voice.noModel");
+  void openDeckWindow()
+    .build(request)
+    .then((state) => {
+      // Null: the owner closed the window, so there is nothing to announce.
+      if (!state) return;
+      const built = state.slides.filter((slide) => slide.document).length;
+      sayAsAssistant(built > 0 && !state.error ? t("deck.voice.ready", { n: built }) : t("deck.voice.failed", { n: built }));
+    });
+  return t("deck.voice.building", { n: request.slideCount });
+}
+
 async function assistantVoiceAction(action: string): Promise<string> {
   const uk = uiLanguage() === "uk";
   const t = (ukText: string, enText: string) => (uk ? ukText : enText);
@@ -3721,6 +3752,13 @@ async function assistantVoiceAction(action: string): Promise<string> {
     case "capture":
       runAssistantAction("capture");
       reply = t("Виділи область.", "Select an area.");
+      break;
+    case "deck":
+      reply = buildDeckByVoice(rest.join(" "));
+      break;
+    case "decks":
+      openDeckWindow().open();
+      reply = t("Відкрив слайди.", "The deck is open.");
       break;
     case "settings":
       runAssistantAction("settings");

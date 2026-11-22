@@ -62,6 +62,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - record the call or meeting, or stop that recording ("запиши дзвінок", "зупини запис") → \`./marshal do record-call\`; with the screen ("запиши екран") → \`./marshal do record-screen\`
    - the list of recorded meetings → \`./marshal do recordings\`
    - a screenshot of an area ("скрін", "знімок екрана") → \`./marshal do capture\`
+   - a slide deck or presentation ("зроби 5 слайдів про …", "презентація про …", "make a deck about …") → \`./marshal do deck <what the owner said about the deck: the topic and the number of slides, without the routing words>\`. Marshal builds it in its own window and says when it is ready; open the last deck ("покажи слайди", "open the deck") → \`./marshal do decks\`
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
    - Marshal's settings → \`./marshal do settings\`

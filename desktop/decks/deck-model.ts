@@ -38,7 +38,7 @@ export interface Deck {
 }
 
 export type DeckOp =
-  | { op: "deck"; title: string; theme?: DeckTheme; language?: DeckLanguage }
+  | { op: "deck"; title: string; theme?: DeckTheme; language?: DeckLanguage; outline?: string[] }
   | { op: "slide"; index: number; layout: SlideLayout; html: string; notes: string };
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -84,7 +84,14 @@ export function parseDeckOp(raw: unknown): Checked<DeckOp> {
         op: "deck",
         title: clip(raw.title, MAX_TITLE_CHARS),
         theme: oneOf(DECK_THEMES, raw.theme),
-        language: oneOf(DECK_LANGUAGES, raw.language)
+        language: oneOf(DECK_LANGUAGES, raw.language),
+        // Slide titles announced ahead of the slides; shown while they build, not stored.
+        outline: Array.isArray(raw.outline)
+          ? raw.outline
+              .filter((title): title is string => typeof title === "string")
+              .slice(0, MAX_SLIDES)
+              .map((title) => clip(title, MAX_TITLE_CHARS))
+          : undefined
       }
     };
   }
