@@ -38,6 +38,7 @@ const DOCK_ACTIVE = { translator: "translator", captions: "captions", "record-ca
 
 let state = "idle";
 let lines = [];
+let ideas = [];
 let groups = [];
 let stripView = null;
 let features = [];
@@ -203,6 +204,58 @@ function renderSide() {
   count.textContent = items.length ? String(urgent || items.length) : "";
   count.dataset.urgent = String(urgent > 0);
 }
+
+// Skill proposals from repeated requests (#273). Everything is model or prompt text: textContent only.
+function renderIdeas() {
+  document.getElementById("ideas").hidden = ideas.length === 0;
+  document.getElementById("ideas-count").textContent = ideas.length ? String(ideas.length) : "";
+  document.getElementById("ideas-list").replaceChildren(
+    ...ideas.map((idea) => {
+      const item = el("li");
+      item.dataset.idea = idea.id;
+      const steps = el("ol");
+      steps.append(...idea.steps.map((step) => el("li", "", step)));
+      const evidence = el("details");
+      const said = el("ul");
+      said.append(...idea.evidence.map((text) => el("li", "", text)));
+      evidence.append(el("summary", "", t("ideas.evidence")), said);
+      const row = el("div", "row");
+      for (const decision of ["create", "later", "never"]) {
+        const button = el("button", "join", t(`ideas.${decision}`));
+        button.type = "button";
+        button.dataset.decision = decision;
+        button.dataset.name = idea.name;
+        row.append(button);
+      }
+      item.append(
+        el("b", "", idea.name),
+        el("p", "", idea.description),
+        el("p", "sub", t("ideas.repeats", { count: idea.count, days: idea.days })),
+        steps,
+        evidence,
+        row
+      );
+      return item;
+    })
+  );
+}
+
+document.getElementById("ideas-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-decision]");
+  if (!button) return;
+  // Writing under ~/.claude/skills takes a second click on the named path.
+  if (button.dataset.decision === "create" && !button.dataset.armed) {
+    button.dataset.armed = "true";
+    button.textContent = t("ideas.confirm", { name: button.dataset.name });
+    return;
+  }
+  const item = button.closest("li");
+  const result = await api?.decideIdea(item.dataset.idea, button.dataset.decision).catch(() => ({ ok: false }));
+  if (result && !result.ok && result.error) {
+    item.querySelector(".error")?.remove();
+    item.append(el("p", "error", result.error));
+  }
+});
 
 const SYMBOLS = { commandorcontrol: "⌘", cmdorctrl: "⌘", command: "⌘", cmd: "⌘", alt: "⌥", option: "⌥", shift: "⇧", control: "⌃", ctrl: "⌃" };
 
@@ -422,12 +475,14 @@ api?.onState((_event, payload) => {
   if (Array.isArray(payload.lines)) lines = payload.lines.filter((value) => typeof value === "string");
   if (Array.isArray(payload.sessions)) groups = payload.sessions;
   if (Array.isArray(payload.features)) features = payload.features;
+  if (Array.isArray(payload.ideas)) ideas = payload.ideas;
   if (payload.commands) commands = payload.commands;
   state = normalizeState(payload.state);
   if (payload.strip) stripView = payload.strip;
   updatedAt = Date.now();
   render();
   renderSide();
+  renderIdeas();
   renderStrip();
   renderFeatures();
   renderCommands();
