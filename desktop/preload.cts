@@ -513,6 +513,7 @@ type AssistantPayload = {
     widget: boolean;
   };
   cards?: { pid: number; name: string; waitingFor: string | null }[];
+  ideas?: { id: string; name: string; description: string; steps: string[]; count: number; days: number; evidence: string[] }[];
 };
 const assistantApi = {
   onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>
@@ -522,6 +523,8 @@ const assistantApi = {
   // Main asks the home to open its settings view (tray, voice "settings", #317).
   onShowSettings: (cb: () => void) => registerListener<[]>("marshal:assistant-show-settings", () => cb()),
   focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid }),
+  // Skill proposal from repeated requests (#273): "create" | "later" | "never".
+  decideIdea: (id: string, decision: string) => ipcRenderer.invoke("marshal:assistant:idea", { id, decision }),
   // Mini widget (#285): window position while dragging; `done` on release saves it.
   moveWidget: (x: number, y: number, done: boolean) => ipcRenderer.invoke("marshal:assistant:widget-move", { x, y, done })
 };

@@ -244,10 +244,10 @@ describe("scanTranscripts", () => {
   it("keeps the owner's earlier decisions across scans", async () => {
     const projectsDir = setup();
     const storePath = path.join(dir, "automation-ideas.json");
-    fs.writeFileSync(storePath, JSON.stringify({ scannedAt: 1, candidates: [], rejected: ["run-tests"], created: ["commit-pr"] }));
+    fs.writeFileSync(storePath, JSON.stringify({ scannedAt: 1, candidates: [], rejected: [{ name: "run-tests", texts: ["x"], at: 1 }, "junk"], created: [] }));
     writeIdeasStore(storePath, await scanTranscripts({ roots: ROOTS, projectsDir, now: NOW }));
     const store = readIdeasStore(storePath);
-    expect(store).toMatchObject({ scannedAt: NOW, rejected: ["run-tests"], created: ["commit-pr"] });
+    expect(store).toMatchObject({ scannedAt: NOW, rejected: [{ name: "run-tests", texts: ["x"], at: 1 }], created: [], proposals: [] });
     expect(store?.candidates).toHaveLength(1);
     expect(fs.statSync(storePath).mode & 0o777).toBe(0o600);
   });
