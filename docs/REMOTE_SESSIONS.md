@@ -1,6 +1,6 @@
 # Remote Claude Code sessions (SSH / Tailscale)
 
-Статус: дослідження, код не написано. Issue: #288 (exploratory, `priority:low`). Епік: #275, Phase 5.
+Статус: етап 1 (read-only список через ssh exec) реалізовано в `desktop/claude-code/remote-source.ts`, на живому хості не перевірено; етапи 2–4 не розпочато. Issue: #288 (exploratory, `priority:low`). Епік: #275, Phase 5.
 
 Мета: бачити й керувати сесіями Claude Code, що працюють на іншій машині (dev-сервер, другий Mac), поряд з локальними. Ім'я в registry — `name@host`.
 
