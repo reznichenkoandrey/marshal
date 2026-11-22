@@ -219,6 +219,20 @@
             </button>
 
             <label class="checkbox-row">
+              <input id="settings-assistant-speaker-check" name="assistantSpeakerCheck" type="checkbox" />
+              <span data-i18n="settings.speakerCheck">Only my voice starts a command without a key</span>
+            </label>
+            <p id="settings-assistant-speaker-status" class="field-hint"></p>
+            <button type="button" id="settings-assistant-speaker-install" class="btn btn-secondary" hidden data-i18n="settings.downloadSpeaker">
+              Download voice check model (28 MB)
+            </button>
+            <button type="button" id="settings-assistant-speaker-enrol" class="btn btn-secondary" hidden data-i18n="settings.addOwnVoice">
+              Add my voice from a recording…
+            </button>
+            <button type="button" id="settings-assistant-speaker-erase" class="btn btn-secondary" hidden data-i18n="settings.eraseOwnVoice">
+              Erase my voice print
+            </button>
+            <label class="checkbox-row">
               <input id="settings-workflows-enabled" name="workflowsEnabled" type="checkbox" />
               <span data-i18n="settings.workflowsEnabled">Scheduled workflows</span>
             </label>

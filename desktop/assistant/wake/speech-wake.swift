@@ -17,9 +17,11 @@
 //   status <s>         with --status: installed | supported | unsupported
 //   error <message>    fatal; the process exits 1
 // stdin, one command per line:
-//   hold               main heard the name: keep this stretch open until end/cancel
+//   hold [<path>]      main heard the name: keep this stretch open until end/cancel
 //                      (already closed: `final` with its last text at once)
-//   end                finalize the held stretch, print `final`, listen again
+//   end [<path>]       finalize the held stretch, print `final`, listen again
+//                      With <path> (speaker check, #287) the stretch's audio is written there
+//                      as a 16 kHz mono 16-bit WAV before `final` is printed.
 //   cancel             drop it, listen again
 //   pause | resume     ignore the mic (Marshal speaking, dictation) / listen again
 // EOF on stdin (main gone) stops the helper.
@@ -102,6 +104,8 @@ final class Stretch {
   let reader: Task<Void, Never>
   // Latest text per result range; touched only on `work`.
   var parts: [(start: Double, end: Double, text: String)] = []
+  // The stretch's own audio, for the speaker check (#287); at most the 12 s an unheld stretch lives.
+  var pcm = [Float]()
   var samples = 0
   var quietSamples = 0
   var held = false
@@ -142,8 +146,9 @@ final class Stretch {
     owner = self
   }
 
-  func feed(_ buffer: AVAudioPCMBuffer, count: Int) {
-    samples += count
+  func feed(_ buffer: AVAudioPCMBuffer, pcm chunk: [Float]) {
+    samples += chunk.count
+    pcm.append(contentsOf: chunk)
     input.yield(AnalyzerInput(buffer: buffer))
   }
 
@@ -169,6 +174,20 @@ final class Stretch {
 let work = DispatchQueue(label: "speech-wake")
 var paused = false
 var ring = [Float]()
+// Audio of the stretch that closed on quiet just before main's `hold` arrived.
+var closedPcm = [Float]()
+
+func writeWav(_ samples: [Float], to path: String) {
+  var data = Data()
+  func append<T>(_ value: T) { withUnsafeBytes(of: value) { data.append(contentsOf: $0) } }
+  let bytes = UInt32(samples.count * 2)
+  data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36) + bytes)
+  data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16)); append(UInt16(1)); append(UInt16(1))
+  append(UInt32(sampleRate)); append(UInt32(sampleRate * 2)); append(UInt16(2)); append(UInt16(16))
+  data.append(contentsOf: Array("data".utf8)); append(bytes)
+  for sample in samples { append(Int16(max(-1, min(1, sample)) * Float(Int16.max)).littleEndian) }
+  FileManager.default.createFile(atPath: path, contents: data)
+}
 
 @available(macOS 26.0, *)
 final class Listener {
@@ -214,18 +233,20 @@ final class Listener {
       guard loud else { return }
       // Starts a little before the sound so the first syllable is not cut.
       lastPartial = ""
+      closedPcm = []
       stretch = Stretch { [weak self] changed in self?.report(changed) }
-      if let buffer = convert(ring) { stretch?.feed(buffer, count: ring.count) }
+      if let buffer = convert(ring) { stretch?.feed(buffer, pcm: ring) }
       return
     }
     guard let current = stretch else { return }
-    if let buffer = convert(samples) { current.feed(buffer, count: samples.count) }
+    if let buffer = convert(samples) { current.feed(buffer, pcm: samples) }
     if current.held {
       emit(String(format: "level %.1f", level))
       return
     }
     current.quietSamples = loud ? 0 : current.quietSamples + samples.count
     if current.quietSamples >= quietToCloseSamples || current.samples >= maxUnheldSamples {
+      closedPcm = current.pcm
       current.drop()
       stretch = nil
     }
@@ -240,14 +261,20 @@ final class Listener {
   }
 
   func handle(_ line: String) {
-    switch line {
+    let words = line.split(separator: " ", maxSplits: 1).map(String.init)
+    let clipPath = words.count == 2 ? words[1] : nil
+    switch words.first {
     case "hold":
       // The stretch closed on quiet before main answered: hand back what it heard, main is waiting.
-      guard let current = stretch else { return emit("final \(lastPartial)") }
+      guard let current = stretch else {
+        if let clipPath, !closedPcm.isEmpty { writeWav(closedPcm, to: clipPath) }
+        return emit("final \(lastPartial)")
+      }
       current.held = true
     case "end":
       guard let current = stretch, current.held else { return emit("final") }
       stretch = nil
+      if let clipPath { writeWav(current.pcm, to: clipPath) }
       current.finish { text in emit("final \(text)") }
     case "cancel":
       stretch?.drop()
@@ -255,6 +282,7 @@ final class Listener {
     case "pause":
       paused = true
       ring = []
+      closedPcm = []
       stretch?.drop()
       stretch = nil
     case "resume":

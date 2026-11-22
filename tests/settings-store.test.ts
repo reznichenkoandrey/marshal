@@ -174,6 +174,7 @@ describe("saveSettings", () => {
       assistantAsleep: false,
       workflowsEnabled: false,
       assistantWake: false,
+      assistantSpeakerCheck: false,
       assistantWidget: true,
       assistantWidgetPosition: { x: 1500, y: 40 },
       assistantDispatcher: true,

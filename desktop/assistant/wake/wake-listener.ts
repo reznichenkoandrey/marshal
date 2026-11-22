@@ -39,6 +39,14 @@ const RESTART_DELAY_MS = 3_000;
 // Dying sooner than this after a start is a crash loop (no mic, broken model): no restart.
 const CRASH_LOOP_MS = 10_000;
 
+function tempClip(): string {
+  return path.join(os.tmpdir(), `marshal-wake-${process.pid}-${Date.now()}.wav`);
+}
+
+function removeClip(clip: string | null): void {
+  if (clip) void fs.unlink(clip).catch(() => undefined);
+}
+
 function newEndOfSpeech(): EndOfSpeech {
   return new EndOfSpeech({ ...endOfSpeechOptions(), noSpeechMs: NAME_PAUSE_MS });
 }
@@ -147,6 +155,11 @@ export type WakeListenerDeps = {
   onNameOnly: () => void;
   /** Drives the assistant state: hearing the command, then transcribing it. */
   onPhase: (phase: { dictating: boolean; transcribing: boolean }) => void;
+  /**
+   * Speaker check (#287): asked about every candidate that is a command, with the candidate's
+   * clip (null when the helper kept no audio). False drops the command without a word.
+   */
+  speaker?: { enabled: () => boolean; verify: (clip: string | null) => Promise<boolean> };
   /** `sherpa` when omitted. */
   engine?: WakeEngine;
   binPath?: string;
@@ -169,6 +182,8 @@ export class WakeListener {
   // After the name alone: the next thing said is the command, no name needed (#433).
   private followUpUntil = 0;
   private followUp = false;
+  // apple engine: where the helper writes the held stretch's audio for the speaker check (#287).
+  private clipPath: string | null = null;
 
   constructor(private readonly deps: WakeListenerDeps) {}
 
@@ -266,12 +281,16 @@ export class WakeListener {
       this.beginCapture();
       this.heldText = text;
       this.heldAt = this.activityAt = Date.now();
-      this.send("hold");
+      this.clipPath = this.deps.speaker?.enabled() ? tempClip() : null;
+      this.send(this.clipPath ? `hold ${this.clipPath}` : "hold");
       return;
     }
     if (line === "final" || line.startsWith("final ")) {
       const text = line.slice("final".length).trim();
-      if (this.capturing) void this.handleCandidate(async () => text, this.followUp);
+      const clip = this.clipPath;
+      this.clipPath = null;
+      if (this.capturing) void this.handleCandidate(async () => text, this.followUp, clip).finally(() => removeClip(clip));
+      else removeClip(clip);
       return;
     }
     const db = parseMeterLine(line);
@@ -279,7 +298,7 @@ export class WakeListener {
       if (this.heldAt && this.heldEnded(db, Date.now())) {
         if (DEBUG) console.log(`[wake] end ${JSON.stringify(this.heldText)}`);
         this.heldAt = 0;
-        this.send("end");
+        this.send(this.clipPath ? `end ${this.clipPath}` : "end");
       }
       return;
     }
@@ -292,13 +311,13 @@ export class WakeListener {
       }
       if (this.endOfSpeech?.feed(db, Date.now())) {
         this.endOfSpeech = null;
-        this.send(`end ${path.join(os.tmpdir(), `marshal-wake-${process.pid}-${Date.now()}.wav`)}`);
+        this.send(`end ${tempClip()}`);
       }
       return;
     }
     if (line.startsWith("clip ")) {
       const wavPath = line.slice("clip ".length);
-      void this.handleCandidate(() => this.deps.transcribe(wavPath)).finally(() => fs.unlink(wavPath).catch(() => undefined));
+      void this.handleCandidate(() => this.deps.transcribe(wavPath), false, wavPath).finally(() => removeClip(wavPath));
       return;
     }
     if (line.startsWith("error ")) console.warn(`[wake] ${line}`);
@@ -324,7 +343,7 @@ export class WakeListener {
     this.deps.onPhase({ dictating: true, transcribing: false });
   }
 
-  private async handleCandidate(transcribe: () => Promise<string>, followUp = false): Promise<void> {
+  private async handleCandidate(transcribe: () => Promise<string>, followUp = false, clip: string | null = null): Promise<void> {
     this.deps.onPhase({ dictating: false, transcribing: true });
     let command: string | null = null;
     try {
@@ -336,6 +355,8 @@ export class WakeListener {
       // A follow-up may repeat the name; an empty one is dropped, not answered with another «Слухаю.».
       command = followUp ? wakeCommand(transcript) || transcript.trim() || null : wakeCommand(transcript);
       if (DEBUG) console.log(`[wake] heard ${JSON.stringify(transcript)} → ${JSON.stringify(command)}`);
+      // The name alone counts too: a voice that is not the owner's gets no «Слухаю.».
+      if (command !== null && this.deps.speaker?.enabled() && !(await this.deps.speaker.verify(clip))) command = null;
     } catch (err) {
       console.warn("[wake] candidate failed:", err instanceof Error ? err.message : String(err));
     } finally {
@@ -354,6 +375,8 @@ export class WakeListener {
     this.endOfSpeech = null;
     this.heldAt = 0;
     this.followUp = false;
+    removeClip(this.clipPath);
+    this.clipPath = null;
     this.deps.onPhase({ dictating: false, transcribing: false });
     if (this.busy) this.send("pause");
   }

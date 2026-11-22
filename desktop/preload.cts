@@ -204,6 +204,14 @@ const desktopApi = {
   >,
   wakeStatus: () => ipcRenderer.invoke("marshal:wake-status") as Promise<{ installed: boolean; engine: "apple" | "sherpa"; running: boolean }>,
   installWake: () => ipcRenderer.invoke("marshal:wake-install") as Promise<{ ok: true } | { ok: false; error: string }>,
+  speakerStatus: () => ipcRenderer.invoke("marshal:speaker-status") as Promise<{
+    installed: boolean;
+    calibration: "none" | "collecting" | "ready" | "unusable";
+    ownerSamples: number;
+  }>,
+  installSpeaker: () => ipcRenderer.invoke("marshal:speaker-install") as Promise<{ ok: true } | { ok: false; error: string }>,
+  enrolSpeaker: () => ipcRenderer.invoke("marshal:speaker-enrol") as Promise<{ ok: true } | { ok: false; canceled: boolean; error: string }>,
+  eraseSpeaker: () => ipcRenderer.invoke("marshal:speaker-erase") as Promise<void>,
   installHolosVoice: () => ipcRenderer.invoke("marshal:speech-install-holos") as Promise<
     { ok: true } | { ok: false; error: string }
   >,
