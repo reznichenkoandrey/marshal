@@ -579,9 +579,14 @@ const boardApi = {
   repair: (input: { source: string; error: string; language: string }) =>
     ipcRenderer.invoke("marshal:board:repair", input) as Promise<BoardReply>,
   // A request spoken to the assistant (`./marshal do board …`), drawn as if typed.
-  onRequest: (cb: (event: IpcRendererEvent, payload: { text: string }) => void) =>
-    registerListener<[{ text: string }]>("marshal:board-request", cb),
-  save: (input: { request: string; source: string; language: string }) =>
+  onRequest: (cb: (event: IpcRendererEvent, payload: { text: string; mode?: string }) => void) =>
+    registerListener<[{ text: string; mode?: string }]>("marshal:board-request", cb),
+  // Brainstorm mode (#276 Stage 3): the reply streams, so each finished op is drawn at once.
+  brainstorm: (input: { text: string; role: string; language: string; board: unknown }) =>
+    ipcRenderer.invoke("marshal:board:brainstorm", input) as Promise<BoardReply>,
+  onDelta: (cb: (event: IpcRendererEvent, payload: { delta: string }) => void) =>
+    registerListener<[{ delta: string }]>("marshal:board-delta", cb),
+  save: (input: { request: string; language: string; source?: string; board?: unknown; id?: string }) =>
     ipcRenderer.invoke("marshal:board:save", input) as Promise<{ ok: boolean; id?: string }>,
   reveal: () => ipcRenderer.invoke("marshal:board:reveal"),
   close: () => ipcRenderer.invoke("marshal:board:close")

@@ -60,7 +60,7 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
-import { BoardWindow } from "./boards/board-window.ts";
+import { BoardWindow, type BoardMode } from "./boards/board-window.ts";
 import { DashboardWindow } from "./dashboards/dashboard-window.ts";
 import { isDashboardVerb } from "./dashboards/voice.ts";
 import {
@@ -3886,6 +3886,13 @@ async function assistantVoiceAction(action: string): Promise<string> {
       reply = request ? t("Малюю.", "Drawing.") : t("Відкрив дошку.", "The board is open.");
       break;
     }
+    case "brainstorm": {
+      // A thought for the idea map (#276 Stage 3); no words just opens the board in brainstorm mode.
+      const thought = rest.join(" ");
+      openBoard(thought, "brainstorm");
+      reply = thought ? t("Записав.", "Noted.") : t("Дошка в режимі мозкового штурму.", "The board is in brainstorm mode.");
+      break;
+    }
     case "board-close":
       boardWindow?.close();
       reply = t("Закрив дошку.", "The board is closed.");
@@ -3921,7 +3928,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
         : t("Plan runner недоступний.", "The plan runner is not available.");
       break;
     default:
-      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, board-close, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, brainstorm, board-close, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
       return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
       return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
   }
@@ -3973,9 +3980,9 @@ function watchAssistantSessions(open: boolean): void {
 
 // Dock of the assistant home: every button reuses what the tray already does.
 /** The board window (#276), created on the first open. A request is drawn at once. */
-function openBoard(request = ""): void {
+function openBoard(request = "", mode?: BoardMode): void {
   boardWindow ??= new BoardWindow(preloadPath, path.join(app.getPath("userData"), "boards"));
-  boardWindow.open(request);
+  boardWindow.open(request, mode);
 }
 
 function runAssistantAction(name: string | undefined): void {

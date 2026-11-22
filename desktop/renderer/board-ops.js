@@ -228,3 +228,42 @@ export function directOps(text) {
   const source = String(text ?? "").trim();
   return MERMAID_START.test(source) ? [{ op: "setDiagram", mermaid: source }] : [];
 }
+
+/**
+ * Positions of the idea map (brainstorm mode, spec §6: own canvas, no library).
+ * A left-to-right tree: depth is the column, leaves take the next free row and
+ * a parent sits in the middle of its children. A node's parent is its first
+ * incoming edge; other edges are still drawn, they just do not move anything.
+ */
+export function layoutBoard(board, size = {}) {
+  const { width = 190, height = 68, gapX = 70, gapY = 18 } = size;
+  const ids = board.nodes.map((node) => node.id);
+  const children = new Map(ids.map((id) => [id, []]));
+  const hasParent = new Set();
+  for (const edge of board.edges) {
+    if (!children.has(edge.from) || !children.has(edge.to) || edge.from === edge.to || hasParent.has(edge.to)) continue;
+    children.get(edge.from).push(edge.to);
+    hasParent.add(edge.to);
+  }
+  const placed = new Map();
+  let nextRow = 0;
+  const place = (id, depth) => {
+    const slot = { depth, row: 0 };
+    placed.set(id, slot);
+    const rows = children.get(id).filter((child) => !placed.has(child)).map((child) => place(child, depth + 1));
+    slot.row = rows.length > 0 ? (rows[0] + rows[rows.length - 1]) / 2 : nextRow++;
+    return slot.row;
+  };
+  for (const id of ids) if (!hasParent.has(id)) place(id, 0);
+  // Nodes that are reachable only through a cycle have no root of their own.
+  for (const id of ids) if (!placed.has(id)) place(id, 0);
+  const nodes = ids.map((id) => {
+    const slot = placed.get(id);
+    return { id, x: slot.depth * (width + gapX), y: slot.row * (height + gapY) };
+  });
+  return {
+    nodes,
+    width: nodes.reduce((max, node) => Math.max(max, node.x + width), 0),
+    height: nodes.reduce((max, node) => Math.max(max, node.y + height), 0)
+  };
+}
