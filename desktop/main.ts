@@ -49,6 +49,7 @@ import { openDesktopSession } from "./claude-code/desktop-session.ts";
 import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
+import { guardMenuItems } from "./claude-code/chrome-guard.ts";
 import {
   DEFAULT_MODEL_NAME,
   findInstalledModel,
@@ -378,7 +379,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check());
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check(), confirmBrowserOnThisMac);
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
@@ -540,6 +541,9 @@ function registerIpcHandlers(): void {
     miniWidget?.moveTo({ x: input.x, y: input.y }, input.done === true);
     return { ok: true };
   });
+  handleIpc("marshal:assistant:idea", (_event, input: { id?: unknown; decision?: unknown } | undefined) =>
+    typeof input?.id === "string" && typeof input.decision === "string" ? decideAutomationIdea(input.id, input.decision) : { ok: false }
+  );
   handleIpc("marshal:assistant:close", () => {
     assistantHome?.close();
     return { ok: true };
@@ -1973,13 +1977,44 @@ function replyDeps() {
 }
 
 // Repeated requests → skill candidates (#273): one scan a week, on a Stop hook, only when switched on.
+let automationIdeas: AutomationIdeas | null = null;
+
 function initAutomationIdeas(): void {
   const ideas = new AutomationIdeas({
     storePath: path.join(app.getPath("userData"), "automation-ideas.json"),
     enabled: () => loadSettings().automationIdeas,
-    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots)
+    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots),
+    // The only text sent out: the repeated phrasings themselves (buildProposalRequest).
+    complete: (request) => completeOnce({ ...request, maxTokens: 900, label: "automation ideas" }),
+    onChange: () => assistantHome?.update({ ideas: ideas.ideas() })
   });
+  automationIdeas = ideas;
   claudeHooks?.onSessionStop(() => ideas.onSessionStop());
+}
+
+// Tray → "Find repeated requests now" (#273): the on-demand scan; the result is a count, never prompt text.
+async function scanAutomationIdeas(): Promise<void> {
+  const result = await automationIdeas?.scan();
+  const found = automationIdeas?.ideas().length ?? 0;
+  const body = !result ? t("ideas.scanOff") : found > 0 ? t("ideas.scanFound", { count: found }) : t("ideas.scanNone");
+  const notification = new Notification({ title: t("ideas.title"), body, silent: true });
+  if (found > 0) notification.on("click", () => openAssistantHome());
+  notification.show();
+}
+
+// The owner's click in the home card. "create" is the only path that writes ~/.claude/skills/<name>/SKILL.md.
+function decideAutomationIdea(id: string, decision: string): { ok: boolean; error?: string } {
+  if (!automationIdeas) return { ok: false };
+  if (decision === "never") automationIdeas.reject(id);
+  else if (decision === "later") automationIdeas.later(id);
+  else if (decision === "create") {
+    const created = automationIdeas.create(id);
+    if (!created.ok) return { ok: false, error: t(created.reason === "exists" ? "ideas.exists" : "ideas.createFailed") };
+    const notification = new Notification({ title: t("ideas.created"), body: created.path, silent: true });
+    notification.on("click", () => shell.showItemInFolder(created.path));
+    notification.show();
+  } else return { ok: false };
+  return { ok: true };
 }
 
 let timedReminders: TimedReminderStore | null = null;
@@ -2569,6 +2604,47 @@ function buildClaudeSessionsSubmenu(): Electron.MenuItemConstructorOptions[] {
   ];
 }
 
+/** Whose browser is this (#477): the agent proposed a browser, the person answers for this Mac. */
+async function confirmBrowserOnThisMac(deviceId: string, name: string): Promise<boolean | null> {
+  app.focus({ steal: true });
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    message: t("chromeGuard.confirmTitle", { name }),
+    detail: t("chromeGuard.confirmDetail", { id: deviceId }),
+    buttons: [t("chromeGuard.thisMac"), t("chromeGuard.anotherComputer"), t("chromeGuard.cancel")],
+    defaultId: 2,
+    cancelId: 2
+  });
+  return response === 0 ? true : response === 1 ? false : null;
+}
+
+function chromeGuardMenu(): Electron.MenuItemConstructorOptions[] {
+  const hooks = claudeHooks;
+  if (!hooks) return [];
+  const state = hooks.chromeGuardState();
+  const report = (next: { error?: string }) => {
+    if (next.error) dialog.showErrorBox(t("tray.chromeGuard"), next.error);
+  };
+  return guardMenuItems(
+    state.installed,
+    state.devices,
+    { on: t("tray.chromeGuardOn"), browsers: t("tray.chromeGuardBrowsers"), none: t("tray.chromeGuardNone") },
+    {
+      setInstalled: (installed) => void hooks.setChromeGuardInstalled(installed).then(report),
+      setHere: (deviceId, here) => report(hooks.setBrowserHere(deviceId, here))
+    }
+  );
+}
+
+// Built when the menu opens, no timer and no badge (#273): proposals open the home card, none = scan on demand.
+function automationIdeasTrayItems(enabled: boolean): Electron.MenuItemConstructorOptions[] {
+  if (!enabled) return [];
+  const count = automationIdeas?.ideas().length ?? 0;
+  return count > 0
+    ? [{ label: t("tray.automationIdeas", { count }), click: () => openAssistantHome() }]
+    : [{ label: t("tray.automationIdeasScan"), click: () => void scanAutomationIdeas() }];
+}
+
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
@@ -2583,6 +2659,8 @@ function buildTrayMenu(): Electron.Menu {
     { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { label: t("tray.openHub"), click: () => void openSmartHub() },
+    ...(claudeHooks ? [{ label: t("tray.chromeGuard"), submenu: chromeGuardMenu() }] : []),
+    ...automationIdeasTrayItems(settings.automationIdeas),
     { label: t("tray.myDay"), click: () => void showDayReview() },
     { label: t("tray.remindMe"), submenu: remindMenuItems() },
     { type: "separator" },
@@ -2991,7 +3069,13 @@ function assistantStrip(): AssistantStrip {
 
 function pushAssistantStrip(): void {
   if (!assistantHome?.isOpen()) return;
-  assistantHome.update({ lang: uiLanguage(), strip: assistantStrip(), commands: assistantCommands(), features: assistantFeatures() });
+  assistantHome.update({
+    lang: uiLanguage(),
+    strip: assistantStrip(),
+    commands: assistantCommands(),
+    features: assistantFeatures(),
+    ideas: automationIdeas?.ideas() ?? []
+  });
 }
 
 function assistantCommandLog(): CommandLog {
