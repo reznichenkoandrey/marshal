@@ -61,12 +61,19 @@ const dom = {
   settingsAssistantWake: document.getElementById("settings-assistant-wake"),
   settingsAssistantWakeStatus: document.getElementById("settings-assistant-wake-status"),
   settingsAssistantWakeInstall: document.getElementById("settings-assistant-wake-install"),
+  settingsAssistantSpeakerCheck: document.getElementById("settings-assistant-speaker-check"),
+  settingsAssistantSpeakerStatus: document.getElementById("settings-assistant-speaker-status"),
+  settingsAssistantSpeakerInstall: document.getElementById("settings-assistant-speaker-install"),
+  settingsAssistantSpeakerEnrol: document.getElementById("settings-assistant-speaker-enrol"),
+  settingsAssistantSpeakerErase: document.getElementById("settings-assistant-speaker-erase"),
+  settingsWorkflowsEnabled: document.getElementById("settings-workflows-enabled"),
   settingsAssistantWidget: document.getElementById("settings-assistant-widget"),
   settingsAssistantGlow: document.getElementById("settings-assistant-glow"),
   settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
+  settingsPlanRunner: document.getElementById("settings-plan-runner"),
   settingsAssistantTerminal: document.getElementById("settings-assistant-terminal"),
   settingsSpeechEngine: document.getElementById("settings-speech-engine"),
   settingsSpeechPiperStatus: document.getElementById("settings-speech-piper-status"),
@@ -189,6 +196,46 @@ async function installWakeModel() {
     if (dom.settingsAssistantWakeStatus) dom.settingsAssistantWakeStatus.textContent = t("settings.piperDownloadFailed", { error: err?.message ?? String(err) });
   } finally {
     dom.settingsAssistantWakeInstall.disabled = false;
+  }
+}
+
+const SPEAKER_STATUS_KEYS = {
+  none: "settings.speakerNoVoice",
+  collecting: "settings.speakerCollecting",
+  ready: "settings.speakerReady",
+  unusable: "settings.speakerUnusable"
+};
+
+function setSpeakerStatus(text) {
+  if (dom.settingsAssistantSpeakerStatus) dom.settingsAssistantSpeakerStatus.textContent = text;
+}
+
+async function refreshSpeakerState() {
+  if (!api?.speakerStatus) return;
+  const status = await api.speakerStatus().catch(() => ({ installed: false, calibration: "none", ownerSamples: 0 }));
+  if (dom.settingsAssistantSpeakerInstall) dom.settingsAssistantSpeakerInstall.hidden = status.installed;
+  if (dom.settingsAssistantSpeakerEnrol) dom.settingsAssistantSpeakerEnrol.hidden = !status.installed;
+  if (dom.settingsAssistantSpeakerErase) dom.settingsAssistantSpeakerErase.hidden = status.calibration === "none";
+  setSpeakerStatus(
+    status.installed
+      ? t(SPEAKER_STATUS_KEYS[status.calibration] ?? SPEAKER_STATUS_KEYS.none, { count: status.ownerSamples })
+      : t("settings.speakerNotInstalled")
+  );
+}
+
+// One handler for the three buttons: a busy line, the call, then the fresh state or the failure.
+async function runSpeakerAction(button, busyKey, failedKey, call) {
+  if (!call || !button) return;
+  button.disabled = true;
+  setSpeakerStatus(t(busyKey));
+  try {
+    const result = await call();
+    if (!result || result.ok || result.canceled) await refreshSpeakerState();
+    else setSpeakerStatus(t(failedKey, { error: result.error }));
+  } catch (err) {
+    setSpeakerStatus(t(failedKey, { error: err?.message ?? String(err) }));
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -434,12 +481,16 @@ async function openSettings() {
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
     if (dom.settingsAssistantWake) dom.settingsAssistantWake.checked = current.assistantWake ?? false;
     void refreshWakeState();
+    if (dom.settingsAssistantSpeakerCheck) dom.settingsAssistantSpeakerCheck.checked = current.assistantSpeakerCheck ?? false;
+    void refreshSpeakerState();
+    if (dom.settingsWorkflowsEnabled) dom.settingsWorkflowsEnabled.checked = current.workflowsEnabled ?? false;
     if (dom.settingsAssistantWidget) dom.settingsAssistantWidget.checked = current.assistantWidget ?? false;
     if (dom.settingsAssistantGlow) dom.settingsAssistantGlow.checked = current.assistantGlow ?? true;
     if (dom.settingsAssistantBadge) dom.settingsAssistantBadge.checked = current.assistantWaitingBadge ?? true;
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
+    if (dom.settingsPlanRunner) dom.settingsPlanRunner.checked = current.planRunnerEnabled ?? false;
     if (dom.settingsAssistantTerminal) dom.settingsAssistantTerminal.value = current.assistantTerminalHost ?? "auto";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     if (dom.settingsSpeechEngine) {
@@ -646,12 +697,15 @@ async function saveSettingsFromForm() {
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
     assistantWake: dom.settingsAssistantWake?.checked ?? false,
+    assistantSpeakerCheck: dom.settingsAssistantSpeakerCheck?.checked ?? false,
+    workflowsEnabled: dom.settingsWorkflowsEnabled?.checked ?? false,
     assistantWidget: dom.settingsAssistantWidget?.checked ?? false,
     assistantGlow: dom.settingsAssistantGlow?.checked ?? true,
     assistantWaitingBadge: dom.settingsAssistantBadge?.checked ?? true,
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
+    planRunnerEnabled: dom.settingsPlanRunner?.checked ?? false,
     assistantTerminalHost: dom.settingsAssistantTerminal?.value ?? "auto",
     speechEngine: dom.settingsSpeechEngine?.value ?? "macos",
     speechRate: Number.parseInt(dom.settingsSpeechRate?.value ?? "190", 10),
@@ -939,6 +993,12 @@ function bindEvents() {
   dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
   dom.settingsSpeechPiperInstall?.addEventListener("click", installPiperVoice);
   dom.settingsAssistantWakeInstall?.addEventListener("click", installWakeModel);
+  dom.settingsAssistantSpeakerInstall?.addEventListener("click", () =>
+    runSpeakerAction(dom.settingsAssistantSpeakerInstall, "settings.speakerDownloading", "settings.piperDownloadFailed", api?.installSpeaker));
+  dom.settingsAssistantSpeakerEnrol?.addEventListener("click", () =>
+    runSpeakerAction(dom.settingsAssistantSpeakerEnrol, "settings.speakerEnrolling", "settings.speakerEnrolFailed", api?.enrolSpeaker));
+  dom.settingsAssistantSpeakerErase?.addEventListener("click", () =>
+    runSpeakerAction(dom.settingsAssistantSpeakerErase, "settings.speakerEnrolling", "settings.speakerEnrolFailed", api?.eraseSpeaker));
   dom.settingsSpeechHolosInstall?.addEventListener("click", installHolosVoice);
   dom.settingsSpeechHolosClone?.addEventListener("click", cloneHolosVoice);
   dom.appearanceSegmented?.addEventListener("click", (e) => {

@@ -1,6 +1,6 @@
 # Plan runner: план, що виконується вночі (#278)
 
-Статус: Етапи 0 і 1 написані (`desktop/plan-runner/`: tick, валідація, сховище), до застосунку не підключені. Етапи 2–6 — попереду. Epic #275, Phase 4.
+Статус: Етапи 0–2 написані (`desktop/plan-runner/`). Етап 2 підключений до застосунку: opt-in `planRunnerEnabled`, голос `./marshal do plan …`, лише вже відкриті сесії, `report.md` і `run.log`; наживо ще не перевірений. Етапи 3–6 — попереду. Epic #275, Phase 4.
 Залежності: реєстр сесій (#262, `desktop/claude-code/registry.ts`), hooks (#263, `hooks-controller.ts`), usage (#268, `statusline.ts`), voice-диспетчер (#318, `desktop/assistant/dispatcher.ts`).
 
 ## 1. Проблема
@@ -99,7 +99,7 @@ Hook-guard для сесій runner-а (`.claude/settings.json` лише все�
 
 ### Маркер результату
 
-Промпт кроку закінчується вимогою: останній рядок відповіді — `PLAN-STEP: done|failed|question`.
+Промпт кроку закінчується вимогою: останній рядок відповіді — `PLAN-STEP <id кроку>: done|failed|question`. Id кроку в маркері потрібен, щоб запізніла відповідь на попередній промпт не закрила наступний крок.
 
 - Маркер є → рішення беремо з нього.
 - Маркера немає → мала модель класифікує відповідь (той самий провайдер, що summary, `resolveSummaryProvider`). Модель не отримує права щось схвалювати: лише `done | failed | question`.
@@ -116,7 +116,7 @@ Notification hook з `waitingFor: "permission prompt"` (уже є в `registry.t
 
 ### Питання під час відсутності власника
 
-- `PLAN-STEP: question` → крок `question`, питання записане в `report.md`.
+- `PLAN-STEP <id>: question` → крок `question`, питання записане в `report.md`.
 - Модель може відповісти **лише** якщо відповідь буквально є в тексті плану. Ніякого «здогаду». Вона не може схвалити push, merge, deploy чи delete за жодних обставин: такі питання завжди чекають власника.
 - Інакше питання чекає ранку.
 

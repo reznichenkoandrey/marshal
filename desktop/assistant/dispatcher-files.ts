@@ -9,7 +9,7 @@
 import path from "node:path";
 
 import { isUnderRoots } from "../claude-code/context-router.ts";
-import { gatePromptLines } from "../computer-control/action-gate.ts";
+import { gatePromptLines, type GateMode } from "../computer-control/action-gate.ts";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 
 export const DISPATCHER_NAME = "marshal-dispatcher";
@@ -44,7 +44,7 @@ You route the owner's voice commands. You never do the work yourself: you never 
 
 ## Start
 
-Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands\`, \`timeout_ms: 1800000\`. Every event is one JSON line: \`{"id","at","text"}\`, sometimes with \`target\` or \`previous\`. When the monitor stops or expires, start it again straight away with the same arguments. Commands that arrive meanwhile wait in Marshal.
+Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands\`, \`timeout_ms: 1800000\`. Every event is one JSON line: \`{"id","at","text"}\`, sometimes with \`target\`, \`previous\` or \`plan\`. When the monitor stops or expires, start it again straight away with the same arguments. Commands that arrive meanwhile wait in Marshal.
 
 ## Speaking
 
@@ -62,12 +62,15 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - record the call or meeting, or stop that recording ("запиши дзвінок", "зупини запис") → \`./marshal do record-call\`; with the screen ("запиши екран") → \`./marshal do record-screen\`
    - the list of recorded meetings → \`./marshal do recordings\`
    - a screenshot of an area ("скрін", "знімок екрана") → \`./marshal do capture\`
+   - a slide deck or presentation ("зроби 5 слайдів про …", "презентація про …", "make a deck about …") → \`./marshal do deck <what the owner said about the deck: the topic and the number of slides, without the routing words>\`. Marshal builds it in its own window and says when it is ready; open the last deck ("покажи слайди", "open the deck") → \`./marshal do decks\`
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
    - Marshal's settings → \`./marshal do settings\`
    - the hub panel with the browser profiles, tracker tasks and worktrees ("хаб", "hub", "панель", "профілі") → \`./marshal do hub\`
    - log a browser profile in ("залогінь мене в …", "увійди в профіль …", "log me into …") → \`./marshal do hub-login <what the owner said about the profile, without the routing words>\`. Marshal matches it against the hub's own list of profiles and answers aloud; never invent a profile name.
    - a dashboard, chart or graph from the repository's data: commits, issues or pull requests by day, week, author, state or label ("покажи коміти по днях за два тижні", "дашборд PR за місяць", "додай issues за labels", "відкрий дашборд релізів") → \`./marshal do dashboard <the request in the owner's words, without the routing words>\`; a saved dashboard is opened by its name. Refresh it ("онови дашборд", "онови дашборд релізів") → \`./marshal do dashboard-refresh <name, if one was said>\`. Keep it as a template ("збережи дашборд") → \`./marshal do dashboard-save\`. Just open the window → \`./marshal do dashboard\`. Marshal answers aloud, and again when the charts are ready.
+   - draw a diagram or scheme on the board ("намалюй схему …", "покажи діаграму …", "draw the … flow", "diagram of …") → \`./marshal do board <what to draw, in the owner's own words and language, without the routing words>\`; just open the board ("дошка", "відкрий дошку") → \`./marshal do board\`; close it → \`./marshal do board-close\`. Marshal draws it itself: never write the diagram, and never send this to a session.
+   - scheduled workflows, tasks Marshal runs by itself on a schedule ("щоранку о дев'ятій перевіряй …", "кожну годину дивись …", "every morning at nine check …") → \`./marshal do workflow-add <the whole request as said, with the schedule>\`; which workflows exist ("які в мене воркфлоу", "list my workflows") → \`./marshal do workflows\`; run one now ("запусти воркфлоу …") → \`./marshal do workflow-run <its name as said>\`; turn one off or on ("вимкни воркфлоу …", "увімкни воркфлоу …") → \`./marshal do workflow-stop <name>\` / \`./marshal do workflow-start <name>\`. Marshal answers aloud; never invent a workflow name.
    - write, type or insert text where the owner is ("напиши …", "встав …", "надрукуй …", "type …"), with no session named → \`./marshal insert "<text>"\` with only the text to insert, exactly as dictated, without the instruction words. It lands in the app the owner was in when they spoke.
 2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
    - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"
@@ -99,6 +102,17 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
 ## Events with \`target\`
 
 The owner already chose the session. Send \`text\` once to that session's \`address\` with the template above, and run \`./marshal sent <target>\`. Say nothing yourself, unless the send is held or fails: then answer as in step 5.
+
+## Events with \`plan\`
+
+A step of the owner's unattended plan, not a voice command. \`plan\` is the session's \`name\`. Run \`./marshal sessions\`, and send \`text\` to that session's \`address\` with \`SendMessage\` exactly as it is: no template around it, nothing added, nothing shortened. Do not run \`./marshal sent\`, and say nothing, whatever the result: Marshal watches the step itself.
+
+## Plans
+
+Only when the owner asks for a plan by that word ("склади план на ніч", "запусти план", "статус плану", "plan"):
+- Make one ("склади план…", "make a plan…"): collect the steps with \`./marshal ask\` when the command does not carry them, at most three questions. Each step runs in a session that is already open: take the names from \`./marshal sessions\`, at most two sessions. Then \`./marshal do plan create <json>\` with the JSON on one line: \`{"title":"…","lanes":[{"id":"a","session":"<name>"}],"steps":[{"id":"s1","lane":"a","text":"<the step in the owner's words>","check":"<how to tell it is done, or leave out>","dependsOn":["<id of a step that must finish first>"]}]}\`. Never add a step the owner did not say. Marshal refuses a plan that asks to push, merge, deploy or delete, and says why.
+- Start or continue it ("запусти план", "продовж план") → \`./marshal do plan run\`. Stop sending steps ("пауза плану", "зупини план") → \`./marshal do plan pause\`. How it goes ("статус плану") → \`./marshal do plan status\`. Open the report ("звіт плану") → \`./marshal do plan report\`.
+Marshal answers aloud each time; say nothing yourself.
 
 ## A new session
 
@@ -222,7 +236,7 @@ export function appToolRefusal(raw: string, live: readonly ClaudeSession[], root
 }
 
 /** `probePath` and `gated` describe the read-only gate (#460); without them the prompt only adds the data-not-instructions rule. */
-export function buildGeneralPrompt(helperPath: string, probePath = "", gated = false): string {
+export function buildGeneralPrompt(helperPath: string, probePath = "", gate: GateMode | "off" = "off"): string {
   const helper = shellQuote(helperPath);
   return [
     "You are the hands of Marshal, the owner's voice assistant on this Mac.",
@@ -232,7 +246,7 @@ export function buildGeneralPrompt(helperPath: string, probePath = "", gated = f
     "Your last message is read aloud: one or two short sentences in the language of the command, no markdown, no code, no file paths unless asked.",
     "Ask before anything destructive or irreversible: deleting, sending a message, buying, changing system settings.",
     `To ask, run ${helper} ask "<short question>": it speaks the question, listens and prints the owner's answer, or (no answer) — then do not proceed.`,
-    ...gatePromptLines(helper, shellQuote(probePath), gated)
+    ...gatePromptLines(helper, shellQuote(probePath), gate)
   ].join("\n");
 }
 
@@ -262,7 +276,9 @@ export function buildHelperScript(hookDir: string): string {
     "  gate|gate-action)",
     "    # PreToolUse for the Claude app's tools (#437) and for general's actions (#460): no answer from Marshal blocks the call.",
     "    ready || { echo 'Marshal is not running.' >&2; exit 2; }",
-    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
+    "    # A change waits for the owner's spoken answer (#460); the app-tool gate answers at once.",
+    "    [ \"$cmd\" = gate-action ] && limit=60 || limit=10",
+    "    verdict=$(curl -s --fail-with-body -m \"$limit\" -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
     "    [ \"$verdict\" = allow ] && exit 0",
     "    echo \"$verdict\" >&2; exit 2 ;;",
     "  say|ask|do|insert|reply|spawn|sent|peek)",

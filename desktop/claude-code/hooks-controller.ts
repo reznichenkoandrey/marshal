@@ -60,7 +60,8 @@ export class ClaudeHooksController {
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
   private ignoredFolder: string | null = null;
-  private readonly stopListeners: Array<(sessionId: string) => void> = [];
+  private readonly stopListeners: Array<(sessionId: string, lastMessage: string) => void> = [];
+  private readonly quietFolders = new Set<string>();
   private readonly chromeGuard: ChromeGuard;
 
   constructor(
@@ -97,9 +98,10 @@ export class ClaudeHooksController {
     });
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
       if (this.ignoredFolder && event.cwd && path.resolve(event.cwd) === this.ignoredFolder) return;
+      if (event.cwd && this.quietFolders.has(path.resolve(event.cwd))) return;
       void this.notifier.handle(event);
       this.onSessionEvent();
-      if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId);
+      if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId, event.lastMessage);
       // A finished turn is when "what it is doing now" changes.
       if (event.type === "stop" && loadSettings().claudeCodeContextRouting) {
         const session = listLiveSessions().find((live) => live.sessionId === event.sessionId);
@@ -122,14 +124,19 @@ export class ClaudeHooksController {
     });
   }
 
-  /** Called with the session id on every finished turn (Stop hook), for reminders after a session (#270). */
-  onSessionStop(listener: (sessionId: string) => void): void {
+  /** Called with the session id and its last answer on every finished turn (Stop hook): reminders after a session (#270), plan steps (#278). */
+  onSessionStop(listener: (sessionId: string, lastMessage: string) => void): void {
     this.stopListeners.push(listener);
   }
 
   /** Events from this folder are dropped: the dispatcher's turns in Claude desktop also run the owner's hooks (#437). */
   setIgnoredFolder(dir: string | null): void {
     this.ignoredFolder = dir ? path.resolve(dir) : null;
+  }
+
+  /** Events from this folder are dropped too: unattended `claude -p` runs of scheduled workflows (#280). */
+  addQuietFolder(dir: string): void {
+    this.quietFolders.add(path.resolve(dir));
   }
 
   /** The voice dispatcher's helper reaches Marshal through the hook receiver (#318). */

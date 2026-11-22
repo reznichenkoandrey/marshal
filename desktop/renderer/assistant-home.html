@@ -29,6 +29,7 @@
           <button type="button" data-action="captions" data-icon="captions" data-icon-size="18"></button>
           <button type="button" data-action="record-call" data-icon="circle-dot" data-icon-size="18"></button>
           <button type="button" data-action="capture" data-icon="crop" data-icon-size="18"></button>
+          <button type="button" data-action="board" data-icon="workflow" data-icon-size="18"></button>
           <button type="button" data-action="recordings" data-icon="history" data-icon-size="18"></button>
           <button type="button" data-action="dispatcher-terminal" data-icon="square-terminal" data-icon-size="18"></button>
           <button type="button" data-action="settings" data-icon="settings" data-icon-size="18"></button>
@@ -218,6 +219,26 @@
               Download wake phrase model (38 MB)
             </button>
 
+            <label class="checkbox-row">
+              <input id="settings-assistant-speaker-check" name="assistantSpeakerCheck" type="checkbox" />
+              <span data-i18n="settings.speakerCheck">Only my voice starts a command without a key</span>
+            </label>
+            <p id="settings-assistant-speaker-status" class="field-hint"></p>
+            <button type="button" id="settings-assistant-speaker-install" class="btn btn-secondary" hidden data-i18n="settings.downloadSpeaker">
+              Download voice check model (28 MB)
+            </button>
+            <button type="button" id="settings-assistant-speaker-enrol" class="btn btn-secondary" hidden data-i18n="settings.addOwnVoice">
+              Add my voice from a recording…
+            </button>
+            <button type="button" id="settings-assistant-speaker-erase" class="btn btn-secondary" hidden data-i18n="settings.eraseOwnVoice">
+              Erase my voice print
+            </button>
+            <label class="checkbox-row">
+              <input id="settings-workflows-enabled" name="workflowsEnabled" type="checkbox" />
+              <span data-i18n="settings.workflowsEnabled">Scheduled workflows</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.workflowsHint">Runs Claude Code unattended on a schedule, with read-only tools, and tells you the result. Say “Marshal, every morning at nine check …” to add one.</p>
+
             <div class="field">
               <label for="settings-assistant-general-dir" data-i18n-html="settings.folderCodeGeneralCodeWorks">Folder <code>general</code> works in</label>
               <input id="settings-assistant-general-dir" name="assistantGeneralDir" type="text"
@@ -238,6 +259,15 @@
               <label for="settings-assistant-model" data-i18n="settings.dispatcherModel">Dispatcher model</label>
               <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
             </div>
+
+            <label class="checkbox-row">
+              <input id="settings-plan-runner" name="planRunnerEnabled" type="checkbox" />
+              <span data-i18n="settings.planRunner">Let Marshal run plans on open sessions (plan runner)</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.planRunnerHint">
+              Off by default. A plan sends its steps, one at a time, to terminal sessions that are already open in the
+              allowed folders, while you are away.
+            </p>
 
             <div class="field">
               <label for="settings-assistant-terminal" data-i18n="settings.assistantTerminal">Where the assistant's sessions open</label>

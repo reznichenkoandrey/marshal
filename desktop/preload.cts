@@ -174,6 +174,7 @@ const desktopApi = {
     assistantGeneralDir?: string;
     assistantGeneralPermissionMode?: string;
     assistantDispatcherModel?: string;
+    planRunnerEnabled?: boolean;
     speechEngine?: string;
     speechRate?: number;
     speechVoiceUk?: string;
@@ -204,6 +205,14 @@ const desktopApi = {
   >,
   wakeStatus: () => ipcRenderer.invoke("marshal:wake-status") as Promise<{ installed: boolean; engine: "apple" | "sherpa"; running: boolean }>,
   installWake: () => ipcRenderer.invoke("marshal:wake-install") as Promise<{ ok: true } | { ok: false; error: string }>,
+  speakerStatus: () => ipcRenderer.invoke("marshal:speaker-status") as Promise<{
+    installed: boolean;
+    calibration: "none" | "collecting" | "ready" | "unusable";
+    ownerSamples: number;
+  }>,
+  installSpeaker: () => ipcRenderer.invoke("marshal:speaker-install") as Promise<{ ok: true } | { ok: false; error: string }>,
+  enrolSpeaker: () => ipcRenderer.invoke("marshal:speaker-enrol") as Promise<{ ok: true } | { ok: false; canceled: boolean; error: string }>,
+  eraseSpeaker: () => ipcRenderer.invoke("marshal:speaker-erase") as Promise<void>,
   installHolosVoice: () => ipcRenderer.invoke("marshal:speech-install-holos") as Promise<
     { ok: true } | { ok: false; error: string }
   >,
@@ -495,6 +504,20 @@ const historyApi = {
 
 contextBridge.exposeInMainWorld("marshalHistory", historyApi);
 
+// ── Decks API (#277) ──
+// Used exclusively by renderer/deck.html; its handlers live on that window's webContents.
+const decksApi = {
+  onState: (cb: (event: IpcRendererEvent, state: unknown) => void) =>
+    registerListener<[unknown]>("marshal:decks-state", cb),
+  build: (words: string) => ipcRenderer.invoke("marshal:decks:build", { words }),
+  present: (on: boolean) => ipcRenderer.invoke("marshal:decks:present", { on }),
+  exportDeck: (format: "pdf" | "html") =>
+    ipcRenderer.invoke("marshal:decks:export", { format }) as Promise<{ ok: boolean; error?: string }>,
+  close: () => ipcRenderer.invoke("marshal:decks:close")
+};
+
+contextBridge.exposeInMainWorld("marshalDecks", decksApi);
+
 // ── Floating toolbar API ──
 const toolbarApi = {
   captureArea: () => ipcRenderer.invoke("marshal:toolbar:capture-area"),
@@ -555,6 +578,12 @@ const boardApi = {
     ipcRenderer.invoke("marshal:board:draw", input) as Promise<BoardReply>,
   repair: (input: { source: string; error: string; language: string }) =>
     ipcRenderer.invoke("marshal:board:repair", input) as Promise<BoardReply>,
+  // A request spoken to the assistant (`./marshal do board …`), drawn as if typed.
+  onRequest: (cb: (event: IpcRendererEvent, payload: { text: string }) => void) =>
+    registerListener<[{ text: string }]>("marshal:board-request", cb),
+  save: (input: { request: string; source: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:save", input) as Promise<{ ok: boolean; id?: string }>,
+  reveal: () => ipcRenderer.invoke("marshal:board:reveal"),
   close: () => ipcRenderer.invoke("marshal:board:close")
 };
 
@@ -580,6 +609,7 @@ declare global {
     marshalCaptions: typeof captionsApi;
     marshalDashboards: typeof dashboardsApi;
     marshalHistory: typeof historyApi;
+    marshalDecks: typeof decksApi;
     marshalToolbar: typeof toolbarApi;
     marshalAssistant: typeof assistantApi;
     marshalBoard: typeof boardApi;
