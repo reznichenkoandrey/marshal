@@ -15,19 +15,28 @@
   <script src="./i18n.js"></script>
 </head>
 <body>
-  <div class="shell window">
+  <div class="shell no-side window">
     <header class="bar">
       <div class="title">
         <h1 data-i18n="board.title">Board</h1>
       </div>
       <span></span>
       <div class="bar-actions">
+        <select id="board-mode" class="board-language" title="Diagram or brainstorm" data-i18n-title="board.modeTitle">
+          <option value="diagram" data-i18n="board.modeDiagram">Diagram</option>
+          <option value="brainstorm" data-i18n="board.modeBrainstorm">Brainstorm</option>
+        </select>
+        <select id="board-role" class="board-language" title="What Marshal does with your thoughts" data-i18n-title="board.roleTitle" hidden>
+          <option value="both" data-i18n="board.roleBoth">Structure and challenge</option>
+          <option value="structure" data-i18n="board.roleStructure">Structure</option>
+          <option value="challenge" data-i18n="board.roleChallenge">Challenge</option>
+        </select>
         <select id="board-language" class="board-language" title="Language of the labels" data-i18n-title="board.languageTitle">
           <option value="auto" data-i18n="board.languageAuto">Labels: Auto</option>
           <option value="uk" data-i18n="board.languageUk">Labels: Українська</option>
           <option value="en" data-i18n="board.languageEn">Labels: English</option>
         </select>
-        <button id="reveal-btn" type="button" class="icon-btn" data-icon="folder-open" data-icon-size="16" title="Show board.mmd in Finder" aria-label="Show board.mmd in Finder" data-i18n-title="board.reveal" data-i18n-aria-label="board.reveal" hidden></button>
+        <button id="reveal-btn" type="button" class="icon-btn" data-icon="folder-open" data-icon-size="16" title="Show the saved board in Finder" aria-label="Show the saved board in Finder" data-i18n-title="board.reveal" data-i18n-aria-label="board.reveal" hidden></button>
         <button id="clear-btn" type="button" class="icon-btn" data-icon="eraser" data-icon-size="16" title="Clear the board" aria-label="Clear the board" data-i18n-title="board.clear" data-i18n-aria-label="board.clear"></button>
         <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close" aria-label="Close" data-i18n-title="board.close" data-i18n-aria-label="board.close"></button>
       </div>
@@ -43,13 +52,36 @@
         <p id="error" class="board-error" role="alert" hidden></p>
       </section>
 
-      <section class="block board-stage">
+      <section id="diagram-stage" class="block board-stage">
         <div id="diagram" class="board-diagram"></div>
         <p id="empty" class="board-empty" data-i18n="board.empty">The diagram appears here.</p>
         <details class="board-source">
           <summary data-i18n="board.source">Mermaid source</summary>
           <pre id="source"></pre>
         </details>
+      </section>
+
+      <section id="map-stage" class="block board-stage board-brainstorm" hidden>
+        <div class="board-map-scroll">
+          <div id="map" class="board-map">
+            <svg id="map-edges" class="board-map-edges" aria-hidden="true"></svg>
+          </div>
+          <p id="map-empty" class="board-empty" data-i18n="board.mapEmpty">Say or type a thought. The idea map grows here.</p>
+        </div>
+        <aside id="panels" class="board-panels" hidden>
+          <section id="summary-panel" class="card board-panel" hidden>
+            <h2 class="caps" data-i18n="board.summary">Summary</h2>
+            <p id="summary"></p>
+          </section>
+          <section id="tasks-panel" class="card board-panel" hidden>
+            <h2 class="caps" data-i18n="board.tasks">Tasks</h2>
+            <ul id="tasks"></ul>
+          </section>
+          <section id="questions-panel" class="card board-panel" hidden>
+            <h2 class="caps" data-i18n="board.questions">Open questions</h2>
+            <ul id="questions"></ul>
+          </section>
+        </aside>
       </section>
     </main>
   </div>

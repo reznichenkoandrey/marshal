@@ -40,8 +40,28 @@ const FIXED = 'flowchart TD\n  a["login(user)"] --> b["Виправлено"]';
 function preloadSource() {
   return `
 const { contextBridge } = require("electron");
-const calls = { draw: [], repair: [], save: [], reveal: 0 };
+const calls = { draw: [], repair: [], save: [], brainstorm: [], reveal: 0 };
 let onRequest = null;
+let onDelta = null;
+const FIRST = [
+  '{"op":"addNode","id":"root","label":"Ціни на підписку","type":"idea"}',
+  '{"op":"addNode","id":"churn","label":"Відтік після підвищення","type":"risk"}',
+  '{"op":"addEdge","from":"root","to":"churn"}',
+  '{"op":"addNode","id":"survey","label":"Опитати клієнтів","type":"task"}',
+  '{"op":"addEdge","from":"root","to":"survey","label":"спершу"}',
+  '{"op":"setSummary","text":"Думаємо про ціни."}',
+  '{"op":"setTasks","items":["Опитати клієнтів"]}',
+  '{"op":"setQuestions","items":["Скільки платять конкуренти?"]}'
+];
+const SECOND = [
+  '{"op":"addNode","id":"tiers","label":"Три тарифи замість одного","type":"decision"}',
+  '{"op":"addEdge","from":"root","to":"tiers"}',
+  '{"op":"addNode","id":"ratelimit","label":"rate limit на дешевому тарифі?","type":"question"}',
+  '{"op":"addEdge","from":"tiers","to":"ratelimit"}',
+  '{"op":"setSummary","text":"Три тарифи, відкрите питання про rate limit."}',
+  '{"op":"setTasks","items":["Опитати клієнтів","Порахувати тарифи"]}',
+  '{"op":"setQuestions","items":[]}'
+];
 let repairMode = "good";
 const fence = (source) => "Here it is:\\n\`\`\`mermaid\\n" + source + "\\n\`\`\`\\n";
 
@@ -56,6 +76,18 @@ contextBridge.exposeInMainWorld("marshalBoard", {
     return { ok: true, text: repairMode === "good" ? fence(${JSON.stringify(FIXED)}) : ${JSON.stringify(BROKEN)} };
   },
   onRequest: (cb) => { onRequest = cb; },
+  onDelta: (cb) => { onDelta = cb; },
+  // The reply streams: its first line arrives well before the rest, like a real model.
+  brainstorm: async (input) => {
+    calls.brainstorm.push(input);
+    if (input.text.includes("offline")) return { ok: false, error: "The model did not answer." };
+    if (input.text.includes("prose")) return { ok: true, text: "I think this is a good idea." };
+    const lines = input.board.nodes.length === 0 ? FIRST : SECOND;
+    onDelta?.({}, { delta: lines[0] + "\\n" + lines[1].slice(0, 20) });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    onDelta?.({}, { delta: lines[1].slice(20) + "\\n" + lines.slice(2).join("\\n") });
+    return { ok: true, text: lines.join("\\n") };
+  },
   save: async (input) => { calls.save.push(input); return { ok: true, id: "test" }; },
   reveal: async () => { calls.reveal++; return { ok: true }; },
   close: async () => ({ ok: true })
@@ -64,7 +96,7 @@ contextBridge.exposeInMainWorld("__boardProbe", {
   calls: () => calls,
   setRepair: (mode) => { repairMode = mode; },
   // What main sends for \`./marshal do board <words>\`.
-  speak: (text) => onRequest?.({}, { text })
+  speak: (text, mode) => onRequest?.({}, { text, mode })
 });
 `;
 }
@@ -261,6 +293,115 @@ async function main() {
   // ── Model unavailable ───────────────────────────────────────────────────
   now = await draw("offline request");
   record("a silent model shows its message and keeps the board", now.error === "The model did not answer." && now.svg);
+
+  // ── Brainstorm (./marshal do brainstorm …) ──────────────────────────────
+  const MAP = `({
+    mode: document.getElementById("board-mode").value,
+    roleShown: !document.getElementById("board-role").hidden,
+    mapShown: !document.getElementById("map-stage").hidden,
+    diagramShown: !document.getElementById("diagram-stage").hidden,
+    nodes: [...document.querySelectorAll(".board-node")].map((node) => {
+      const box = node.getBoundingClientRect();
+      return { id: node.dataset.id, type: node.dataset.type, text: node.querySelector(".board-node-label").textContent,
+        border: getComputedStyle(node).borderLeftColor, x: Math.round(box.left), y: Math.round(box.top), w: Math.round(box.width), h: Math.round(box.height) };
+    }),
+    edges: document.querySelectorAll("#map-edges path").length,
+    edgeLabels: [...document.querySelectorAll("#map-edges text")].map((item) => item.textContent),
+    summary: document.getElementById("summary").textContent,
+    tasks: [...document.querySelectorAll("#tasks li")].map((item) => item.textContent),
+    questionsShown: !document.getElementById("questions-panel").hidden,
+    panelsShown: !document.getElementById("panels").hidden,
+    button: document.getElementById("draw-btn").textContent,
+    request: document.getElementById("request").value
+  })`;
+  const settle = async () => {
+    for (let i = 0; i < 150; i++) {
+      await sleep(100);
+      if (!(await state()).busy) break;
+    }
+    return run(MAP);
+  };
+  const savesBefore = calls.save.length;
+  await run(`window.__boardProbe.speak("давай подумаємо про ціни", "brainstorm")`);
+  await sleep(250);
+  let map = await run(MAP);
+  record(
+    "a spoken thought switches the board to brainstorm",
+    map.mode === "brainstorm" && map.roleShown && map.mapShown && !map.diagramShown && map.button === "Add",
+    JSON.stringify({ mode: map.mode, button: map.button })
+  );
+  record("the first node is drawn while the reply is still streaming", map.nodes.length === 1 && map.nodes[0].id === "root" && (await state()).busy, `${map.nodes.length} nodes`);
+  map = await settle();
+  now = await state();
+  calls = await run("window.__boardProbe.calls()");
+  const typeOf = (id) => map.nodes.find((node) => node.id === id);
+  record(
+    "the map shows typed nodes and edges",
+    map.nodes.length === 3 && map.edges === 2 && typeOf("churn")?.type === "risk" && typeOf("survey")?.type === "task" &&
+      typeOf("root")?.text === "Ціни на підписку" && map.edgeLabels.join() === "спершу" && now.status === "Done" && now.error === "",
+    `${map.nodes.length} nodes, ${map.edges} edges, ${now.status} ${now.error}`
+  );
+  record("node types have different colours", new Set(map.nodes.map((node) => node.border)).size === 3, map.nodes.map((node) => node.border).join(" "));
+  const overlap = (nodes) =>
+    nodes.some((a, i) => nodes.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
+  record("children sit right of their parent and no cards overlap", !overlap(map.nodes) && typeOf("churn").x > typeOf("root").x);
+  record(
+    "summary, tasks and questions fill the panels",
+    map.panelsShown && map.summary === "Думаємо про ціни." && map.tasks.join() === "Опитати клієнтів" && map.questionsShown
+  );
+  record(
+    "the thought went to the model with the role and the empty board",
+    calls.brainstorm.length === 1 && calls.brainstorm[0].role === "both" && calls.brainstorm[0].board.nodes.length === 0 && map.request === "",
+    JSON.stringify(calls.brainstorm[0] ?? null).slice(0, 160)
+  );
+  record(
+    "the brainstorm is saved as a board state",
+    calls.save.length === savesBefore + 1 && calls.save.at(-1).board?.nodes.length === 3 && calls.save.at(-1).id === undefined &&
+      !(await run(`document.getElementById("reveal-btn").hidden`))
+  );
+
+  await run(`document.getElementById("board-role").value = "challenge"`);
+  await run(`document.getElementById("request").value = "може три тарифи"; document.getElementById("draw-btn").click()`);
+  map = await settle();
+  calls = await run("window.__boardProbe.calls()");
+  record(
+    "a second thought grows the same map",
+    map.nodes.length === 5 && map.edges === 4 && typeOf("tiers")?.type === "decision" && !overlap(map.nodes) &&
+      map.tasks.length === 2 && !map.questionsShown && map.summary.includes("rate limit"),
+    `${map.nodes.length} nodes, ${map.edges} edges`
+  );
+  record(
+    "the model gets the board so far and the chosen role, and the same board is rewritten",
+    calls.brainstorm.at(-1).board.nodes.length === 3 && calls.brainstorm.at(-1).role === "challenge" && calls.save.at(-1).id === "test" &&
+      calls.save.at(-1).board.nodes.length === 5
+  );
+
+  await run(`document.getElementById("request").value = "offline thought"; document.getElementById("draw-btn").click()`);
+  map = await settle();
+  now = await state();
+  record("a silent model keeps the map and the typed thought", now.error === "The model did not answer." && map.nodes.length === 5 && map.request === "offline thought");
+  await run(`document.getElementById("request").value = "prose only"; document.getElementById("draw-btn").click()`);
+  map = await settle();
+  now = await state();
+  record("a reply without ops changes nothing and says so", now.error.includes("nothing for the map") && map.nodes.length === 5, now.error);
+
+  if (process.env.MARSHAL_E2E_SHOTS) {
+    await fs.mkdir(process.env.MARSHAL_E2E_SHOTS, { recursive: true });
+    for (const theme of ["dark", "light"]) {
+      await run(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      await sleep(400);
+      const image = await win.webContents.capturePage();
+      await fs.writeFile(path.join(process.env.MARSHAL_E2E_SHOTS, `board-brainstorm-${theme}.png`), image.toPNG());
+    }
+  }
+
+  await run(`document.getElementById("clear-btn").click()`);
+  map = await run(MAP);
+  record("Clear empties the map and its panels", map.nodes.length === 0 && map.edges === 0 && !map.panelsShown && !(await run(`document.getElementById("map-empty").hidden`)));
+  await run(`window.__boardProbe.speak("", "diagram")`);
+  await sleep(100);
+  map = await run(MAP);
+  record("the board switches back to a diagram", map.mode === "diagram" && map.diagramShown && !map.mapShown && !map.roleShown && map.button === "Draw");
 
   if (process.env.MARSHAL_E2E_SHOTS) {
     await fs.mkdir(process.env.MARSHAL_E2E_SHOTS, { recursive: true });

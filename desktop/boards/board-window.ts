@@ -8,30 +8,54 @@ import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, shell } from "electron";
 
-import { completeOnce } from "../claude-code/answer-summary.ts";
+import { createSummaryStreamer } from "../captions/summarizer.ts";
+import { completeOnce, type OneShotRequest } from "../claude-code/answer-summary.ts";
 import { t } from "../i18n/ui-language.ts";
 import {
   askBoardModel,
   buildBoardRequest,
+  buildBrainstormRequest,
   buildRepairRequest,
   parseBoardLanguage,
+  parseBoardRole,
   type BoardComplete,
   type BoardReply
 } from "./board-prompt.ts";
-import { saveBoard } from "./board-store.ts";
+import { sanitizeBoardState, saveBoard } from "./board-store.ts";
+
+export type BoardMode = "diagram" | "brainstorm";
+export type BoardStream = (request: OneShotRequest, onDelta: (delta: string) => void) => Promise<string | null>;
+
+/** The summary provider's stream with a board prompt: ops reach the window as the model writes them. */
+const streamOnce: BoardStream = async (request, onDelta) => {
+  const streamer = createSummaryStreamer();
+  if (!streamer) return null;
+  try {
+    return await streamer.streamMessages(
+      { system: request.system, systemInstructions: request.system, referenceContext: "", user: request.user },
+      request.maxTokens,
+      onDelta,
+      AbortSignal.timeout(request.timeoutMs ?? 60_000)
+    );
+  } catch (err) {
+    console.warn(`[board] ${request.label} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+};
 
 const rendererDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer");
 
 export class BoardWindow {
   private window: BrowserWindow | null = null;
   private loaded = false;
-  private pending: string | null = null;
+  private pending: { text: string; mode: BoardMode } | null = null;
   private lastFile: string | null = null;
 
   constructor(
     private readonly preloadPath: string,
     private readonly boardsDir: string,
-    private readonly complete: BoardComplete = completeOnce
+    private readonly complete: BoardComplete = completeOnce,
+    private readonly stream: BoardStream = streamOnce
   ) {}
 
   /**
@@ -39,15 +63,18 @@ export class BoardWindow {
    * were typed. The window then shows without taking focus, because the owner
    * spoke from another app and is still typing there.
    */
-  open(request = ""): void {
+  open(request = "", mode?: BoardMode): void {
     const text = request.trim();
+    // A mode alone still reaches the page: "open the brainstorm board" switches it.
+    const spoken = text !== "" || mode ? { text, mode: mode ?? "diagram" } : null;
     if (this.window && !this.window.isDestroyed()) {
       if (text === "") this.window.focus();
-      else if (this.loaded) this.window.webContents.send("marshal:board-request", { text });
-      else this.pending = text;
+      if (!spoken) return;
+      if (this.loaded) this.window.webContents.send("marshal:board-request", spoken);
+      else this.pending = spoken;
       return;
     }
-    this.pending = text === "" ? null : text;
+    this.pending = spoken;
     this.loaded = false;
 
     const window = new BrowserWindow({
@@ -88,13 +115,30 @@ export class BoardWindow {
         t("board.error.noModel")
       );
     });
-    ipc.handle("marshal:board:save", (_event, input: { request?: unknown; source?: unknown; language?: unknown }) => {
-      if (typeof input?.source !== "string") return { ok: false };
+    ipc.handle("marshal:board:brainstorm", (_event, input: { text?: unknown; role?: unknown; language?: unknown; board?: unknown }) => {
+      const text = typeof input?.text === "string" ? input.text.trim() : "";
+      if (text === "") return { ok: false, error: t("board.error.empty") } satisfies BoardReply;
+      const request = buildBrainstormRequest(
+        text,
+        sanitizeBoardState(input.board),
+        parseBoardRole(input.role),
+        parseBoardLanguage(input.language)
+      );
+      const send = (delta: string) => {
+        if (!window.isDestroyed()) window.webContents.send("marshal:board-delta", { delta });
+      };
+      return askBoardModel(request, (next) => this.stream(next, send), t("board.error.noModel"));
+    });
+    ipc.handle("marshal:board:save", (_event, input: { request?: unknown; source?: unknown; language?: unknown; board?: unknown; id?: unknown }) => {
+      const brainstorm = input?.board !== undefined;
+      if (!brainstorm && typeof input?.source !== "string") return { ok: false };
       try {
         const saved = saveBoard(this.boardsDir, {
           request: typeof input.request === "string" ? input.request : "",
-          source: input.source,
-          language: parseBoardLanguage(input.language)
+          language: parseBoardLanguage(input.language),
+          ...(brainstorm
+            ? { state: sanitizeBoardState(input.board), id: typeof input.id === "string" ? input.id : undefined }
+            : { source: input.source as string })
         });
         if (!saved) return { ok: false };
         this.lastFile = saved.file;
@@ -123,14 +167,15 @@ export class BoardWindow {
     });
     window.webContents.once("did-finish-load", () => {
       this.loaded = true;
-      if (this.pending === null) {
-        window.show();
-        window.focus();
+      const spoken = this.pending;
+      this.pending = null;
+      if (spoken) window.webContents.send("marshal:board-request", spoken);
+      if (spoken && spoken.text !== "") {
+        window.showInactive();
         return;
       }
-      window.showInactive();
-      window.webContents.send("marshal:board-request", { text: this.pending });
-      this.pending = null;
+      window.show();
+      window.focus();
     });
     void window.loadFile(path.join(rendererDir, "board.html"));
   }

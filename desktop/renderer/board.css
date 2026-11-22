@@ -100,3 +100,99 @@
   background: var(--bg-surface);
   border-radius: var(--radius-card);
 }
+
+/* Brainstorm mode (#276 Stage 3): own canvas — DOM cards over one SVG of edges, nothing animates. */
+.board-brainstorm:not([hidden]) {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.board-map-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.board-map { position: relative; }
+
+.board-map-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.board-map-edges path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.board-map-edges text {
+  font-size: var(--fs-xs);
+  fill: var(--text-muted);
+  text-anchor: middle;
+}
+
+.board-node {
+  --node-color: var(--state-think);
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-default);
+  background: color-mix(in srgb, var(--node-color) 12%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--node-color) 55%, transparent);
+  border-left: 3px solid var(--node-color);
+  border-radius: var(--radius-card);
+}
+
+.board-node[data-type="question"] { --node-color: var(--state-wait); }
+.board-node[data-type="decision"] { --node-color: var(--state-done); }
+.board-node[data-type="risk"] { --node-color: var(--state-fail); }
+.board-node[data-type="task"] { --node-color: var(--state-listen); }
+
+.board-node-type {
+  font-family: var(--font-label);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--node-color);
+}
+
+.board-node-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.board-panels {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.board-panel h2 { margin: 0 0 var(--space-2); }
+.board-panel p { margin: 0; }
+
+.board-panel ul {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.board-panel li + li { margin-top: var(--space-1); }
+
+@media (max-width: 760px) {
+  .board-brainstorm:not([hidden]) { flex-direction: column; }
+  .board-panels { flex: none; width: 100%; }
+}
