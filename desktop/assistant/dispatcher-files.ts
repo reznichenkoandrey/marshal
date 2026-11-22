@@ -9,6 +9,7 @@
 import path from "node:path";
 
 import { isUnderRoots } from "../claude-code/context-router.ts";
+import { gatePromptLines } from "../computer-control/action-gate.ts";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 
 export const DISPATCHER_NAME = "marshal-dispatcher";
@@ -23,9 +24,11 @@ export type GeneralPermissionMode = "bypass" | "auto" | "default";
 // Bypass is the owner's choice in Settings. Without the skip flag the session
 // stops on Claude Code's bypass warning in a minimised window: the dispatcher
 // starts with project settings only and never sees the owner's own skip (#390).
-function permissionArgs(mode: GeneralPermissionMode): string[] {
-  if (mode === "bypass") return ["--permission-mode", "bypassPermissions", "--settings", `'{"skipDangerousModePermissionPrompt":true}'`];
-  return mode === "auto" ? ["--permission-mode", "auto"] : [];
+// `settingsFile` replaces the inline settings: `general`'s file carries the skip flag and its gate (#460).
+function permissionArgs(mode: GeneralPermissionMode, settingsFile?: string): string[] {
+  const settings = settingsFile ? ["--settings", shellQuote(settingsFile)] : [];
+  if (mode === "bypass") return ["--permission-mode", "bypassPermissions", ...(settingsFile ? settings : ["--settings", `'{"skipDangerousModePermissionPrompt":true}'`])];
+  return [...(mode === "auto" ? ["--permission-mode", "auto"] : []), ...settings];
 }
 
 const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
@@ -217,7 +220,8 @@ export function appToolRefusal(raw: string, live: readonly ClaudeSession[], root
   return null;
 }
 
-export function buildGeneralPrompt(helperPath: string): string {
+/** `probePath` and `gated` describe the read-only gate (#460); without them the prompt only adds the data-not-instructions rule. */
+export function buildGeneralPrompt(helperPath: string, probePath = "", gated = false): string {
   const helper = shellQuote(helperPath);
   return [
     "You are the hands of Marshal, the owner's voice assistant on this Mac.",
@@ -226,7 +230,8 @@ export function buildGeneralPrompt(helperPath: string): string {
     `Marshal's own features run through ${helper} do <action>: translator, translator-close, captions, record-call, record-screen, recordings, capture, next-meeting, join-meeting.`,
     "Your last message is read aloud: one or two short sentences in the language of the command, no markdown, no code, no file paths unless asked.",
     "Ask before anything destructive or irreversible: deleting, sending a message, buying, changing system settings.",
-    `To ask, run ${helper} ask "<short question>": it speaks the question, listens and prints the owner's answer, or (no answer) — then do not proceed.`
+    `To ask, run ${helper} ask "<short question>": it speaks the question, listens and prints the owner's answer, or (no answer) — then do not proceed.`,
+    ...gatePromptLines(helper, shellQuote(probePath), gated)
   ].join("\n");
 }
 
@@ -253,10 +258,10 @@ export function buildHelperScript(hookDir: string): string {
     "  sessions|context)",
     "    ready || { echo 'Marshal is not running.'; exit 1; }",
     "    curl -s --fail-with-body -m 30 -H @\"$dir/auth-header\" \"$(base)/$cmd\" ;;",
-    "  gate)",
-    "    # PreToolUse for the Claude app's tools (#437): no answer from Marshal blocks the call.",
+    "  gate|gate-action)",
+    "    # PreToolUse for the Claude app's tools (#437) and for general's actions (#460): no answer from Marshal blocks the call.",
     "    ready || { echo 'Marshal is not running.' >&2; exit 2; }",
-    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/gate\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
+    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
     "    [ \"$verdict\" = allow ] && exit 0",
     "    echo \"$verdict\" >&2; exit 2 ;;",
     "  say|ask|do|insert|reply|spawn|sent|peek)",
@@ -264,7 +269,7 @@ export function buildHelperScript(hookDir: string): string {
     "    printf '%s\\n' \"$@\" | curl -s --fail-with-body -m 90 -H @\"$dir/auth-header\" \\",
     "      -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- \"$(base)/$cmd\" ;;",
     "  *)",
-    "    echo 'usage: marshal watch | sessions | context | gate | say <text> | ask <question> | do <action> | insert <text> | reply <session> <words> | spawn [project] [name] | sent <session> | peek <session>'",
+    "    echo 'usage: marshal watch | sessions | context | gate | gate-action | say <text> | ask <question> | do <action> | insert <text> | reply <session> <words> | spawn [project] [name] | sent <session> | peek <session>'",
     "    exit 1 ;;",
     "esac",
     ""
@@ -295,12 +300,12 @@ export function dispatcherCommandLine(model: string, mode: GeneralPermissionMode
   ].join(" ");
 }
 
-export function generalCommandLine(promptFile: string, mode: GeneralPermissionMode): string {
+export function generalCommandLine(promptFile: string, mode: GeneralPermissionMode, settingsFile?: string): string {
   return [
     "claude",
     "--name", GENERAL_NAME,
     "--no-chrome",
-    ...permissionArgs(mode),
+    ...permissionArgs(mode, settingsFile),
     "--append-system-prompt", `"$(cat ${shellQuote(promptFile)})"`
   ].join(" ");
 }
