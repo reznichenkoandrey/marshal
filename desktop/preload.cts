@@ -528,6 +528,19 @@ const assistantApi = {
 
 contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);
 
+// ── Board (#276) ──
+// Used exclusively by renderer/board.html; main answers on that window's own webContents.
+type BoardReply = { ok: true; text: string } | { ok: false; error: string };
+const boardApi = {
+  draw: (input: { text: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:draw", input) as Promise<BoardReply>,
+  repair: (input: { source: string; error: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:repair", input) as Promise<BoardReply>,
+  close: () => ipcRenderer.invoke("marshal:board:close")
+};
+
+contextBridge.exposeInMainWorld("marshalBoard", boardApi);
+
 // UI language (#330): asked synchronously so the first paint is already in it;
 // main pushes a change to every open window.
 const i18nApi = {
@@ -549,6 +562,7 @@ declare global {
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
     marshalAssistant: typeof assistantApi;
+    marshalBoard: typeof boardApi;
     marshalI18n: typeof i18nApi;
   }
 }

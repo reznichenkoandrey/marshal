@@ -56,6 +56,7 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { BoardWindow } from "./boards/board-window.ts";
 import {
   deriveAssistantState,
   groupSessions,
@@ -203,6 +204,8 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+// Created on first open; holds nothing while its window is closed (#281).
+let boardWindow: BoardWindow | null = null;
 // Built on first use: the service holds no timers and no handles until then,
 // so an owner who never opens the hub pays nothing for it (#281).
 let smartHub: SmartHubService | null = null;
@@ -1326,6 +1329,7 @@ async function performTeardown(): Promise<void> {
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
+  boardWindow?.close();
   smartHubWindow?.close();
   // Only ever a server this process started — a reused one idles out on its own.
   smartHub?.stop();
@@ -2570,6 +2574,10 @@ function buildTrayMenu(): Electron.Menu {
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
     },
+    // Stage 1 of voice boards (#276) is a dev tool: no voice entry yet.
+    ...(!app.isPackaged || process.env.MARSHAL_BOARDS === "1"
+      ? [{ label: t("tray.board"), click: () => (boardWindow ??= new BoardWindow(preloadPath)).open() }]
+      : []),
     {
       label: t(captionsRunning ? "tray.stopCaptions" : "tray.startCaptions"),
       accelerator: captionsAccelerators.toggle,

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="board.windowTitle">Marshal — Board</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+  <link rel="stylesheet" href="./capture-history.css" />
+  <link rel="stylesheet" href="./board.css" />
+  <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
+  <script src="./locales.js"></script>
+  <script src="./i18n.js"></script>
+</head>
+<body>
+  <div class="shell window">
+    <header class="bar">
+      <div class="title">
+        <h1 data-i18n="board.title">Board</h1>
+      </div>
+      <span></span>
+      <div class="bar-actions">
+        <select id="board-language" class="board-language" title="Language of the labels" data-i18n-title="board.languageTitle">
+          <option value="auto" data-i18n="board.languageAuto">Labels: Auto</option>
+          <option value="uk" data-i18n="board.languageUk">Labels: Українська</option>
+          <option value="en" data-i18n="board.languageEn">Labels: English</option>
+        </select>
+        <button id="clear-btn" type="button" class="icon-btn" data-icon="eraser" data-icon-size="16" title="Clear the board" aria-label="Clear the board" data-i18n-title="board.clear" data-i18n-aria-label="board.clear"></button>
+        <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close" aria-label="Close" data-i18n-title="board.close" data-i18n-aria-label="board.close"></button>
+      </div>
+    </header>
+
+    <main class="dash board">
+      <section class="block board-ask">
+        <textarea id="request" rows="3" spellcheck="false" placeholder="Describe a diagram, or paste Mermaid source" data-i18n-placeholder="board.requestPlaceholder" aria-label="Describe a diagram" data-i18n-aria-label="board.requestLabel"></textarea>
+        <div class="board-ask-row">
+          <button id="draw-btn" type="button" class="board-draw" data-i18n="board.draw">Draw</button>
+          <span id="status" class="caps" role="status"></span>
+        </div>
+        <p id="error" class="board-error" role="alert" hidden></p>
+      </section>
+
+      <section class="block board-stage">
+        <div id="diagram" class="board-diagram"></div>
+        <p id="empty" class="board-empty" data-i18n="board.empty">The diagram appears here.</p>
+        <details class="board-source">
+          <summary data-i18n="board.source">Mermaid source</summary>
+          <pre id="source"></pre>
+        </details>
+      </section>
+    </main>
+  </div>
+  <script src="./board.js" type="module"></script>
+</body>
+</html>

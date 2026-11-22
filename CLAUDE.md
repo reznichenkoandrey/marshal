@@ -35,8 +35,9 @@
   вигляд Settings: rail, перемикач, Save;
   `MARSHAL_E2E_SHOTS=<тека>` — скріни кожного стану і Settings на трьох ширинах),
   `npm run test:e2e:ambient` (рамка-світіння, індикатор диктовки, міні-віджет: картки, клік /
-  подвійний клік / драг, пауза після 30 с idle)
-  У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home і ambient: вони працюють через
+  подвійний клік / драг, пауза після 30 с idle), `npm run test:e2e:board` (дошка: справжній Mermaid,
+  набір лапок, один repair, `MARSHAL_E2E_SHOTS=<тека>` знімає вікно в light і dark)
+  У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home, ambient і board: вони працюють через
   stub-preload і не потребують TCC. `capture` і `region` — лише локально, бо їм потрібен
   Screen Recording, якого GitHub runner дати не може. Чіпаєш захоплення — запусти їх руками.
   **home і ambient не заважають роботі** (`tests/e2e/quiet-window.mjs`): без іконки в Dock, вікно
@@ -957,6 +958,34 @@
   без відповіді, а не вгадується), тоді `smart-browser login <project>/<env>/<role>`. Тести —
   `tests/smart-hub.test.ts`, у них і підставний хаб, що пише port/token 0600 і відповідає лише на
   правильний токен.
+- **Дошки (voice boards), Stage 1 — `desktop/boards/` і `desktop/renderer/board*.js`** (#276, spec —
+  `docs/VOICE_BOARDS.md`). Поки це dev-інструмент без голосу: пункт tray «Board (dev)…» є лише в dev-білді
+  або з `MARSHAL_BOARDS=1`. У вікні текстове поле: запит («намалюй схему авторизації», «draw the deploy
+  flow») іде моделі, вставлений Mermaid-код чи рядки ops малюються без моделі. **Модель пише Mermaid, не
+  SVG і не HTML:** одна відповідь = один fenced-блок ` ```mermaid `, вікно замінює діаграму цілком.
+  Ядро чисте й тестоване без Electron — `desktop/renderer/board-ops.js`: `createOpStream` віддає op лише
+  тоді, коли рядок JSON завершений або fence закритий (недописане не малюється ніколи), невідомий op
+  викидається, `applyOp` не мутує дошку, дубль `addNode` за id — це оновлення. Ops мозкового штурму
+  (`addNode`, `addEdge`, `setSummary`…) уже розбираються й застосовуються до стану, але малює їх Stage 3.
+  **Parse перед render, один repair** (`resolveDiagram`): `mermaid.parse` впав — зламаний код і текст
+  помилки йдуть моделі один раз; друга невдача лишає попередню діаграму й один рядок помилки. Третього
+  запиту немає. Модель викликає main (`board-prompt.ts` → `completeOnce`, той самий провайдер, що в
+  summary; timeout 45 с замість 8), IPC-обробники висять на `webContents.ipc` самого вікна.
+  **Mermaid — devDependency, закріплений на 12.3.0** (MIT): пакет важить 120 МБ, а `node_modules/**`
+  іде в бандл цілком, тому `postbuild.mjs` копіює лише ESM-збірку без source maps (6 МБ) у
+  `dist/desktop/renderer/vendor/mermaid/`. Вікно вантажить його через `import()` на першій діаграмі,
+  типи діаграм — окремими chunks. CSP вікна без `unsafe-eval` (перевірено e2e), `securityLevel: "strict"`,
+  вікно не відкриває нових вікон і нікуди не переходить. Кольори Mermaid бере з токенів: він рахує
+  палітру сам і `var()` не розуміє, тож `tokenColor` у `board.js` зводить токен до hex; тема оновлюється
+  на наступному малюванні. Шрифт підписів — bundled Fixel, у ньому є кирилиця (e2e це міряє).
+  **Мова:** ключові слова Mermaid й id завжди англійською, підписи — мовою запиту (`summaryLanguageName`)
+  або примусово `uk` / `en` із селекта вікна; терміни (`deploy`, `rate limit`) не перекладаються.
+  **Пастки лапок** (набір `tests/fixtures/boards/quoting.json`, звіряється зі справжнім парсером у e2e):
+  кожен підпис у лапках `id["текст"]`, подвійна лапка всередині — `#quot;`. Текст повідомлення в
+  `sequenceDiagram` у лапки взяти не можна, і `;` там закінчує statement: писати `#59;`, а `#` — `#35;`.
+  Заміряно в e2e (working set renderer-а, не footprint): 93–105 МБ відкрите порожнє вікно, 163–172 МБ
+  після першої діаграми; із закритим вікном дошка не коштує нічого. Далі за spec: голос і збереження
+  (Stage 2), мозковий штурм (3), правки й експорт (4), presenter і PDF (5).
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1 ГБ з q8_0, вантажиться на
