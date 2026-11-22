@@ -260,6 +260,15 @@
               <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
             </div>
 
+            <label class="checkbox-row">
+              <input id="settings-plan-runner" name="planRunnerEnabled" type="checkbox" />
+              <span data-i18n="settings.planRunner">Let Marshal run plans on open sessions (plan runner)</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.planRunnerHint">
+              Off by default. A plan sends its steps, one at a time, to terminal sessions that are already open in the
+              allowed folders, while you are away.
+            </p>
+
             <div class="field">
               <label for="settings-assistant-terminal" data-i18n="settings.assistantTerminal">Where the assistant's sessions open</label>
               <select id="settings-assistant-terminal" name="assistantTerminalHost">

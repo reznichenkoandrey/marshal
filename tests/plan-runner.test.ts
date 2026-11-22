@@ -362,7 +362,7 @@ describe("step prompt and marker", () => {
     expect(prompt).toContain("Онови devDependencies");
     expect(prompt).toContain("Done when: npm run check проходить");
     expect(prompt).toContain("Do not push, pull, merge, rebase, deploy");
-    expect(prompt.trimEnd().endsWith("PLAN-STEP: question")).toBe(true);
+    expect(prompt.trimEnd().endsWith("PLAN-STEP s1: question")).toBe(true);
   });
 
   it("reads the marker only from the last line", () => {
