@@ -10,10 +10,21 @@ import { Notification } from "electron";
 import { uiLanguage } from "../i18n/ui-language.ts";
 import { loadSettings } from "../settings-store.ts";
 import { completeOnce, summarizeAnswer } from "./answer-summary.ts";
+import { ChromeGuard, cleanDeviceName, isDeviceId, type ChromeDevices } from "./chrome-guard.ts";
 import { isUnderRoots, parseRoutingRoots } from "./context-router.ts";
 import { DossierKeeper } from "./dossier.ts";
 import { focusSession } from "./focus.ts";
-import { defaultClaudeSettingsPath, installHooks, readHooksInstalled, readNeedsPermissionHook, uninstallHooks } from "./hook-installer.ts";
+import {
+  defaultClaudeSettingsPath,
+  hookCommand,
+  installChromeGuard,
+  installHooks,
+  readChromeGuardInstalled,
+  readHooksInstalled,
+  readNeedsPermissionHook,
+  uninstallChromeGuard,
+  uninstallHooks
+} from "./hook-installer.ts";
 import { ClaudeHookService, type AssistantRoutes } from "./hook-service.ts";
 import { listLiveSessions, type ClaudeSession } from "./registry.ts";
 import { SessionNotifier, type SpokenSessionEvent } from "./session-notifier.ts";
@@ -28,6 +39,15 @@ export type ClaudeHooksState = {
   error?: string;
 };
 
+export type ChromeGuardState = {
+  installed: boolean;
+  devices: ChromeDevices;
+  error?: string;
+};
+
+/** The person's answer to "is this browser on this Mac?"; null = they closed the dialog. */
+export type ConfirmBrowser = (deviceId: string, name: string) => Promise<boolean | null>;
+
 function inRoutingRoots(session: Pick<ClaudeSession, "cwd">): boolean {
   return isUnderRoots(session.cwd, parseRoutingRoots(loadSettings().claudeCodeRoutingRoots));
 }
@@ -41,6 +61,7 @@ export class ClaudeHooksController {
   private readonly dossiers: DossierKeeper;
   private ignoredFolder: string | null = null;
   private readonly stopListeners: Array<(sessionId: string) => void> = [];
+  private readonly chromeGuard: ChromeGuard;
 
   constructor(
     userDataDir: string,
@@ -53,7 +74,9 @@ export class ClaudeHooksController {
     // Permission prompts answered by voice (#375): the hook's stdout, "" = the usual prompt.
     askPermission: (raw: string) => Promise<string> = async () => "",
     // Call check (#267): finished results are held while a call is active.
-    callCheck: () => Promise<boolean> = async () => false
+    callCheck: () => Promise<boolean> = async () => false,
+    // Whose browser is this (#477): only the person may say a browser is on this Mac.
+    private readonly confirmBrowser: ConfirmBrowser = async () => null
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -83,11 +106,16 @@ export class ClaudeHooksController {
         if (session && inRoutingRoots(session)) void this.dossiers.refresh(session);
       }
     }, askPermission);
+    this.chromeGuard = new ChromeGuard(undefined, `${hookCommand(this.service.guardScriptPath)} add`);
+    this.service.setChromeGuard({
+      judge: (raw) => this.chromeGuard.judge(raw) ?? "allow",
+      propose: (form) => this.proposeBrowser(form)
+    });
   }
 
-  /** On app start: listen only if the user installed the hooks. */
+  /** On app start: listen only if the user installed the hooks or the Chrome guard. */
   async startIfInstalled(): Promise<void> {
-    if (!readHooksInstalled()) return;
+    if (!readHooksInstalled() && !readChromeGuardInstalled()) return;
     this.upgrade();
     await this.service.start().catch((err: unknown) => {
       console.warn("[claude-hooks] receiver failed to start:", err instanceof Error ? err.message : err);
@@ -164,12 +192,64 @@ export class ClaudeHooksController {
       } else {
         uninstallHooks();
         this.notifier.dispose();
-        this.service.remove();
+        // The Chrome guard answers through the same receiver: it stays up for it.
+        if (!readChromeGuardInstalled()) this.service.remove();
       }
       return this.state();
     } catch (err) {
       return this.state(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  chromeGuardState(error?: string): ChromeGuardState {
+    let devices: ChromeDevices = {};
+    let readError = error;
+    try {
+      devices = this.chromeGuard.devices();
+    } catch (err) {
+      readError ??= err instanceof Error ? err.message : String(err);
+    }
+    return { installed: readChromeGuardInstalled(), devices, ...(readError ? { error: readError } : {}) };
+  }
+
+  async setChromeGuardInstalled(installed: boolean): Promise<ChromeGuardState> {
+    try {
+      if (installed) {
+        this.service.writeScript();
+        installChromeGuard(this.service.guardScriptPath);
+        await this.service.start();
+      } else {
+        uninstallChromeGuard();
+        if (!readHooksInstalled()) this.service.remove();
+      }
+      return this.chromeGuardState();
+    } catch (err) {
+      return this.chromeGuardState(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** From the tray: the person flips whether a registered browser is on this Mac. */
+  setBrowserHere(deviceId: string, here: boolean): ChromeGuardState {
+    try {
+      this.chromeGuard.setDevice(deviceId, "", here);
+      return this.chromeGuardState();
+    } catch (err) {
+      return this.chromeGuardState(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** `add <deviceId> <name>` from the guard script: the agent proposes, the dialog decides. */
+  private async proposeBrowser(form: string): Promise<string> {
+    const params = new URLSearchParams(form);
+    const id = (params.get("id") ?? "").trim();
+    const name = cleanDeviceName(params.get("name") ?? "");
+    if (!isDeviceId(id) || !name) return "usage: add <deviceId> <name>, with the deviceId list_connected_browsers reported.";
+    const here = await this.confirmBrowser(id, name);
+    if (here === null) return "The person closed the dialog: nothing was recorded. Ask them before proposing it again.";
+    this.chromeGuard.setDevice(id, name, here);
+    return here
+      ? `Recorded: ${id} is "${name}", this computer's browser. Call select_browser again.`
+      : `Recorded: ${id} is "${name}", NOT this computer's browser. It is never driven from here: do not select it.`;
   }
 
   stop(): void {

@@ -110,6 +110,33 @@ What the hands-free V2 spec still needs is tracked in
 - Reasoning bridges: `claude-cli` (subscription, default), `codex-cli`, Anthropic API, OpenAI-compatible (Groq/OpenRouter), Claude web, ChatGPT web, Chrome extension.
 - Swap bridge + model from the Settings modal — backend restarts itself.
 
+### Chrome guard for Claude Code
+
+The Claude in Chrome extension pairs every Chrome signed in to the same account, on whichever computer it
+runs, and its `isLocal` flag is a network guess: a Chrome on another Mac in the same Wi-Fi reads as local.
+A Claude Code session on one computer can then open tabs in a browser on another. The guard stops that.
+
+Tray → **Chrome Guard** → **Keep Claude in This Mac's Browsers** adds one `PreToolUse` hook for
+`mcp__claude-in-chrome__.*` to `~/.claude/settings.json` (the same merge as the session hooks: nothing else
+in the file is touched). From then on:
+
+| Tool | Verdict |
+|---|---|
+| `list_connected_browsers` | always allowed |
+| `select_browser` | only a browser registered as this Mac's |
+| `switch_browser` | never: it pops a Connect prompt on every paired Chrome |
+| everything else | only after a permitted `select_browser` in the same session |
+
+Which browsers are this Mac's is each computer's own answer, kept in
+`~/.claude/smart-browser/chrome-devices.json` (user data, never synced). When Claude meets a browser the
+file does not know, the refusal tells it to ask you and to propose the browser; Marshal then shows a
+dialog, and only your answer there is recorded. The tray submenu lists the registered browsers with a
+checkbox each (checked = on this Mac).
+
+The hook asks the running Marshal over loopback and lets a call through on the word `allow` only. Marshal
+not running, or not answering, refuses every Chrome tool. Run the guard on every Mac that pairs a browser:
+one unguarded computer can still reach the others.
+
 ### Chrome extension (separate bundle)
 - Side panel for ChatGPT, Claude, Gemini.
 - Local HTTP bridge so `extension` mode of the agent can drive ChatGPT from your logged-in browser without API keys.

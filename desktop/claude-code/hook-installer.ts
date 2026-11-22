@@ -1,11 +1,13 @@
-// Adds Marshal's Stop / Notification hooks to ~/.claude/settings.json and
-// takes them out again. The file belongs to the user and usually already holds
+// Adds Marshal's Stop / Notification hooks (and, separately, the Chrome guard,
+// #477) to ~/.claude/settings.json and takes them out again. The file belongs to the user and usually already holds
 // their own hooks, so every change is a merge: Marshal's entries are found by
 // the script name in their command and nothing else is touched.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { CHROME_TOOL_PREFIX, GUARD_SCRIPT_NAME } from "./chrome-guard.ts";
 
 export const HOOK_SCRIPT_NAME = "marshal-claude-hook.sh";
 export const HOOK_EVENTS = ["Stop", "Notification"] as const;
@@ -15,6 +17,11 @@ export const ELICITATION_EVENT = "Elicitation";
 const SYNC_EVENTS = [PERMISSION_EVENT, ELICITATION_EVENT] as const;
 const PERMISSION_TIMEOUT_S = 60;
 const ALL_EVENTS = [...HOOK_EVENTS, ...SYNC_EVENTS];
+// Whose browser is this (#477): its own entry, installed and removed apart from the session hooks.
+export const CHROME_GUARD_EVENT = "PreToolUse";
+export const CHROME_GUARD_MATCHER = `${CHROME_TOOL_PREFIX}.*`;
+// Above the script's own 4 s wait: a hook that times out does not block the call.
+const CHROME_GUARD_TIMEOUT_S = 10;
 
 type HookCommand = { type?: unknown; command?: unknown; [key: string]: unknown };
 type HookGroup = { matcher?: unknown; hooks?: unknown; [key: string]: unknown };
@@ -56,18 +63,18 @@ export function needsPermissionHook(settings: Settings): boolean {
   return hasMarshalHooks(settings) && SYNC_EVENTS.some((event) => !hasMarshalHook(settings, event));
 }
 
-/** Drop Marshal's commands; a group left with no commands goes with them. */
-export function removeMarshalHooks(settings: Settings): Settings {
+/** Drop the matching commands; a group left with no commands goes with them. */
+function dropHooks(settings: Settings, events: readonly string[], matches: (hook: unknown) => boolean): Settings {
   if (typeof settings.hooks !== "object" || settings.hooks === null || Array.isArray(settings.hooks)) {
     return settings;
   }
   const hooks: Record<string, unknown> = { ...(settings.hooks as Record<string, unknown>) };
-  for (const event of ALL_EVENTS) {
+  for (const event of events) {
     if (!Array.isArray(hooks[event])) continue;
     const kept = (hooks[event] as unknown[]).flatMap((group) => {
       const commands = (group as HookGroup)?.hooks;
-      if (!Array.isArray(commands) || !commands.some(isMarshalHook)) return [group];
-      const rest = commands.filter((hook) => !isMarshalHook(hook));
+      if (!Array.isArray(commands) || !commands.some(matches)) return [group];
+      const rest = commands.filter((hook) => !matches(hook));
       return rest.length > 0 ? [{ ...(group as HookGroup), hooks: rest }] : [];
     });
     if (kept.length > 0) hooks[event] = kept;
@@ -76,6 +83,39 @@ export function removeMarshalHooks(settings: Settings): Settings {
   const next: Settings = { ...settings, hooks };
   if (Object.keys(hooks).length === 0) delete next.hooks;
   return next;
+}
+
+export function removeMarshalHooks(settings: Settings): Settings {
+  return dropHooks(settings, ALL_EVENTS, isMarshalHook);
+}
+
+function isChromeGuardHook(hook: unknown): boolean {
+  return typeof (hook as HookCommand)?.command === "string"
+    && ((hook as HookCommand).command as string).includes(GUARD_SCRIPT_NAME);
+}
+
+export function hasChromeGuardHook(settings: Settings): boolean {
+  return groupsOf(settings, CHROME_GUARD_EVENT).some((group) => {
+    const hooks = (group as HookGroup)?.hooks;
+    return Array.isArray(hooks) && hooks.some(isChromeGuardHook);
+  });
+}
+
+export function removeChromeGuardHook(settings: Settings): Settings {
+  return dropHooks(settings, [CHROME_GUARD_EVENT], isChromeGuardHook);
+}
+
+/** Idempotent, like addMarshalHooks. Synchronous: the call waits for the verdict. */
+export function addChromeGuardHook(settings: Settings, command: string): Settings {
+  const base = removeChromeGuardHook(settings);
+  const hooks: Record<string, unknown> =
+    typeof base.hooks === "object" && base.hooks !== null ? { ...(base.hooks as Record<string, unknown>) } : {};
+  const groups = Array.isArray(hooks[CHROME_GUARD_EVENT]) ? (hooks[CHROME_GUARD_EVENT] as unknown[]) : [];
+  hooks[CHROME_GUARD_EVENT] = [
+    ...groups,
+    { matcher: CHROME_GUARD_MATCHER, hooks: [{ type: "command", command, timeout: CHROME_GUARD_TIMEOUT_S }] }
+  ];
+  return { ...base, hooks };
 }
 
 /** Idempotent: an existing Marshal entry is replaced, never duplicated. */
@@ -148,5 +188,24 @@ export function installHooks(scriptPath: string, filePath = defaultClaudeSetting
 export function uninstallHooks(filePath = defaultClaudeSettingsPath()): void {
   const { settings, indent } = readSettings(filePath);
   const next = removeMarshalHooks(settings);
+  if (JSON.stringify(next) !== JSON.stringify(settings)) writeSettings(filePath, next, indent);
+}
+
+export function readChromeGuardInstalled(filePath = defaultClaudeSettingsPath()): boolean {
+  try {
+    return hasChromeGuardHook(readSettings(filePath).settings);
+  } catch {
+    return false;
+  }
+}
+
+export function installChromeGuard(scriptPath: string, filePath = defaultClaudeSettingsPath()): void {
+  const { settings, indent } = readSettings(filePath);
+  writeSettings(filePath, addChromeGuardHook(settings, hookCommand(scriptPath)), indent);
+}
+
+export function uninstallChromeGuard(filePath = defaultClaudeSettingsPath()): void {
+  const { settings, indent } = readSettings(filePath);
+  const next = removeChromeGuardHook(settings);
   if (JSON.stringify(next) !== JSON.stringify(settings)) writeSettings(filePath, next, indent);
 }
