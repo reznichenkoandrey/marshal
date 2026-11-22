@@ -25,6 +25,8 @@ const dom = {
   settingsClaudeSummaryLanguage: document.getElementById("settings-claude-summary-language"),
   settingsClaudeContextRouting: document.getElementById("settings-claude-context-routing"),
   settingsClaudeRoutingRoots: document.getElementById("settings-claude-routing-roots"),
+  settingsClaudeRemoteSessions: document.getElementById("settings-claude-remote-sessions"),
+  settingsClaudeRemoteHosts: document.getElementById("settings-claude-remote-hosts"),
   settingsClaudeRoutingCount: document.getElementById("settings-claude-routing-count"),
   settingsDictationAutoPaste: document.getElementById("settings-dictation-autopaste"),
   settingsDictationClaudeApp: document.getElementById("settings-dictation-claude-app"),
@@ -364,6 +366,12 @@ async function openSettings() {
     if (dom.settingsClaudeRoutingRoots) {
       dom.settingsClaudeRoutingRoots.value = current.claudeCodeRoutingRoots ?? "";
     }
+    if (dom.settingsClaudeRemoteSessions) {
+      dom.settingsClaudeRemoteSessions.checked = current.claudeCodeRemoteSessions ?? false;
+    }
+    if (dom.settingsClaudeRemoteHosts) {
+      dom.settingsClaudeRemoteHosts.value = current.claudeCodeRemoteHosts ?? "";
+    }
     if (dom.settingsDictationAutoPaste) {
       dom.settingsDictationAutoPaste.checked = current.dictationAutoPaste ?? false;
     }
@@ -606,6 +614,8 @@ async function saveSettingsFromForm() {
     claudeCodeSummaryLanguage: dom.settingsClaudeSummaryLanguage?.value ?? "auto",
     claudeCodeContextRouting: dom.settingsClaudeContextRouting?.checked ?? true,
     claudeCodeRoutingRoots: dom.settingsClaudeRoutingRoots?.value ?? "",
+    claudeCodeRemoteSessions: dom.settingsClaudeRemoteSessions?.checked ?? false,
+    claudeCodeRemoteHosts: dom.settingsClaudeRemoteHosts?.value ?? "",
     dictationMicrophone: (dom.settingsDictationMicrophone?.value ?? "").trim(),
     dictationAutoPaste: dom.settingsDictationAutoPaste?.checked ?? false,
     dictationUseClaudeApp: dom.settingsDictationClaudeApp?.checked ?? false,
