@@ -526,6 +526,7 @@ type AssistantPayload = {
     widget: boolean;
   };
   cards?: { pid: number; name: string; waitingFor: string | null }[];
+  ideas?: { id: string; name: string; description: string; steps: string[]; count: number; days: number; evidence: string[] }[];
 };
 const assistantApi = {
   onState: (cb: (event: IpcRendererEvent, payload: AssistantPayload) => void) =>
@@ -535,11 +536,26 @@ const assistantApi = {
   // Main asks the home to open its settings view (tray, voice "settings", #317).
   onShowSettings: (cb: () => void) => registerListener<[]>("marshal:assistant-show-settings", () => cb()),
   focusSession: (pid: number) => ipcRenderer.invoke("marshal:assistant:focus-session", { pid }),
+  // Skill proposal from repeated requests (#273): "create" | "later" | "never".
+  decideIdea: (id: string, decision: string) => ipcRenderer.invoke("marshal:assistant:idea", { id, decision }),
   // Mini widget (#285): window position while dragging; `done` on release saves it.
   moveWidget: (x: number, y: number, done: boolean) => ipcRenderer.invoke("marshal:assistant:widget-move", { x, y, done })
 };
 
 contextBridge.exposeInMainWorld("marshalAssistant", assistantApi);
+
+// ── Board (#276) ──
+// Used exclusively by renderer/board.html; main answers on that window's own webContents.
+type BoardReply = { ok: true; text: string } | { ok: false; error: string };
+const boardApi = {
+  draw: (input: { text: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:draw", input) as Promise<BoardReply>,
+  repair: (input: { source: string; error: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:repair", input) as Promise<BoardReply>,
+  close: () => ipcRenderer.invoke("marshal:board:close")
+};
+
+contextBridge.exposeInMainWorld("marshalBoard", boardApi);
 
 // UI language (#330): asked synchronously so the first paint is already in it;
 // main pushes a change to every open window.
@@ -563,6 +579,7 @@ declare global {
     marshalHistory: typeof historyApi;
     marshalToolbar: typeof toolbarApi;
     marshalAssistant: typeof assistantApi;
+    marshalBoard: typeof boardApi;
     marshalI18n: typeof i18nApi;
   }
 }

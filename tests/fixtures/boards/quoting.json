@@ -1,0 +1,54 @@
+{
+  "valid": [
+    {
+      "name": "double quote",
+      "source": "flowchart TD\n  a[\"Скажи #quot;привіт#quot;\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "parentheses",
+      "source": "flowchart TD\n  a[\"login(user, password)\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "square brackets",
+      "source": "flowchart TD\n  a[\"items[0]\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "colon",
+      "source": "flowchart TD\n  a[\"Крок 1: вхід\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "semicolon",
+      "source": "flowchart TD\n  a[\"a = 1; b = 2\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "hash",
+      "source": "flowchart TD\n  a[\"issue #276\"] --> b[\"ok\"]"
+    },
+    {
+      "name": "edge label",
+      "source": "flowchart LR\n  a[\"API\"] -->|\"429: rate limit (retry)\"| b[\"черга\"]"
+    },
+    {
+      "name": "sequence",
+      "source": "sequenceDiagram\n  participant u as \"Користувач\"\n  participant s as \"Сервер (API)\"\n  u->>s: POST /login#59; токен #35;1\n  s-->>u: 200: ok"
+    },
+    {
+      "name": "cyrillic",
+      "source": "flowchart TD\n  start[\"Початок деплою\"] --> check{\"Тести зелені?\"}\n  check -->|\"так\"| ship[\"deploy на прод\"]\n  check -->|\"ні\"| fix[\"Виправити\"]"
+    }
+  ],
+  "broken": [
+    {
+      "name": "unquoted parentheses",
+      "source": "flowchart TD\n  a[login(user)] --> b[ok]"
+    },
+    {
+      "name": "unquoted quote",
+      "source": "flowchart TD\n  a[Скажи \"привіт\"] --> b[ok]"
+    },
+    {
+      "name": "sequence message with a semicolon",
+      "source": "sequenceDiagram\n  participant u as \"Користувач\"\n  participant s as \"Сервер\"\n  u->>s: POST /login; токен\n  s-->>u: ok"
+    }
+  ]
+}

@@ -64,7 +64,7 @@ export function needsPermissionHook(settings: Settings): boolean {
 }
 
 /** Drop the matching commands; a group left with no commands goes with them. */
-function dropHooks(settings: Settings, events: readonly string[], matches: (hook: unknown) => boolean): Settings {
+export function dropHooks(settings: Settings, events: readonly string[], matches: (hook: unknown) => boolean): Settings {
   if (typeof settings.hooks !== "object" || settings.hooks === null || Array.isArray(settings.hooks)) {
     return settings;
   }

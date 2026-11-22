@@ -129,3 +129,11 @@ jobs:
         # widget: cards, click / double-click / drag, the 30 s idle pause (#285).
         run: npx electron tests/e2e/assistant-ambient.mjs
         timeout-minutes: 5
+
+      - name: board
+        # Stub `window.marshalBoard` in place of the model, real bundled
+        # Mermaid: it loads under the window's CSP and only on the first draw,
+        # the quoting set parses, a broken diagram is repaired once and a
+        # second failure keeps the last good render (#276).
+        run: npx electron tests/e2e/board.mjs
+        timeout-minutes: 5

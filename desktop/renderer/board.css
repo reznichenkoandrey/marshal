@@ -1,0 +1,102 @@
+/* Board window (#276). Structure comes from dashboard.css; tokens only. */
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.board .block + .block { margin-top: 0; }
+
+.board-language {
+  -webkit-app-region: no-drag;
+  height: 28px;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-default);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+}
+
+.board-ask textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: var(--space-3);
+  font: inherit;
+  color: var(--text-default);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+}
+
+.board-ask textarea:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
+.board-ask-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.board-draw {
+  padding: var(--space-2) var(--space-5);
+  font: inherit;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+
+.board-draw:hover { background: var(--accent-hover); }
+.board-draw:disabled { opacity: 0.5; cursor: default; }
+
+.board-error {
+  margin: var(--space-3) 0 0;
+  color: var(--state-fail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.board-stage {
+  flex: 1;
+  min-height: 0;
+}
+
+.board-diagram {
+  overflow: auto;
+  text-align: center;
+}
+
+.board-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.board-empty {
+  margin: var(--space-8) 0;
+  text-align: center;
+  color: var(--text-subtle);
+}
+
+.board-source {
+  margin-top: var(--space-4);
+  color: var(--text-muted);
+}
+
+.board-source pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-default);
+  background: var(--bg-surface);
+  border-radius: var(--radius-card);
+}
