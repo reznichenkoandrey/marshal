@@ -7,12 +7,16 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
+import { buildGuardScript, GUARD_SCRIPT_NAME } from "./chrome-guard.ts";
 import { HOOK_SCRIPT_NAME } from "./hook-installer.ts";
 import { buildHookScript, EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, type HookEvent } from "./hook-events.ts";
 
 export const HOOK_PATH = "/claude-code/hook";
 export const PERMISSION_PATH = "/claude-code/permission";
+export const CHROME_GUARD_PATH = "/claude-code/chrome-guard";
+export const CHROME_DEVICE_PATH = "/claude-code/chrome-device";
 export const ASSISTANT_PATH_PREFIX = "/assistant/";
+const HOOK_PATHS: readonly string[] = [HOOK_PATH, PERMISSION_PATH, CHROME_GUARD_PATH, CHROME_DEVICE_PATH];
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 export type HookRequest = {
@@ -32,13 +36,21 @@ export interface AssistantRoutes {
   respond(method: string, route: string, body: string, res: http.ServerResponse): void;
 }
 
+/** Whose browser is this (#477). Both answer in plain text the guard script prints. */
+export interface ChromeGuardRoutes {
+  /** "allow", or the refusal the agent reads. */
+  judge(raw: string): string;
+  /** The agent proposes a browser; the person decides. */
+  propose(form: string): Promise<string>;
+}
+
 /**
  * Status to refuse a request with, or null to accept it. Any Origin means a
  * browser sent it — the hook script never sets one — and a Host other than
  * our own loopback address means DNS rebinding; neither may inject events.
  */
 export function rejectHookRequest(req: HookRequest, port: number, token: string, assistant = false): number | null {
-  const isHook = req.method === "POST" && (req.url === HOOK_PATH || req.url === PERMISSION_PATH);
+  const isHook = req.method === "POST" && req.url !== undefined && HOOK_PATHS.includes(req.url);
   const isAssistant = assistant && (req.method === "GET" || req.method === "POST") && req.url?.startsWith(ASSISTANT_PATH_PREFIX) === true;
   if (!isHook && !isAssistant) return 404;
   if (req.origin !== undefined) return 403;
@@ -53,6 +65,7 @@ export class ClaudeHookService {
   private server: http.Server | null = null;
   private readonly deduper = new EventDeduper();
   private assistant: AssistantRoutes | null = null;
+  private chromeGuard: ChromeGuardRoutes | null = null;
 
   constructor(
     private readonly hookDir: string,
@@ -65,14 +78,23 @@ export class ClaudeHookService {
     this.assistant = routes;
   }
 
+  setChromeGuard(routes: ChromeGuardRoutes | null): void {
+    this.chromeGuard = routes;
+  }
+
   get scriptPath(): string {
     return path.join(this.hookDir, HOOK_SCRIPT_NAME);
   }
 
-  /** Writes the hook script, so an install can point settings.json at it first. */
+  get guardScriptPath(): string {
+    return path.join(this.hookDir, GUARD_SCRIPT_NAME);
+  }
+
+  /** Writes the hook scripts, so an install can point settings.json at them first. */
   writeScript(): string {
     fs.mkdirSync(this.hookDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(this.scriptPath, buildHookScript(this.hookDir), { mode: 0o700 });
+    fs.writeFileSync(this.guardScriptPath, buildGuardScript(this.hookDir, CHROME_GUARD_PATH, CHROME_DEVICE_PATH), { mode: 0o700 });
     return this.scriptPath;
   }
 
@@ -144,8 +166,21 @@ export class ClaudeHookService {
     req.on("end", () => {
       if (res.headersSent) return;
       const body = Buffer.concat(chunks).toString("utf8");
-      if (req.url !== HOOK_PATH && this.assistant) {
-        this.assistant.respond(req.method ?? "GET", req.url!.slice(ASSISTANT_PATH_PREFIX.length), body, res);
+      if (req.url?.startsWith(ASSISTANT_PATH_PREFIX) && this.assistant) {
+        this.assistant.respond(req.method ?? "GET", req.url.slice(ASSISTANT_PATH_PREFIX.length), body, res);
+        return;
+      }
+      if (req.url === CHROME_GUARD_PATH || req.url === CHROME_DEVICE_PATH) {
+        const guard = this.chromeGuard;
+        // No guard wired is a refusal too: the script lets through the word "allow" only.
+        const answer = !guard
+          ? Promise.resolve("the guard is not available in this Marshal.")
+          : req.url === CHROME_GUARD_PATH
+            ? Promise.resolve().then(() => guard.judge(body))
+            : guard.propose(body);
+        void answer
+          .catch((err: unknown) => `the guard failed: ${err instanceof Error ? err.message : String(err)}`)
+          .then((text) => res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(text));
         return;
       }
       if (req.url === PERMISSION_PATH) {
