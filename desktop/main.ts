@@ -69,6 +69,8 @@ import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistan
 import { markVoice } from "./assistant/voice-timing.ts";
 import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
 import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
+import { startWorkflows } from "./workflows/index.ts";
+import type { WorkflowScheduler } from "./workflows/scheduler.ts";
 import { buildDayReview } from "./standup/day-review.ts";
 import { sendTaskToSession, taskMessage, type TaskCall } from "./meeting/meeting-tasks.ts";
 import { parseNotesLanguage } from "./meeting/meeting-notes.ts";
@@ -364,6 +366,7 @@ async function bootstrap(): Promise<void> {
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
+      workflowScheduler = startWorkflows(app.getPath("userData"));
       initSpeech();
       initAssistantDispatcher();
       registerAssistantHotkey();
@@ -1321,6 +1324,7 @@ async function performTeardown(): Promise<void> {
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
   wakeListener?.stop();
+  workflowScheduler?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
@@ -1949,6 +1953,7 @@ function replyDeps() {
 }
 
 let timedReminders: TimedReminderStore | null = null;
+let workflowScheduler: WorkflowScheduler | null = null;
 
 // Typed reminders (#270). The file lives in userData; the tick runs only while one is pending.
 function initTimedReminders(): void {
