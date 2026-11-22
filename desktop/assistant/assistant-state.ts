@@ -54,6 +54,8 @@ export type SessionView = {
   name: string;
   status: SessionStatus | null;
   waitingFor: string | null;
+  /** Listed from another machine (#288): shown, never focused or counted. */
+  remote?: true;
 };
 
 export type SessionGroup = { project: string; sessions: SessionView[] };
