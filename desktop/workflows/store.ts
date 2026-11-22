@@ -14,8 +14,11 @@ export type RunStatus = "ok" | "failed" | "skipped";
 export interface RunRecord {
   at: number;
   status: RunStatus;
-  /** `timeout`, `exit`, `missing-binary`, `slept`, `overlap`, `daily-cap`. */
+  /** `timeout`, `exit`, `missing-binary`, `contract`, `auth`, `slept`, `overlap`, `daily-cap`. */
   reason?: string;
+  say?: string;
+  silent?: boolean;
+  charts?: number;
   durationMs?: number;
   error?: string;
 }
@@ -26,14 +29,16 @@ export interface WorkflowState {
   schedule: string;
   /** Failed runs in a row; three pause the workflow. */
   failures: number;
-  paused: "failing" | null;
+  paused: "failing" | "auth" | null;
+  /** When the one retry of a failed run is due. */
+  retryAt: number | null;
   /** Local date (in the workflow's zone) the run counter belongs to. */
   runsDay: string;
   runsCount: number;
 }
 
 export function emptyState(): WorkflowState {
-  return { nextRunAt: null, schedule: "", failures: 0, paused: null, runsDay: "", runsCount: 0 };
+  return { nextRunAt: null, schedule: "", failures: 0, paused: null, retryAt: null, runsDay: "", runsCount: 0 };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +109,21 @@ export class WorkflowStore {
     return definitions;
   }
 
+  /** The raw entries of definitions.json, invalid ones included, so an edit never erases them. */
+  private rawEntries(now: number): unknown[] {
+    const raw = readJson(this.file("definitions.json"), now);
+    return isRecord(raw) && raw.schemaVersion === SCHEMA_VERSION && Array.isArray(raw.workflows) ? raw.workflows : [];
+  }
+
+  /** Adds or replaces one definition by id; every other entry stays as written. */
+  upsertDefinition(definition: WorkflowDefinition, now: number): void {
+    const entries = this.rawEntries(now);
+    const index = entries.findIndex((entry) => isRecord(entry) && entry.id === definition.id);
+    if (index >= 0) entries[index] = definition;
+    else entries.push(definition);
+    writeAtomic(this.file("definitions.json"), JSON.stringify({ schemaVersion: SCHEMA_VERSION, workflows: entries }, null, 2));
+  }
+
   saveDefinitions(definitions: WorkflowDefinition[]): void {
     writeAtomic(this.file("definitions.json"), JSON.stringify({ schemaVersion: SCHEMA_VERSION, workflows: definitions }, null, 2));
   }
@@ -118,7 +138,8 @@ export class WorkflowStore {
         nextRunAt: typeof value.nextRunAt === "number" ? value.nextRunAt : null,
         schedule: typeof value.schedule === "string" ? value.schedule : "",
         failures: typeof value.failures === "number" ? value.failures : 0,
-        paused: value.paused === "failing" ? "failing" : null,
+        paused: value.paused === "failing" || value.paused === "auth" ? value.paused : null,
+        retryAt: typeof value.retryAt === "number" ? value.retryAt : null,
         runsDay: typeof value.runsDay === "string" ? value.runsDay : "",
         runsCount: typeof value.runsCount === "number" ? value.runsCount : 0
       });

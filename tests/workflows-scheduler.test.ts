@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { OUTPUT_SCHEMA } from "../desktop/workflows/contract.ts";
 import { validateDefinition, type WorkflowDefinition } from "../desktop/workflows/definition.ts";
 import { runProcess, claudeArgs, workflowEnv, type RunOutcome } from "../desktop/workflows/runner.ts";
 import { decideDue, localDay, takeDailyRun, WorkflowScheduler } from "../desktop/workflows/scheduler.ts";
@@ -13,6 +14,7 @@ const KYIV = "Europe/Kyiv";
 const NOW = Date.parse("2026-11-22T08:00:00Z");
 const MINUTE = 60_000;
 const dirs: string[] = [];
+const QUIET: RunOutcome = { status: "ok", result: { say: "", silent: true, memory: null, charts: 0 } };
 
 function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "workflows-"));
@@ -174,9 +176,9 @@ describe("WorkflowScheduler", () => {
     await vi.advanceTimersByTimeAsync(50 * MINUTE);
     expect(runs).toEqual(["wf"]);
     expect(vi.getTimerCount()).toBe(1);
-    finish[0]({ status: "ok", output: "{}" });
+    finish[0](QUIET);
     await vi.advanceTimersByTimeAsync(0);
-    expect(store.readRuns("wf")).toEqual([{ at: NOW + 60 * MINUTE, status: "ok", durationMs: 0 }]);
+    expect(store.readRuns("wf")).toEqual([{ at: NOW + 60 * MINUTE, status: "ok", durationMs: 0, say: "", silent: true, charts: 0 }]);
     expect(store.loadState(NOW).get("wf")?.nextRunAt).toBe(NOW + 120 * MINUTE);
     scheduler.stop();
     expect(vi.getTimerCount()).toBe(0);
@@ -265,7 +267,7 @@ describe("WorkflowScheduler", () => {
     await vi.advanceTimersByTimeAsync(60 * MINUTE);
     expect(runs).toEqual(["wf"]);
     expect(reasons()).toEqual(["overlap"]);
-    finish[0]({ status: "ok", output: "{}" });
+    finish[0](QUIET);
     await vi.advanceTimersByTimeAsync(60 * MINUTE);
     expect(runs).toEqual(["wf", "wf"]);
     scheduler.stop();
@@ -275,7 +277,7 @@ describe("WorkflowScheduler", () => {
     store.saveDefinitions([definition({ maxRunsPerDay: 2 })]);
     const scheduler = new WorkflowScheduler(store, async (def) => {
       runs.push(def.id);
-      return { status: "ok", output: "{}" };
+      return QUIET;
     });
     scheduler.start();
     // 11:00, 12:00, 13:00 Kyiv.
@@ -288,7 +290,7 @@ describe("WorkflowScheduler", () => {
     scheduler.stop();
   });
 
-  it("pauses a workflow after three failed runs in a row", async () => {
+  it("pauses a workflow after three failed runs in a row, each retried once", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     store.saveDefinitions([definition()]);
     const scheduler = new WorkflowScheduler(store, async (def) => {
@@ -297,8 +299,9 @@ describe("WorkflowScheduler", () => {
     });
     scheduler.start();
     await vi.advanceTimersByTimeAsync(5 * 60 * MINUTE);
-    expect(runs).toHaveLength(3);
-    expect(reasons()).toEqual(["timeout", "timeout", "timeout"]);
+    expect(runs).toHaveLength(6);
+    expect(reasons()).toEqual(Array(6).fill("timeout"));
+    expect(store.loadState(NOW).get("wf")?.failures).toBe(3);
     expect(store.loadState(NOW).get("wf")?.paused).toBe("failing");
     expect(scheduler.hasTimer()).toBe(false);
 
@@ -367,7 +370,7 @@ describe("runner", () => {
 
   it("builds a dontAsk command limited to the allowed tools", () => {
     expect(claudeArgs(definition({ allowedTools: ["Read", "mcp__github__list_issues"], mcpServers: ["github"] }))).toEqual([
-      "-p", "--output-format", "json", "--model", "haiku", "--permission-mode", "dontAsk", "--allowedTools", "Read", "mcp__github__list_issues"
+      "-p", "--output-format", "json", "--json-schema", JSON.stringify(OUTPUT_SCHEMA), "--model", "haiku", "--permission-mode", "dontAsk", "--allowedTools", "Read", "mcp__github__list_issues"
     ]);
     expect(claudeArgs(definition())).not.toContain("--allowedTools");
   });

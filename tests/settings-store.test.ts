@@ -172,6 +172,7 @@ describe("saveSettings", () => {
       assistantWaitingBadge: false,
       assistantGlow: false,
       assistantAsleep: false,
+      workflowsEnabled: false,
       assistantWake: false,
       assistantWidget: true,
       assistantWidgetPosition: { x: 1500, y: 40 },

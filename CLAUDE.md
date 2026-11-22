@@ -1050,10 +1050,22 @@
   Графіки — inline SVG з `desktop/renderer/dashboard-charts.js` (line і bar, чисті функції, без chart-бібліотеки),
   кольори лише через класи з `dashboards.css`. Підписи приходять з репозиторію (автори, labels), тому
   `renderChart` їх екранує. Під кожним графіком видно, що саме виконав main (`git log · day · 14d`).
-- **Scheduled workflows, етап 1 — `desktop/workflows/`** (#280, spec — `docs/SCHEDULED_WORKFLOWS.md`).
-  Workflow — запуск `claude -p` за cron-розкладом, локально і під логіном власника. Поки є лише ядро:
-  definition пишеться руками, результат іде тільки в журнал. Побудови з тексту, озвучення, нотифікацій
-  і вікна ще немає (етапи 2–4). Файли — `<userData>/workflows/`: `definitions.json`
+- **Scheduled workflows, етапи 1–3 — `desktop/workflows/`** (#280, spec — `docs/SCHEDULED_WORKFLOWS.md`).
+  Workflow — запуск `claude -p` за cron-розкладом, локально і під логіном власника. **Opt-in:** Settings →
+  Voice assistant → «Workflows за розкладом» (`workflowsEnabled`, за замовчуванням вимкнено). Вимкнено =
+  жодного таймера, жодного читання файлів і жодного процесу (`Workflows.sync` в `index.ts`), а голосові
+  команди відповідають, де це ввімкнути. Вікна workflows і записувального доступу ще немає (етап 4).
+  **Голосом — через диспетчера:** `./marshal do workflow-add <слова власника>` збирає workflow з тексту,
+  `workflows` перелічує, `workflow-run <назва>` запускає зараз (overlap і денний ліміт діють),
+  `workflow-stop` / `workflow-start <назва>` вимикає й вмикає (start ще й знімає паузу). Видалення голосом
+  немає. Назва шукається за словами (`matchWorkflows` у `voice.ts`); два збіги — Marshal перепитує, а не вгадує.
+  **Побудова з тексту** (`builder.ts`): один запит малій моделі (`completeOnce`, провайдер summary) повертає
+  JSON `{name, cron, prompt, allowedTools, summary}` або `{clarify}` для розмитого розкладу («іноді») —
+  тоді Marshal ставить це питання вголос і нічого не зберігає. Відповідь проходить той самий
+  `validateDefinition`, що й файл, написаний руками; невалідна — один повтор із помилками валідатора, далі
+  відмова. **Workflow, зібраний голосом, отримує лише `WebSearch`, `WebFetch`, `Read`, `Grep`, `Glob`**
+  (`BUILDER_TOOLS`): назви MCP-tools модель вгадувала б, а перевірити їх нічим. MCP-tool додається руками
+  в `definitions.json`. Часовий пояс — системний, мова — мова інтерфейсу. Файли — `<userData>/workflows/`: `definitions.json`
   (`{ "schemaVersion": 1, "workflows": [...] }`), `state.json` (`nextRunAt`, лічильник запусків за день,
   збої поспіль), `runs/<id>.ndjson` (рядок на запуск або пропуск, 2 МБ, далі ротація в `<id>.1.ndjson`),
   `memory/<id>.json`. Запис атомарний (tmp + `rename`). Файл, що не парситься, переноситься в
@@ -1070,19 +1082,41 @@
   — запис `skipped: slept`; `"skip"` — запуск лише вчасно (до 1 хв). Кілька пропущених слотів зливаються
   в один. Дефолт: `skip` для правила з однією годиною й хвилиною, `once` для решти. `runAtStart` запускає
   на старті Marshal. Ще пропуски: `overlap` (попередній запуск іще йде) і `daily-cap` (`maxRunsPerDay`,
-  дефолт 24, день рахується в поясі workflow). Три збої поспіль ставлять `paused: "failing"` у
-  `state.json`; зняти паузу — вимкнути й увімкнути workflow (`enabled`), стан вимкненого стирається.
+  дефолт 24, день рахується в поясі workflow). **Збій повторюється один раз через 2 хв**
+  (`retryAt` у `state.json`, той самий єдиний таймер); `auth` і `missing-binary` не повторюються, бо
+  чекання їм не допоможе (`shouldRetry`). Збій рахується після повтору: три поспіль ставлять
+  `paused: "failing"`, «не залогінений» ставить `paused: "auth"` одразу. Паузу знімає вдалий ручний запуск,
+  `workflow-start` або вимкнути й увімкнути workflow (`enabled`). Стан вимкненого скидається, крім
+  лічильника запусків за день: ручні запуски ліміт не обходять.
   **Лише читання** (`definition.ts`, перевірка при завантаженні): tool проходить, якщо у власному імені
   (не в імені сервера) є слово `get / list / read / search / query / fetch` і немає `create / update /
   delete / write / send / post / merge / close / set`, або це `Read`, `Grep`, `Glob`. Маски й аргументи
   (`mcp__x__*`, `Bash(git:*)`) відхиляються, MCP-tool вимагає свій сервер у `mcpServers`.
   **`writes: true` у файлі відхиляється завжди**: записувальний доступ дасть лише клік у вікні (етап 4).
-  Запуск (`runner.ts`): `claude -p --output-format json --model <model> --permission-mode dontAsk
-  --allowedTools …`, промпт через stdin, env без `ANTHROPIC_*` (#322) і без session env Claude desktop
+  Запуск (`runner.ts`): `claude -p --output-format json --json-schema <схема> --model <model>
+  --permission-mode dontAsk --allowedTools …` у теці `<userData>/workflows/run` (жоден проєктний
+  `CLAUDE.md` не вантажиться), промпт через stdin, env без `ANTHROPIC_*` (#322) і без session env Claude desktop
   (#388), бінарник — `MARSHAL_CLAUDE_BIN`. Таймаут (`timeoutMs`, дефолт 10 хв) — SIGTERM, через 5 с
   SIGKILL. Пам'ять читається лише з тим самим `memoryKey` (хеш промпту й списку tools): змінили їх —
-  стара пам'ять не передається. Запис пам'яті з виводу з'явиться разом із контрактом (етап 3).
-  Тести — `tests/workflows-definition.test.ts`, `tests/workflows-scheduler.test.ts`.
+  стара пам'ять не передається.
+  **Контракт виводу** (`contract.ts`): `{say, silent, memory, charts}` у `structured_output` JSON-конверта
+  (перевірено на справжньому `claude -p --json-schema`). `say` — до 400 символів, порожній `say` = тихий
+  запуск; `memory` — об'єкт до 64 КБ, повертається в промпт наступного запуску як дані, не інструкції;
+  `charts` лише рахуються (малювання — #279). Вивід поза контрактом — один повтор із текстом валідатора,
+  далі `failed: contract`. Пам'ять замінює лише запуск, що пройшов контракт. `is_error` з 401 чи текстом
+  про `/login` — причина `auth`.
+  **Доставка результату** (`delivery.ts`, `planDelivery` — чиста): звичайний результат — нотифікація, рядок
+  у «Останнє» і голос із `key: "workflow:<id>"` (новіша фраза того самого workflow замінює невимовлену).
+  Тихий запуск лишає тільки журнал і рядок. Уві сні й з вимкненим озвученням голосу немає. На дзвінку, під
+  час запису зустрічі чи субтитрів результат чекає: один `setTimeout` раз на хвилину, лише поки щось
+  чекає; новіший результат того самого workflow замінює старий, а через 60 хв він викидається (у журналі
+  лишається). Збій показується нотифікацією одразу, навіть на дзвінку, і ніколи не звучить. Текст збою —
+  мовою workflow (`language`), інакше мовою інтерфейсу. Stop hook власника з теки запусків
+  `ClaudeHooksController.addQuietFolder` викидає: запуск workflow — не сесія, про яку треба казати «finished».
+  Кожен запуск вантажить налаштування й плагіни власника (~50k токенів cache creation на haiku), тож
+  щохвилинний розклад — дорогий; builder не дає частіше ніж раз на 15 хв лише промптом, не валідатором.
+  Тести — `tests/workflows-definition.test.ts`, `tests/workflows-scheduler.test.ts`,
+  `tests/workflows-stage2.test.ts` (builder — на fixture-відповідях моделі, без мережі).
 - **Plan runner — `desktop/plan-runner/`** (#278, `docs/PLAN_RUNNER.md`). Поки що лише Етапи 0 і 1 зі
   спеки: логіка і сховище. **Жодної сесії цей код не запускає і нічого нікуди не шле**: до `main.ts`,
   диспетчера й hooks він не підключений, таймерів і процесів немає (#281). План — файл

@@ -73,8 +73,8 @@ import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistan
 import { markVoice } from "./assistant/voice-timing.ts";
 import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
 import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
-import { startWorkflows } from "./workflows/index.ts";
-import type { WorkflowScheduler } from "./workflows/scheduler.ts";
+import { Workflows } from "./workflows/index.ts";
+import { isWorkflowVerb } from "./workflows/voice.ts";
 import { buildDayReview } from "./standup/day-review.ts";
 import { sendTaskToSession, taskMessage, type TaskCall } from "./meeting/meeting-tasks.ts";
 import { parseNotesLanguage } from "./meeting/meeting-notes.ts";
@@ -380,7 +380,7 @@ async function bootstrap(): Promise<void> {
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
-      workflowScheduler = startWorkflows(app.getPath("userData"));
+      initWorkflows();
       initAutomationIdeas();
       initSpeech();
       initAssistantDispatcher();
@@ -565,6 +565,7 @@ function registerIpcHandlers(): void {
     syncCalendar();
     void syncAssistantDispatcher();
     void syncWakeListener();
+    workflows?.sync();
     // Captions read their config from the env on the next start; only the
     // accelerators need rebinding now (#179).
     registerCaptionsShortcuts();
@@ -1342,7 +1343,7 @@ async function performTeardown(): Promise<void> {
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
   wakeListener?.stop();
-  workflowScheduler?.stop();
+  workflows?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
@@ -2014,7 +2015,24 @@ function decideAutomationIdea(id: string, decision: string): { ok: boolean; erro
 }
 
 let timedReminders: TimedReminderStore | null = null;
-let workflowScheduler: WorkflowScheduler | null = null;
+let workflows: Workflows | null = null;
+
+// Scheduled workflows (#280): opt-in; off means no timer and no `claude -p`.
+function initWorkflows(): void {
+  workflows = new Workflows(path.join(app.getPath("userData"), "workflows"), {
+    enabled: () => loadSettings().workflowsEnabled,
+    language: uiLanguage,
+    presence: async () => ({
+      asleep: assistantInputs.asleep,
+      busy: isMeetingRecording || (captionsService?.isRunning() ?? false) || (await isOnCall()),
+      speechEnabled: loadSettings().speechEnabled
+    }),
+    speak: (text, key) => void speechService?.speak(text, { key }),
+    line: announceToAssistant
+  });
+  claudeHooks?.addQuietFolder(workflows.runDir);
+  workflows.sync();
+}
 
 // Typed reminders (#270). The file lives in userData; the tick runs only while one is pending.
 function initTimedReminders(): void {
@@ -3666,6 +3684,11 @@ async function assistantVoiceAction(action: string): Promise<string> {
   // Every action but `hub-login` is a single word; that one carries the words
   // the owner said about the profile (#419).
   const [verb, ...rest] = action.split(/\s+/).filter(Boolean);
+  if (verb && isWorkflowVerb(verb) && workflows) {
+    const answer = await workflows.voice(verb, rest.join(" "));
+    sayAsAssistant(answer);
+    return answer;
+  }
   let reply: string;
   switch (verb) {
     case "translator":
@@ -3732,7 +3755,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
       break;
     }
     default:
-      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
   }
   sayAsAssistant(reply);
   return reply;
