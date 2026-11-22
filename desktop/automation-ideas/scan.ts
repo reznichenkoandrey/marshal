@@ -10,6 +10,19 @@ import readline from "node:readline";
 import { isUnderRoots } from "../claude-code/context-router.ts";
 import { defaultProjectsDir } from "../claude-code/dossier.ts";
 import { collectLines, findCandidates, promptFromLine, scanDue, WINDOW_MS, type Candidate, type Line, type Prompt } from "./detect.ts";
+import {
+  acceptProposals,
+  buildProposalRequest,
+  createSkill,
+  defaultSkillsDir,
+  isDecided,
+  listSkills,
+  parseProposals,
+  withoutDecided,
+  type CreateResult,
+  type Decided,
+  type Proposal
+} from "./propose.ts";
 
 const MAX_FILES = 2000;
 const MAX_SCAN_MS = 10 * 60_000;
@@ -25,8 +38,11 @@ export type ScanResult = {
   candidates: Candidate[];
 };
 
-/** What stage B adds to: ideas the owner declined and skills already created. */
-export type IdeasStore = ScanResult & { rejected: unknown[]; created: unknown[] };
+/** Stage B: checked proposals waiting for the owner, ideas they declined and skills already created. */
+export type IdeasStore = ScanResult & { proposals: Proposal[]; rejected: Decided[]; created: Decided[] };
+
+/** A proposal as the owner sees it: the evidence is the cited phrasings, shown on this Mac only. */
+export type IdeaView = Pick<Proposal, "id" | "name" | "description" | "steps" | "count" | "days"> & { evidence: string[] };
 
 export type ScanOptions = {
   roots: readonly string[];
@@ -140,18 +156,23 @@ export function readIdeasStore(storePath: string): IdeasStore | null {
     const store = parsed as IdeasStore;
     return {
       ...store,
-      rejected: Array.isArray(store.rejected) ? store.rejected : [],
-      created: Array.isArray(store.created) ? store.created : []
+      lines: Array.isArray(store.lines) ? store.lines : [],
+      proposals: Array.isArray(store.proposals) ? store.proposals : [],
+      rejected: Array.isArray(store.rejected) ? store.rejected.filter(isDecided) : [],
+      created: Array.isArray(store.created) ? store.created.filter(isDecided) : []
     };
   } catch {
     return null;
   }
 }
 
-/** A new scan replaces the candidates and keeps what the owner already decided. */
-export function writeIdeasStore(storePath: string, result: ScanResult): void {
+/** A new scan replaces the candidates and proposals and keeps what the owner already decided. */
+export function writeIdeasStore(storePath: string, result: ScanResult, proposals: Proposal[] = []): void {
   const previous = readIdeasStore(storePath);
-  const store: IdeasStore = { ...result, rejected: previous?.rejected ?? [], created: previous?.created ?? [] };
+  saveStore(storePath, { ...result, proposals, rejected: previous?.rejected ?? [], created: previous?.created ?? [] });
+}
+
+function saveStore(storePath: string, store: IdeasStore): void {
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
   const tmp = `${storePath}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2), { mode: 0o600 });
@@ -165,6 +186,11 @@ export type AutomationIdeasDeps = {
   roots: () => readonly string[];
   projectsDir?: string;
   now?: () => number;
+  /** One model call with the candidates; absent or null = no proposals, the candidates stay. */
+  complete?: (request: { system: string; user: string }) => Promise<string | null>;
+  skillsDir?: string;
+  /** Proposals changed: a scan finished or the owner decided one. */
+  onChange?: () => void;
 };
 
 export class AutomationIdeas {
@@ -196,17 +222,91 @@ export class AutomationIdeas {
     this.lastScanAt = now;
     try {
       const result = await scanTranscripts({ roots, now, projectsDir: this.deps.projectsDir });
-      writeIdeasStore(this.deps.storePath, result);
+      const proposals = await this.propose(result);
+      writeIdeasStore(this.deps.storePath, result, proposals);
       // Counts only: prompt text never goes to the log.
       console.log(
-        `[automation-ideas] ${result.files} transcripts, ${result.prompts} prompts, ${result.candidates.length} candidates` +
+        `[automation-ideas] ${result.files} transcripts, ${result.prompts} prompts, ${result.candidates.length} candidates, ` +
+          `${proposals.length} proposals` +
           (result.partial ? " (partial)" : "")
       );
+      this.deps.onChange?.();
       return result;
     } catch (err) {
       console.warn("[automation-ideas] scan failed:", err instanceof Error ? err.message : err);
       return null;
     }
+  }
+
+  /** The only place a model is asked: candidates in, proposals that pass the local checks out. */
+  private async propose(result: ScanResult): Promise<Proposal[]> {
+    if (!this.deps.complete) return [];
+    const previous = readIdeasStore(this.deps.storePath);
+    const open = withoutDecided(result.candidates, [...(previous?.rejected ?? []), ...(previous?.created ?? [])]);
+    if (open.length === 0) return [];
+    const reply = await this.deps.complete(buildProposalRequest(open));
+    if (reply === null) return [];
+    const raw = parseProposals(reply);
+    const accepted = acceptProposals(raw, result.lines, listSkills(this.skillsDir()));
+    if (accepted.length < raw.length) console.log(`[automation-ideas] ${raw.length - accepted.length} proposals failed the local check`);
+    return accepted;
+  }
+
+  /** Proposals waiting for the owner; empty when switched off. */
+  ideas(): IdeaView[] {
+    if (!this.deps.enabled()) return [];
+    const store = readIdeasStore(this.deps.storePath);
+    if (!store) return [];
+    return store.proposals.map(({ id, name, description, steps, count, days, ids }) => ({
+      id,
+      name,
+      description,
+      steps,
+      count,
+      days,
+      evidence: ids.flatMap((lineId) => store.lines.find((line) => line.id === lineId)?.text ?? [])
+    }));
+  }
+
+  /** The owner's explicit accept: the only path that writes a skill. */
+  create(id: string): CreateResult {
+    return this.decide(id, (proposal) => createSkill(this.skillsDir(), proposal)) ?? { ok: false, reason: "invalid" };
+  }
+
+  /** "Never": the phrasings go to the exclusions and are not proposed again. */
+  reject(id: string): void {
+    this.decide(id, () => ({ ok: true, path: "" }), "rejected");
+  }
+
+  /** "Not now": dropped from the list; next week's scan may propose it again. */
+  later(id: string): void {
+    this.decide(id, () => ({ ok: true, path: "" }), null);
+  }
+
+  private decide(
+    id: string,
+    act: (proposal: Proposal) => CreateResult,
+    keepAs: "created" | "rejected" | null = "created"
+  ): CreateResult | null {
+    const store = readIdeasStore(this.deps.storePath);
+    const proposal = store?.proposals.find((entry) => entry.id === id);
+    if (!store || !proposal) return null;
+    const result = act(proposal);
+    // A name that is already taken can never be created, so that proposal leaves the list too.
+    if (!result.ok && result.reason !== "exists") return result;
+    const texts = proposal.ids.flatMap((lineId) => store.lines.find((line) => line.id === lineId)?.text ?? []);
+    const decided: Decided = { name: proposal.name, texts, at: this.now(), ...(result.ok && result.path ? { path: result.path } : {}) };
+    saveStore(this.deps.storePath, {
+      ...store,
+      proposals: store.proposals.filter((entry) => entry.id !== id),
+      ...(keepAs && result.ok ? { [keepAs]: [...store[keepAs], decided] } : {})
+    });
+    this.deps.onChange?.();
+    return result;
+  }
+
+  private skillsDir(): string {
+    return this.deps.skillsDir ?? defaultSkillsDir();
   }
 
   private now(): number {

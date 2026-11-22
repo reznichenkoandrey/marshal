@@ -72,6 +72,7 @@ function preloadSource() {
 const { contextBridge, ipcRenderer } = require("electron");
 const actions = [];
 const focused = [];
+const decided = [];
 let closed = 0;
 contextBridge.exposeInMainWorld("marshalAssistant", {
   onState: (cb) => ipcRenderer.on("marshal:assistant-state", cb),
@@ -81,7 +82,8 @@ contextBridge.exposeInMainWorld("marshalAssistant", {
   focusSession: async (pid) => {
     focused.push(pid);
     return pid === 999 ? { ok: false, error: "session is gone" } : { ok: true, focused: "tab" };
-  }
+  },
+  decideIdea: async (id, decision) => { decided.push(id + ":" + decision); return { ok: true }; }
 });
 // Settings (#317) read and save through marshalDesktop.
 const saved = [];
@@ -112,6 +114,7 @@ contextBridge.exposeInMainWorld("__homeProbe", {
   saved: () => saved,
   actions: () => actions,
   focused: () => focused,
+  decided: () => decided,
   closed: () => closed
 });
 `;
@@ -343,6 +346,35 @@ async function main() {
   record("listening shows its guidance over the last line", guidance !== lines[0] && guidance.length > 0, guidance);
   const recent = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#recent li b")].map((b) => b.textContent)`);
   record("recent lists what Marshal said, newest first", JSON.stringify(recent) === JSON.stringify(lines), recent.join(" | "));
+
+  // ── Automation ideas (#273) ─────────────────────────────────────────────
+  const ideasHidden = await win.webContents.executeJavaScript(`document.getElementById("ideas").hidden`);
+  record("no proposals hides the ideas card", ideasHidden === true);
+  win.webContents.send("marshal:assistant-state", {
+    state: "idle",
+    lang: "uk",
+    ideas: [{ id: "P1", name: "run-tests", description: "<b>Run</b> the tests", steps: ["Run npm test"], count: 4, days: 3, evidence: ["прожени тести в marshal"] }]
+  });
+  await sleep(150);
+  const idea = await win.webContents.executeJavaScript(`(() => {
+    const item = document.querySelector('#ideas-list > li');
+    const create = item.querySelector('[data-decision="create"]');
+    create.click();
+    const armed = create.textContent;
+    const before = window.__homeProbe.decided().length;
+    create.click();
+    item.querySelector('[data-decision="never"]').click();
+    return { hidden: document.getElementById("ideas").hidden, markup: item.querySelector("b + p").innerHTML, armed, before };
+  })()`);
+  await sleep(50);
+  const decidedIdeas = await win.webContents.executeJavaScript(`window.__homeProbe.decided()`);
+  record("a proposal shows as text, never as markup", idea.hidden === false && idea.markup.startsWith("&lt;b&gt;"), idea.markup);
+  record("create asks for the path first and writes only on the second click",
+    idea.armed === "Створити ~/.claude/skills/run-tests?" && idea.before === 0 && JSON.stringify(decidedIdeas) === JSON.stringify(["P1:create", "P1:never"]),
+    `${idea.armed} ${JSON.stringify(decidedIdeas)}`);
+  await shoot(win, "ideas");
+  win.webContents.send("marshal:assistant-state", { state: "idle", lang: "uk", ideas: [] });
+  await sleep(100);
 
   // ── Sessions panel (#308) ───────────────────────────────────────────────
   const empty = await win.webContents.executeJavaScript(`document.getElementById("sessions-empty").textContent`);

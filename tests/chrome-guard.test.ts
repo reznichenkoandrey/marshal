@@ -195,6 +195,8 @@ describe("chrome guard through the real script", () => {
     const child = execFile("/bin/sh", [script, ...args], (err, stdout, stderr) => {
       resolve({ code: err ? Number((err as NodeJS.ErrnoException).code ?? 1) : 0, stdout, stderr });
     });
+    // The script may exit before it reads stdin; the closed pipe is not the failure under test.
+    child.stdin?.on("error", () => undefined);
     child.stdin?.end(stdin);
   });
 

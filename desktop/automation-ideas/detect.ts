@@ -130,7 +130,7 @@ export function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number 
   return shared / (a.size + b.size - shared);
 }
 
-function summarize(lines: readonly Line[]): Pick<Candidate, "count" | "days" | "projects"> {
+export function summarize(lines: readonly Line[]): Pick<Candidate, "count" | "days" | "projects"> {
   const days = new Set<string>();
   const projects: Record<string, number> = {};
   let count = 0;
