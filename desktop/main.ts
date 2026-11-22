@@ -58,6 +58,7 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { BoardWindow } from "./boards/board-window.ts";
 import { DashboardWindow } from "./dashboards/dashboard-window.ts";
 import {
   deriveAssistantState,
@@ -214,6 +215,8 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+// Created on first open; holds nothing while its window is closed (#281).
+let boardWindow: BoardWindow | null = null;
 // Created on the first open: nothing of the dashboards exists in idle (#279, #281).
 let dashboardWindow: DashboardWindow | null = null;
 // Built on first use: the service holds no timers and no handles until then,
@@ -1342,6 +1345,7 @@ async function performTeardown(): Promise<void> {
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
+  boardWindow?.close();
   dashboardWindow?.close();
   smartHubWindow?.close();
   // Only ever a server this process started — a reused one idles out on its own.
@@ -2640,6 +2644,10 @@ function buildTrayMenu(): Electron.Menu {
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
     },
+    // Stage 1 of voice boards (#276) is a dev tool: no voice entry yet.
+    ...(!app.isPackaged || process.env.MARSHAL_BOARDS === "1"
+      ? [{ label: t("tray.board"), click: () => (boardWindow ??= new BoardWindow(preloadPath)).open() }]
+      : []),
     {
       label: t("tray.dashboards"),
       click: () => (dashboardWindow ??= new DashboardWindow(preloadPath, app.getPath("userData"))).open()
