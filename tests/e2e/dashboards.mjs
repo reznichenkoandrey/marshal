@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("marshalDashboards", {
   build: (prompt) => { calls.push({ build: prompt }); },
   refresh: () => { calls.push("refresh"); },
   pickFolder: () => { calls.push("pickFolder"); },
+  saveTemplate: () => { calls.push("saveTemplate"); },
+  openTemplate: (name) => { calls.push({ open: name }); },
+  deleteTemplate: (name) => { calls.push({ delete: name }); },
   close: () => { calls.push("close"); },
   calls: () => calls
 });
@@ -124,7 +127,15 @@ async function main() {
   win.webContents.send("marshal:dashboards-state", { ...FILLED, error: "Choose a repository folder first." });
   await sleep(100);
   record("an error is shown", (await read(win, `document.getElementById("error").textContent`)) === "Choose a repository folder first.");
-  record("the bar buttons carry their icons", (await read(win, `document.querySelectorAll(".bar-actions .icon-btn svg").length`)) === 3);
+  record("the bar buttons carry their icons", (await read(win, `document.querySelectorAll(".bar-actions .icon-btn svg").length`)) === 4);
+
+  const TEMPLATE = 'Тиждень <img src=x onerror="window.pwned=1">';
+  win.webContents.send("marshal:dashboards-state", { ...FILLED, templates: [TEMPLATE, "Два тижні"] });
+  await sleep(100);
+  await read(win, `(() => { const chips = document.querySelectorAll(".template"); chips[0].querySelector(".template-open").click(); chips[1].querySelector(".template-delete").click(); document.getElementById("save-btn").click(); })()`);
+  const templateCalls = (await read(win, `window.marshalDashboards.calls()`)).slice(2);
+  record("template chips open, delete and save", JSON.stringify(templateCalls) === JSON.stringify([{ open: TEMPLATE }, { delete: "Два тижні" }, "saveTemplate"]), JSON.stringify(templateCalls));
+  record("the current template is marked, a template name cannot inject markup", (await read(win, `document.querySelectorAll('.template[data-current="true"]').length === 1 && window.pwned === undefined && document.querySelector(".template img") === null`)) === true);
   record("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 
   if (process.env.MARSHAL_E2E_SHOTS) {

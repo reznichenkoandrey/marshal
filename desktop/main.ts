@@ -62,6 +62,7 @@ import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
 import { BoardWindow } from "./boards/board-window.ts";
 import { DashboardWindow } from "./dashboards/dashboard-window.ts";
+import { isDashboardVerb } from "./dashboards/voice.ts";
 import {
   deriveAssistantState,
   groupSessions,
@@ -3819,6 +3820,13 @@ async function assistantVoiceAction(action: string): Promise<string> {
   // Every action but `hub-login` is a single word; that one carries the words
   // the owner said about the profile (#419).
   const [verb, ...rest] = action.split(/\s+/).filter(Boolean);
+  if (isDashboardVerb(verb)) {
+    // The words after the verb are the owner's request or a template name (#279).
+    dashboardWindow ??= new DashboardWindow(preloadPath, app.getPath("userData"));
+    const said = await dashboardWindow.voice(verb, rest.join(" "), sayAsAssistant);
+    sayAsAssistant(said);
+    return said;
+  }
   if (verb && isWorkflowVerb(verb) && workflows) {
     const answer = await workflows.voice(verb, rest.join(" "));
     sayAsAssistant(answer);

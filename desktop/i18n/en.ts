@@ -1075,6 +1075,16 @@ export const en = {
   "dash.error.noFolder": "Choose a repository folder first (the folder button at the top).",
   "dash.error.noProvider": "No model is configured for dashboards. Add ANTHROPIC_API_KEY or MARSHAL_API_KEY to .env.",
   "dash.error.noPlan": "The model returned no charts. Rephrase the request.",
+  "dash.saveTemplate": "Save as a template",
+  "dash.deleteTemplate": "Delete the template “{title}”",
+  "dash.error.tooManyTemplates": "There are already {n} templates. Delete one first.",
+  "dash.voice.opened": "Dashboards are open.",
+  "dash.voice.building": "Building the dashboard.",
+  "dash.voice.built": "The dashboard “{title}” is ready.",
+  "dash.voice.refreshing": "Refreshing the dashboard.",
+  "dash.voice.refreshed": "The dashboard “{title}” is up to date.",
+  "dash.voice.saved": "Saved the dashboard as “{title}”.",
+  "dash.voice.nothing": "There is no dashboard yet. Say what to chart.",
 } as const;
 
 export type MessageKey = keyof typeof en;

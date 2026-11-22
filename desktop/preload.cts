@@ -412,6 +412,9 @@ const dashboardsApi = {
   build: (prompt: string) => ipcRenderer.invoke("marshal:dashboards:build", { prompt }),
   refresh: () => ipcRenderer.invoke("marshal:dashboards:refresh"),
   pickFolder: () => ipcRenderer.invoke("marshal:dashboards:pick-folder"),
+  saveTemplate: () => ipcRenderer.invoke("marshal:dashboards:save-template"),
+  openTemplate: (name: string) => ipcRenderer.invoke("marshal:dashboards:open-template", { name }),
+  deleteTemplate: (name: string) => ipcRenderer.invoke("marshal:dashboards:delete-template", { name }),
   close: () => ipcRenderer.invoke("marshal:dashboards:close")
 };
 
