@@ -62,7 +62,6 @@ export class ClaudeHooksController {
   private ignoredFolder: string | null = null;
   private readonly stopListeners: Array<(sessionId: string, lastMessage: string) => void> = [];
   private readonly quietFolders = new Set<string>();
-  private readonly stopListeners: Array<(sessionId: string) => void> = [];
   private readonly chromeGuard: ChromeGuard;
 
   constructor(
