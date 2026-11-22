@@ -1,6 +1,6 @@
 # Plan runner: план, що виконується вночі (#278)
 
-Статус: spec, код ще не написано. Epic #275, Phase 4.
+Статус: Етапи 0 і 1 написані (`desktop/plan-runner/`: tick, валідація, сховище), до застосунку не підключені. Етапи 2–6 — попереду. Epic #275, Phase 4.
 Залежності: реєстр сесій (#262, `desktop/claude-code/registry.ts`), hooks (#263, `hooks-controller.ts`), usage (#268, `statusline.ts`), voice-диспетчер (#318, `desktop/assistant/dispatcher.ts`).
 
 ## 1. Проблема
