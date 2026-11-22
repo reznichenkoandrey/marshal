@@ -27,6 +27,38 @@
   color: var(--danger-text, var(--state-fail));
 }
 
+.templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.templates:empty { display: none; }
+
+.template {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-chip);
+  background: var(--bg-surface);
+}
+
+.template[data-current="true"] { border-color: var(--accent); }
+
+.template button {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: var(--fs-sm) var(--font-sans);
+  cursor: pointer;
+}
+
+.template .template-open { color: var(--text-strong); }
+.template button:hover { color: var(--accent); }
+.template button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

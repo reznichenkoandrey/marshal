@@ -8,14 +8,17 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog } from "electron";
 
 import { createSummaryStreamer } from "../captions/summarizer.ts";
-import { uiLanguage } from "../i18n/ui-language.ts";
+import { t, uiLanguage } from "../i18n/ui-language.ts";
 import { DashboardService, type DashboardState } from "./dashboard-service.ts";
+import { runDashboardVoice, type DashboardVerb } from "./voice.ts";
 
 const rendererDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer");
 
 export class DashboardWindow {
   private window: BrowserWindow | null = null;
   private service: DashboardService | null = null;
+  /** Resolves once the window is on screen and the saved dashboard is loaded. */
+  private ready: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly preloadPath: string,
@@ -23,11 +26,32 @@ export class DashboardWindow {
   ) {}
 
   open(): void {
-    if (this.window && !this.window.isDestroyed()) {
+    // Cached charts first, then fresh data: the saved numbers are from the last time the window was open.
+    void this.ensure().then(({ service, fresh }) => (fresh ? service.refresh() : undefined));
+  }
+
+  /**
+   * `./marshal do dashboard …`: opens the window and runs the action there, so
+   * a voice build is cancelled by closing the window like any other. `say`
+   * gets the line for the end of a build or refresh.
+   */
+  async voice(verb: DashboardVerb, spoken: string, say: (text: string) => void): Promise<string> {
+    const { service, fresh } = await this.ensure();
+    const result = await runDashboardVoice(verb, spoken, service, t, fresh);
+    void result.done?.then((line) => {
+      // Nothing is said about a build the owner ended by closing the window.
+      if (line && this.service === service) say(line);
+    });
+    return result.reply;
+  }
+
+  private async ensure(): Promise<{ service: DashboardService; fresh: boolean }> {
+    if (this.window && !this.window.isDestroyed() && this.service) {
       this.window.show();
       app.focus({ steal: true });
       this.window.focus();
-      return;
+      await this.ready;
+      return { service: this.service, fresh: false };
     }
 
     const window = new BrowserWindow({
@@ -78,6 +102,13 @@ export class DashboardWindow {
       await service.setFolder(folder);
       void service.refresh();
     });
+    ipc.handle("marshal:dashboards:save-template", () => service.saveTemplate());
+    ipc.handle("marshal:dashboards:open-template", async (_event, input: { name?: unknown }) => {
+      if (typeof input?.name === "string" && (await service.openTemplate(input.name))) void service.refresh();
+    });
+    ipc.handle("marshal:dashboards:delete-template", (_event, input: { name?: unknown }) => {
+      if (typeof input?.name === "string") return service.deleteTemplate(input.name);
+    });
     ipc.handle("marshal:dashboards:close", () => this.close());
 
     window.on("closed", () => {
@@ -87,14 +118,19 @@ export class DashboardWindow {
         this.service = null;
       }
     });
-    window.webContents.once("did-finish-load", () => {
-      window.show();
-      app.focus({ steal: true });
-      window.focus();
-      // Cached charts first, then fresh data: the saved numbers are from the last time the window was open.
-      void service.load().then(() => service.refresh());
+    this.ready = new Promise((resolve) => {
+      window.webContents.once("did-finish-load", () => {
+        window.show();
+        app.focus({ steal: true });
+        window.focus();
+        void service.load().then(resolve);
+      });
+      // A window closed before it loaded must not leave a voice action waiting.
+      window.once("closed", resolve);
     });
     void window.loadFile(path.join(rendererDir, "dashboards.html"));
+    await this.ready;
+    return { service, fresh: true };
   }
 
   close(): void {

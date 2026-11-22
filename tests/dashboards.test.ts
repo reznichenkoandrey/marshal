@@ -2,8 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { pickTemplate, runDashboardVoice } from "../desktop/dashboards/voice.ts";
+import { translate } from "../desktop/i18n/catalog.ts";
 import { DashboardService, type DashboardState, type StreamModel } from "../desktop/dashboards/dashboard-service.ts";
 import {
   buildDashboardMessages,
@@ -332,5 +334,85 @@ describe("DashboardService", () => {
     const charts = service.state().dashboard?.charts ?? [];
     expect(service.state().busy).toBe(false);
     expect(charts.map((chart) => chart.status)).toEqual(["timeout", "empty"]);
+  });
+  describe("templates and voice (stage 3)", () => {
+    const tr = (key: string, params?: Record<string, string | number>): string => translate("en", key as never, params);
+    const voice = (service: DashboardService, verb: "dashboard" | "dashboard-refresh" | "dashboard-save", spoken = "", fresh = false) =>
+      runDashboardVoice(verb, spoken, service, tr, fresh);
+
+    it("picks a template only when every word of its name was said, and not on a tie", () => {
+      const names = ["Релізи", "Releases by week", "Team"];
+      expect(pickTemplate("відкрий дашборд релізи", names)).toBe("Релізи");
+      expect(pickTemplate("the releases by week dashboard, please", names)).toBe("Releases by week");
+      expect(pickTemplate("releases", names)).toBeNull();
+      expect(pickTemplate("commits per day", names)).toBeNull();
+      expect(pickTemplate("aaa bbb", ["aaa", "bbb"])).toBeNull();
+    });
+
+    it("builds by voice: answers at once, then says the dashboard is ready", async () => {
+      const { service } = await setup(answer(['{"type":"title","value":"Week"}', PLAN, Q1, Q2]));
+      await service.setFolder("/repo");
+      const result = await voice(service, "dashboard", "commits per day");
+      expect(result.reply).toBe("Building the dashboard.");
+      expect(await result.done).toBe("The dashboard “Week” is ready.");
+    });
+
+    it("says why a voice build cannot start instead of promising one", async () => {
+      const { service, ran } = await setup(answer([PLAN, Q1]));
+      const result = await voice(service, "dashboard", "commits per day");
+      expect(result.reply).toMatch(/folder/u);
+      expect(result.done).toBeUndefined();
+      expect(ran).toEqual([]);
+    });
+
+    it("saves a template, survives a restart, opens it by name without the model", async () => {
+      const { service, ran, setModel } = await setup(answer(['{"type":"title","value":"Week"}', PLAN, Q1, Q2]));
+      await service.setFolder("/repo");
+      await service.build("commits");
+      expect((await voice(service, "dashboard-save")).reply).toBe("Saved the dashboard as “Week”.");
+      expect(service.state().templates).toEqual(["Week"]);
+
+      const again = new DashboardService({ dir, model: () => null, onChange: () => undefined, run: async (query) => (ran.push(query), [{ label: "x", value: 5 }]) });
+      await again.load();
+      expect(again.state().templates).toEqual(["Week"]);
+      await again.setFolder("/elsewhere");
+      setModel(async () => {
+        throw new Error("the model must not be called");
+      });
+      const before = ran.length;
+      const result = await voice(again, "dashboard", "open the week dashboard");
+      expect(result.reply).toBe("Refreshing the dashboard.");
+      expect(await result.done).toBe("The dashboard “Week” is up to date.");
+      expect(again.state().folder).toBe("/repo");
+      expect(ran.length - before).toBe(2);
+      expect(again.state().dashboard?.charts[0]?.rows).toEqual([{ label: "x", value: 5 }]);
+
+      await again.deleteTemplate("Week");
+      expect(again.state().templates).toEqual([]);
+    });
+
+    it("refreshes the current dashboard by voice, and says when there is none", async () => {
+      const { service, ran } = await setup(answer([PLAN, Q1, Q2]));
+      expect((await voice(service, "dashboard-refresh")).reply).toMatch(/no dashboard/u);
+      expect((await voice(service, "dashboard-save")).reply).toMatch(/no dashboard/u);
+      await service.setFolder("/repo");
+      await service.build("commits");
+      const before = ran.length;
+      const result = await voice(service, "dashboard-refresh");
+      await result.done;
+      expect(ran.length - before).toBe(2);
+    });
+
+    it("just opens the window when nothing was asked, refreshing only a window opened for it", async () => {
+      const { service, ran } = await setup(answer([PLAN, Q1, Q2]));
+      await service.setFolder("/repo");
+      await service.build("commits");
+      const before = ran.length;
+      expect((await voice(service, "dashboard", "", false)).reply).toBe("Dashboards are open.");
+      expect(ran.length).toBe(before);
+      await voice(service, "dashboard", "", true);
+      await vi.waitFor(() => expect(service.state().busy).toBe(false));
+      expect(ran.length - before).toBe(2);
+    });
   });
 });

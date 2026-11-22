@@ -17,8 +17,21 @@ const folderLabel = document.getElementById("folder-path");
 const prompt = document.getElementById("prompt");
 const buildButton = document.getElementById("build-btn");
 const refreshButton = document.getElementById("refresh-btn");
+const saveButton = document.getElementById("save-btn");
+const templates = document.getElementById("templates");
 
-let state = { folder: null, dashboard: null, busy: false, error: null };
+let state = { folder: null, dashboard: null, busy: false, error: null, templates: [] };
+
+// A saved template: its name opens it, the cross removes it.
+function templateChip(name) {
+  const label = escapeXml(name);
+  return (
+    `<span class="template"${name === state.dashboard?.title ? ' data-current="true"' : ""}>` +
+    `<button type="button" class="template-open" data-template="${label}">${label}</button>` +
+    `<button type="button" class="template-delete" data-delete="${label}" aria-label="${escapeXml(t("dash.deleteTemplate", { title: name }))}">×</button>` +
+    "</span>"
+  );
+}
 
 function statusText(chart) {
   switch (chart.status) {
@@ -72,8 +85,10 @@ function render() {
   errorLine.classList.toggle("hidden", !state.error);
   empty.classList.toggle("hidden", Boolean(dashboard?.charts.length));
   charts.innerHTML = (dashboard?.charts ?? []).map(card).join("");
+  templates.innerHTML = (state.templates ?? []).map(templateChip).join("");
   buildButton.disabled = state.busy;
   refreshButton.disabled = state.busy || !dashboard;
+  saveButton.disabled = state.busy || !dashboard?.charts.length;
 }
 
 if (api) {
@@ -89,6 +104,12 @@ if (api) {
     prompt.value = "";
   });
   refreshButton.addEventListener("click", () => void api.refresh());
+  saveButton.addEventListener("click", () => void api.saveTemplate());
+  templates.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (button?.dataset.template && !state.busy) void api.openTemplate(button.dataset.template);
+    else if (button?.dataset.delete) void api.deleteTemplate(button.dataset.delete);
+  });
   document.getElementById("folder-btn").addEventListener("click", () => void api.pickFolder());
   document.getElementById("close-btn").addEventListener("click", () => void api.close());
   window.addEventListener("keydown", (event) => {

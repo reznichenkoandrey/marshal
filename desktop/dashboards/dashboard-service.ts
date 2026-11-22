@@ -40,6 +40,13 @@ export interface DashboardState {
   dashboard: Dashboard | null;
   busy: boolean;
   error: string | null;
+  /** Names of the saved templates, in the order they were saved. */
+  templates: string[];
+}
+
+interface Template {
+  folder: string;
+  dashboard: Dashboard;
 }
 
 /** The `streamMessages` half of the captions SummaryStreamer: one provider stack for the whole app. */
@@ -64,6 +71,8 @@ export interface DashboardServiceDeps {
 const BUILD_TIMEOUT_MS = 180_000;
 const MAX_TOKENS = 1500;
 const STATE_FILE = "state.json";
+const TEMPLATES_FILE = "templates.json";
+const MAX_TEMPLATES = 30;
 
 /** A chart still pending when its build or refresh ended: it keeps the data it had, or says it got none. */
 function settle(chart: Chart): void {
@@ -76,6 +85,7 @@ export class DashboardService {
   private dashboard: Dashboard | null = null;
   private error: string | null = null;
   private job: AbortController | null = null;
+  private templates: Record<string, Template> = {};
   private readonly run: (query: ChartQuery, folder: string) => Promise<Row[]>;
 
   constructor(private readonly deps: DashboardServiceDeps) {
@@ -87,7 +97,7 @@ export class DashboardService {
   }
 
   state(): DashboardState {
-    return { folder: this.folder, dashboard: this.dashboard, busy: this.job !== null, error: this.error };
+    return { folder: this.folder, dashboard: this.dashboard, busy: this.job !== null, error: this.error, templates: Object.keys(this.templates) };
   }
 
   private emit(): void {
@@ -103,20 +113,73 @@ export class DashboardService {
     } catch {
       // First run or an unreadable file: start empty.
     }
+    try {
+      const saved: unknown = JSON.parse(await fs.readFile(path.join(this.deps.dir, TEMPLATES_FILE), "utf8"));
+      if (typeof saved === "object" && saved !== null && !Array.isArray(saved)) {
+        this.templates = Object.fromEntries(
+          Object.entries(saved as Record<string, Partial<Template>>).filter(
+            ([, template]) => typeof template?.folder === "string" && Array.isArray(template.dashboard?.charts)
+          )
+        ) as Record<string, Template>;
+      }
+    } catch {
+      // No templates yet.
+    }
     this.emit();
   }
 
-  private async save(): Promise<void> {
+  private async write(file: string, value: unknown): Promise<void> {
     try {
       await fs.mkdir(this.deps.dir, { recursive: true });
-      await fs.writeFile(
-        path.join(this.deps.dir, STATE_FILE),
-        JSON.stringify({ folder: this.folder, dashboard: this.dashboard }, null, 2),
-        "utf8"
-      );
+      await fs.writeFile(path.join(this.deps.dir, file), JSON.stringify(value, null, 2), "utf8");
     } catch (err) {
       console.warn("[dashboards] cannot save:", err instanceof Error ? err.message : err);
     }
+  }
+
+  /** Saves the current dashboard under its title; the same title replaces the older template. Null when there is nothing to save. */
+  async saveTemplate(): Promise<string | null> {
+    const name = this.dashboard?.title.trim();
+    if (!this.dashboard || !this.folder || !name || this.dashboard.charts.length === 0) return null;
+    if (!(name in this.templates) && Object.keys(this.templates).length >= MAX_TEMPLATES) {
+      this.error = this.tr("dash.error.tooManyTemplates", { n: MAX_TEMPLATES });
+      this.emit();
+      return null;
+    }
+    this.templates[name] = { folder: this.folder, dashboard: structuredClone(this.dashboard) };
+    this.error = null;
+    await this.write(TEMPLATES_FILE, this.templates);
+    this.emit();
+    return name;
+  }
+
+  /** Makes a saved template the current dashboard, with the data it was saved with; the caller refreshes. */
+  async openTemplate(name: string): Promise<boolean> {
+    const template = this.templates[name];
+    if (!template) return false;
+    if (this.job) {
+      this.error = this.tr("dash.error.busy");
+      this.emit();
+      return false;
+    }
+    this.folder = template.folder;
+    this.dashboard = structuredClone(template.dashboard);
+    this.dashboard.charts.forEach(settle);
+    this.error = null;
+    await this.save();
+    this.emit();
+    return true;
+  }
+
+  async deleteTemplate(name: string): Promise<void> {
+    if (!(name in this.templates)) return;
+    delete this.templates[name];
+    await this.write(TEMPLATES_FILE, this.templates);
+    this.emit();
+  }
+
+  private save(): Promise<void> {
+    return this.write(STATE_FILE, { folder: this.folder, dashboard: this.dashboard });
   }
 
   async setFolder(folder: string): Promise<void> {
