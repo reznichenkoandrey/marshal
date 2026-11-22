@@ -25,6 +25,7 @@
 - E2E у реальному Electron — окремо від vitest: `npm run test:e2e` (smoke),
   `npm run test:e2e:capture` (редактор захоплення), `npm run test:e2e:region`
   (геометрія виділення області), `npm run test:e2e:history` (вікно історії знімків),
+  `npm run test:e2e:dashboards` (вікно дашбордів: скелети до даних, SVG, екранування підписів; лише локально),
   `npm run test:e2e:meetings` (вікно записів дзвінків: «Finish» для перерваних,
   «Transcribe & summarize» і нотатки; у history і meetings `MARSHAL_E2E_SHOTS=<тека>` знімає вікно в
   Lumen і Neural),
@@ -957,6 +958,26 @@
   без відповіді, а не вгадується), тоді `smart-browser login <project>/<env>/<role>`. Тести —
   `tests/smart-hub.test.ts`, у них і підставний хаб, що пише port/token 0600 і відповідає лише на
   правильний токен.
+- **Дашборди з даних — `desktop/dashboards/`** (#279, етап 1 із `docs/VOICE_DASHBOARDS.md`). Tray → «Дашборди…»
+  відкриває вікно з полем запиту: «коміти по днях за два тижні», «PR за місяць за станами». Запит можна
+  надиктувати правим ⌥ у це поле. Джерела — лише `git log` і `gh issue list` / `gh pr list` у теці репозиторію,
+  яку власник обирає кнопкою з текою. Postgres, шаблони і голосова команда `./marshal do dashboard` — наступні етапи.
+  **Модель не пише команд.** Вона відповідає NDJSON-рядками (`protocol.ts`): `title`, `plan` (до 8 графіків),
+  `query` і `keep`. `query` — вибір із фіксованих опцій: `source` (`git` / `github`), `metric` (`commits` /
+  `issues` / `prs`), `groupBy` (`day` / `week` / `author` / `state` / `label`), `days` (1–365). Аргументи `git` і
+  `gh` збирає main (`sourceCommand` у `sources.ts`), тож read-only правило живе в одному місці. Рядок, що не
+  парситься, довший за 64 KB чи з невідомим `type`, ігнорується з рядком у лог. `plan` малює скелети карток до
+  першого запиту. `keep` у follow-up («додай issues за labels») лишає графік з його даними і не перезапитує його.
+  На графік — один запит за побудову, на всю побудову — 3 хв. Модель — провайдери summarizer'а субтитрів
+  (`createSummaryStreamer`, `MARSHAL_CAPTIONS_*`), окремого SDK немає.
+  **Дані оновлюються лише поки вікно відкрите:** на відкритті (кеш, потім свіжі дані), кнопкою Refresh і на
+  побудові. Таймера немає, а закриття вікна обриває побудову (`DashboardService.cancel`). Refresh модель не
+  викликає: він перезапускає збережені запити. Стан — `<userData>/dashboards/state.json` (тека, план, запити,
+  останні рядки). `DashboardWindow` створюється на першому кліку в tray, IPC-обробники висять на `webContents.ipc`
+  цього вікна і зникають разом із ним. Вікно `alwaysOnTop` (#168) і content-protected: у screen share його не видно.
+  Графіки — inline SVG з `desktop/renderer/dashboard-charts.js` (line і bar, чисті функції, без chart-бібліотеки),
+  кольори лише через класи з `dashboards.css`. Підписи приходять з репозиторію (автори, labels), тому
+  `renderChart` їх екранує. Під кожним графіком видно, що саме виконав main (`git log · day · 14d`).
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1 ГБ з q8_0, вантажиться на

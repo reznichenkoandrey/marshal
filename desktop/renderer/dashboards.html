@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="dash.windowTitle">Marshal — Dashboards</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+  <link rel="stylesheet" href="./capture-history.css" />
+  <link rel="stylesheet" href="./dashboards.css" />
+  <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
+  <script src="./locales.js"></script>
+  <script src="./i18n.js"></script>
+</head>
+<body>
+  <div class="shell no-side window">
+    <header class="bar">
+      <div class="title">
+        <h1 data-i18n="dash.title">Dashboards</h1>
+        <span id="folder-path" class="caps"></span>
+      </div>
+      <span></span>
+      <div class="bar-actions">
+        <button id="refresh-btn" type="button" class="icon-btn" data-icon="refresh-cw" data-icon-size="16" title="Refresh" aria-label="Refresh" data-i18n-title="dash.refresh" data-i18n-aria-label="dash.refresh"></button>
+        <button id="folder-btn" type="button" class="icon-btn" data-icon="folder-open" data-icon-size="16" title="Choose the repository folder" aria-label="Choose the repository folder" data-i18n-title="dash.pickFolder" data-i18n-aria-label="dash.pickFolder"></button>
+        <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close" aria-label="Close" data-i18n-title="dash.close" data-i18n-aria-label="dash.close"></button>
+      </div>
+    </header>
+
+    <main class="dash">
+      <form id="ask" class="ask">
+        <input id="prompt" type="text" autocomplete="off" placeholder="Commits per day for the last two weeks" data-i18n-placeholder="dash.promptPlaceholder" aria-label="Request" data-i18n-aria-label="dash.promptLabel" />
+        <button id="build-btn" type="submit" class="btn-primary" data-i18n="dash.build">Build</button>
+      </form>
+      <p id="error" class="dash-error hidden" role="alert"></p>
+
+      <section class="block" aria-labelledby="board-title">
+        <header class="block-head">
+          <h2 id="board-title"></h2>
+          <span id="board-note" class="block-note"></span>
+        </header>
+        <div id="charts" class="charts"></div>
+        <div id="empty" class="history-empty hidden">
+          <p data-i18n="dash.empty">No dashboard yet.</p>
+          <p class="history-empty-hint" data-i18n="dash.emptyHint">Choose a repository folder, then say or type what to chart: commits, issues or pull requests by day, week, author, state or label.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./dashboards.js" type="module"></script>
+</body>
+</html>

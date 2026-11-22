@@ -56,6 +56,7 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { DashboardWindow } from "./dashboards/dashboard-window.ts";
 import {
   deriveAssistantState,
   groupSessions,
@@ -203,6 +204,8 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+// Created on the first open: nothing of the dashboards exists in idle (#279, #281).
+let dashboardWindow: DashboardWindow | null = null;
 // Built on first use: the service holds no timers and no handles until then,
 // so an owner who never opens the hub pays nothing for it (#281).
 let smartHub: SmartHubService | null = null;
@@ -1326,6 +1329,7 @@ async function performTeardown(): Promise<void> {
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
+  dashboardWindow?.close();
   smartHubWindow?.close();
   // Only ever a server this process started — a reused one idles out on its own.
   smartHub?.stop();
@@ -2569,6 +2573,10 @@ function buildTrayMenu(): Electron.Menu {
       label: t("tray.meetingRecordings"),
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
+    },
+    {
+      label: t("tray.dashboards"),
+      click: () => (dashboardWindow ??= new DashboardWindow(preloadPath, app.getPath("userData"))).open()
     },
     {
       label: t(captionsRunning ? "tray.stopCaptions" : "tray.startCaptions"),
