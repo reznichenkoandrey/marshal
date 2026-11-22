@@ -67,6 +67,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - Marshal's settings → \`./marshal do settings\`
    - the hub panel with the browser profiles, tracker tasks and worktrees ("хаб", "hub", "панель", "профілі") → \`./marshal do hub\`
    - log a browser profile in ("залогінь мене в …", "увійди в профіль …", "log me into …") → \`./marshal do hub-login <what the owner said about the profile, without the routing words>\`. Marshal matches it against the hub's own list of profiles and answers aloud; never invent a profile name.
+   - draw a diagram or scheme on the board ("намалюй схему …", "покажи діаграму …", "draw the … flow", "diagram of …") → \`./marshal do board <what to draw, in the owner's own words and language, without the routing words>\`; just open the board ("дошка", "відкрий дошку") → \`./marshal do board\`; close it → \`./marshal do board-close\`. Marshal draws it itself: never write the diagram, and never send this to a session.
    - write, type or insert text where the owner is ("напиши …", "встав …", "надрукуй …", "type …"), with no session named → \`./marshal insert "<text>"\` with only the text to insert, exactly as dictated, without the instruction words. It lands in the app the owner was in when they spoke.
 2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
    - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"

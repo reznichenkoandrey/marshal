@@ -553,7 +553,7 @@ async function main() {
   const dock = await win.webContents.executeJavaScript(
     `[...document.querySelectorAll(".dock [data-action]")].map((b) => ({ action: b.dataset.action, title: b.title, icon: !!b.querySelector("svg") }))`
   );
-  record("every dock button has a title and an icon", dock.length === 7 && dock.every((b) => b.title && b.icon),
+  record("every dock button has a title and an icon", dock.length === 8 && dock.every((b) => b.title && b.icon),
     dock.map((b) => b.action).join(", "));
   record("the dock has no agent chat (#317)", !dock.some((b) => b.action === "agent"));
   const earlier = (await win.webContents.executeJavaScript(`window.__homeProbe.actions()`)).length;

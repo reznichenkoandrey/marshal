@@ -2610,10 +2610,7 @@ function buildTrayMenu(): Electron.Menu {
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
     },
-    // Stage 1 of voice boards (#276) is a dev tool: no voice entry yet.
-    ...(!app.isPackaged || process.env.MARSHAL_BOARDS === "1"
-      ? [{ label: t("tray.board"), click: () => (boardWindow ??= new BoardWindow(preloadPath)).open() }]
-      : []),
+    { label: t("tray.board"), click: () => openBoard() },
     {
       label: t("tray.dashboards"),
       click: () => (dashboardWindow ??= new DashboardWindow(preloadPath, app.getPath("userData"))).open()
@@ -3621,6 +3618,17 @@ async function assistantVoiceAction(action: string): Promise<string> {
     case "hub":
       reply = await openSmartHub();
       break;
+    case "board": {
+      // The words after `board` are what to draw (#276); none just opens the window.
+      const request = rest.join(" ");
+      openBoard(request);
+      reply = request ? t("Малюю.", "Drawing.") : t("Відкрив дошку.", "The board is open.");
+      break;
+    }
+    case "board-close":
+      boardWindow?.close();
+      reply = t("Закрив дошку.", "The board is closed.");
+      break;
     case "hub-login":
       reply = await loginBrowserProfile(rest.join(" "));
       break;
@@ -3647,7 +3655,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
       break;
     }
     default:
-      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, board-close, skip, next-meeting, join-meeting.`;
   }
   sayAsAssistant(reply);
   return reply;
@@ -3696,8 +3704,17 @@ function watchAssistantSessions(open: boolean): void {
 }
 
 // Dock of the assistant home: every button reuses what the tray already does.
+/** The board window (#276), created on the first open. A request is drawn at once. */
+function openBoard(request = ""): void {
+  boardWindow ??= new BoardWindow(preloadPath, path.join(app.getPath("userData"), "boards"));
+  boardWindow.open(request);
+}
+
 function runAssistantAction(name: string | undefined): void {
   switch (name) {
+    case "board":
+      openBoard();
+      return;
     case "dictate-session":
       void talkToAssistant();
       return;

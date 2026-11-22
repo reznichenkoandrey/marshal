@@ -29,6 +29,7 @@ const DOCK_TITLES = {
   "dictate-session": "home.dock.dictateSession",
   recordings: "home.dock.recordings",
   capture: "home.dock.capture",
+  board: "board.dock",
   "dispatcher-terminal": "home.dock.dispatcherTerminal",
   settings: "home.dock.settings"
 };
