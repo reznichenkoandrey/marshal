@@ -2,23 +2,30 @@
 
 import { spawn } from "node:child_process";
 
+import fs from "node:fs";
+
 import { withoutHostSessionEnv } from "../assistant/dispatcher-files.ts";
+import { buildRunPrompt, OUTPUT_SCHEMA, parseRunOutput, type RunResult } from "./contract.ts";
 import type { WorkflowDefinition } from "./definition.ts";
+import type { WorkflowStore } from "./store.ts";
 
 export const KILL_GRACE_MS = 5_000;
 
-export type RunOutcome = { status: "ok"; output: string } | { status: "failed"; reason: "timeout" | "exit" | "empty" | "missing-binary"; error?: string };
+export type FailureReason = "timeout" | "exit" | "empty" | "missing-binary" | "contract" | "auth";
+export type ProcessOutcome = { status: "ok"; output: string } | { status: "failed"; reason: FailureReason; error?: string };
+export type RunOutcome = { status: "ok"; result: RunResult } | { status: "failed"; reason: FailureReason; error?: string };
 
 export interface ProcessOptions {
   input: string;
   env: NodeJS.ProcessEnv;
+  cwd?: string;
   timeoutMs: number;
   killGraceMs?: number;
 }
 
 /** Everything outside `allowedTools` is refused without a prompt: nobody is there to answer one. */
 export function claudeArgs(definition: WorkflowDefinition): string[] {
-  const args = ["-p", "--output-format", "json", "--model", definition.model, "--permission-mode", "dontAsk"];
+  const args = ["-p", "--output-format", "json", "--json-schema", JSON.stringify(OUTPUT_SCHEMA), "--model", definition.model, "--permission-mode", "dontAsk"];
   if (definition.allowedTools.length > 0) args.push("--allowedTools", ...definition.allowedTools);
   return args;
 }
@@ -37,9 +44,9 @@ function lastLine(text: string): string | undefined {
 }
 
 /** Runs a command with the prompt on stdin; SIGTERM at the timeout, SIGKILL after the grace period. */
-export function runProcess(command: string, args: string[], options: ProcessOptions): Promise<RunOutcome> {
+export function runProcess(command: string, args: string[], options: ProcessOptions): Promise<ProcessOutcome> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { env: options.env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { env: options.env, cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -49,7 +56,7 @@ export function runProcess(command: string, args: string[], options: ProcessOpti
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), options.killGraceMs ?? KILL_GRACE_MS);
     }, options.timeoutMs);
-    const finish = (outcome: RunOutcome): void => {
+    const finish = (outcome: ProcessOutcome): void => {
       clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
       resolve(outcome);
@@ -71,10 +78,39 @@ export function runProcess(command: string, args: string[], options: ProcessOpti
   });
 }
 
-export function runWorkflow(definition: WorkflowDefinition): Promise<RunOutcome> {
-  return runProcess(process.env.MARSHAL_CLAUDE_BIN ?? "claude", claudeArgs(definition), {
-    input: definition.prompt,
-    env: workflowEnv(process.env),
-    timeoutMs: definition.timeoutMs
-  });
+export type RunProcess = (definition: WorkflowDefinition, prompt: string) => Promise<ProcessOutcome>;
+
+/**
+ * One run end to end: prompt with the previous memory, the process, the
+ * contract check with one retry that quotes the validator, then the memory
+ * write. Memory is replaced only by a run that passed the contract.
+ */
+export async function executeWorkflow(definition: WorkflowDefinition, store: WorkflowStore, run: RunProcess, now: () => number = Date.now): Promise<RunOutcome> {
+  const memory = store.readMemory(definition, now());
+  let validatorError: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const outcome = await run(definition, buildRunPrompt(definition, memory, validatorError));
+    if (outcome.status === "failed") return outcome;
+    const parsed = parseRunOutput(outcome.output);
+    if (parsed.ok) {
+      if (parsed.result.memory) store.writeMemory(definition, parsed.result.memory);
+      return { status: "ok", result: parsed.result };
+    }
+    if (parsed.reason !== "contract") return { status: "failed", reason: parsed.reason, error: parsed.error };
+    validatorError = parsed.error;
+  }
+  return { status: "failed", reason: "contract", error: validatorError };
+}
+
+/** Runs `claude -p` in the workflows' own empty folder, so no project's CLAUDE.md or settings load. */
+export function claudeProcess(runDir: string): RunProcess {
+  return (definition, prompt) => {
+    fs.mkdirSync(runDir, { recursive: true });
+    return runProcess(process.env.MARSHAL_CLAUDE_BIN ?? "claude", claudeArgs(definition), {
+      input: prompt,
+      env: workflowEnv(process.env),
+      cwd: runDir,
+      timeoutMs: definition.timeoutMs
+    });
+  };
 }

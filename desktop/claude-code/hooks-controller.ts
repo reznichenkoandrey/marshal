@@ -60,6 +60,7 @@ export class ClaudeHooksController {
   private readonly shown = new Set<Notification>();
   private readonly dossiers: DossierKeeper;
   private ignoredFolder: string | null = null;
+  private readonly quietFolders = new Set<string>();
   private readonly stopListeners: Array<(sessionId: string) => void> = [];
   private readonly chromeGuard: ChromeGuard;
 
@@ -97,6 +98,7 @@ export class ClaudeHooksController {
     });
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
       if (this.ignoredFolder && event.cwd && path.resolve(event.cwd) === this.ignoredFolder) return;
+      if (event.cwd && this.quietFolders.has(path.resolve(event.cwd))) return;
       void this.notifier.handle(event);
       this.onSessionEvent();
       if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId);
@@ -130,6 +132,11 @@ export class ClaudeHooksController {
   /** Events from this folder are dropped: the dispatcher's turns in Claude desktop also run the owner's hooks (#437). */
   setIgnoredFolder(dir: string | null): void {
     this.ignoredFolder = dir ? path.resolve(dir) : null;
+  }
+
+  /** Events from this folder are dropped too: unattended `claude -p` runs of scheduled workflows (#280). */
+  addQuietFolder(dir: string): void {
+    this.quietFolders.add(path.resolve(dir));
   }
 
   /** The voice dispatcher's helper reaches Marshal through the hook receiver (#318). */

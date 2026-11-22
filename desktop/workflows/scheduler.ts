@@ -1,19 +1,26 @@
 // Scheduler for local workflows (#280): one timer re-armed to the nearest run,
 // nothing scheduled while no workflow is enabled (#281).
 
+import type { RunResult } from "./contract.ts";
 import { nextRunAt, parseCron, wallClock } from "./cron.ts";
 import type { WorkflowDefinition } from "./definition.ts";
-import type { RunOutcome } from "./runner.ts";
+import type { FailureReason, RunOutcome } from "./runner.ts";
 import { emptyState, type WorkflowState, type WorkflowStore } from "./store.ts";
 
 export const CATCH_UP_WINDOW_MS = 30 * 60_000;
 // A timer that fires a little late is still on time, not a missed run.
 export const ON_TIME_MS = 60_000;
 export const MAX_FAILURES = 3;
+export const RETRY_DELAY_MS = 2 * 60_000;
 // setTimeout overflows past ~24.8 days; a far run is reached by re-arming daily.
 export const MAX_TIMER_MS = 86_400_000;
 
 export type DueDecision = "run" | "slept";
+export type RunNowResult = "started" | "overlap" | "daily-cap" | "unknown";
+
+export type WorkflowEvent =
+  | { kind: "result"; definition: WorkflowDefinition; result: RunResult }
+  | { kind: "failed"; definition: WorkflowDefinition; reason: FailureReason; error?: string; paused: WorkflowState["paused"] };
 
 /** What to do with a run whose time has passed: late within the policy runs once, later is dropped. */
 export function decideDue(catchUp: WorkflowDefinition["catchUp"], scheduledAt: number, now: number): DueDecision {
@@ -37,6 +44,11 @@ export function takeDailyRun(state: WorkflowState, day: string, maxRunsPerDay: n
   return true;
 }
 
+/** A failed run is retried once, unless waiting cannot help. */
+export function shouldRetry(reason: FailureReason, isRetry: boolean): boolean {
+  return !isRetry && reason !== "auth" && reason !== "missing-binary";
+}
+
 function scheduleKey(definition: WorkflowDefinition): string {
   return `${definition.schedule.cron}|${definition.schedule.timezone}`;
 }
@@ -49,7 +61,8 @@ export class WorkflowScheduler {
   constructor(
     private readonly store: WorkflowStore,
     private readonly run: (definition: WorkflowDefinition) => Promise<RunOutcome>,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly onEvent: (event: WorkflowEvent) => void = () => {}
   ) {
     this.states = store.loadState(this.now());
   }
@@ -72,11 +85,12 @@ export class WorkflowScheduler {
     for (const definition of definitions) {
       if (!definition.enabled) {
         // Re-enabling starts clean: no missed run and no pause carried over.
-        this.states.delete(definition.id);
+        // The day's run count stays, so manual runs cannot outrun the cap.
+        const state = this.states.get(definition.id);
+        if (state) Object.assign(state, { ...emptyState(), runsDay: state.runsDay, runsCount: state.runsCount });
         continue;
       }
-      const state = this.states.get(definition.id) ?? emptyState();
-      this.states.set(definition.id, state);
+      const state = this.stateOf(definition.id);
       if (state.paused) continue;
 
       const rule = parseCron(definition.schedule.cron);
@@ -92,9 +106,17 @@ export class WorkflowScheduler {
       if (state.nextRunAt !== null && state.nextRunAt <= now) {
         const scheduledAt = state.nextRunAt;
         state.nextRunAt = next(now);
-        this.handleDue(definition, state, scheduledAt, now);
+        // The scheduled run replaces a retry that is still pending.
+        state.retryAt = null;
+        if (decideDue(definition.catchUp, scheduledAt, now) === "slept") this.skip(definition.id, now, "slept");
+        else this.launch(definition, state, now, false);
+      } else if (state.retryAt !== null && state.retryAt <= now) {
+        state.retryAt = null;
+        this.launch(definition, state, now, true);
       }
-      if (!state.paused && state.nextRunAt !== null && (nearest === null || state.nextRunAt < nearest)) nearest = state.nextRunAt;
+      for (const at of [state.nextRunAt, state.retryAt]) {
+        if (!state.paused && at !== null && (nearest === null || at < nearest)) nearest = at;
+      }
     }
     this.store.saveState(this.states);
 
@@ -106,6 +128,21 @@ export class WorkflowScheduler {
     }
   }
 
+  /** Runs an enabled or disabled workflow right now, outside its schedule; overlap and the daily cap still apply. */
+  runNow(id: string): RunNowResult {
+    const now = this.now();
+    const definition = this.store.loadDefinitions(now).find((candidate) => candidate.id === id);
+    if (!definition) return "unknown";
+    const launched = this.launch(definition, this.stateOf(id), now, true);
+    this.store.saveState(this.states);
+    return launched;
+  }
+
+  /** Forgets failures and the pause of one workflow; the next rearm schedules it afresh. */
+  unpause(id: string): void {
+    this.states.delete(id);
+  }
+
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -115,32 +152,54 @@ export class WorkflowScheduler {
     return this.timer !== null;
   }
 
-  private handleDue(definition: WorkflowDefinition, state: WorkflowState, scheduledAt: number, now: number): void {
-    const skip = (reason: string): void => this.store.appendRun(definition.id, { at: now, status: "skipped", reason });
-    if (decideDue(definition.catchUp, scheduledAt, now) === "slept") return skip("slept");
-    if (this.running.has(definition.id)) return skip("overlap");
-    if (!takeDailyRun(state, localDay(now, definition.schedule.timezone), definition.maxRunsPerDay)) return skip("daily-cap");
+  private stateOf(id: string): WorkflowState {
+    const state = this.states.get(id) ?? emptyState();
+    this.states.set(id, state);
+    return state;
+  }
+
+  private skip(id: string, now: number, reason: string): void {
+    this.store.appendRun(id, { at: now, status: "skipped", reason });
+  }
+
+  private launch(definition: WorkflowDefinition, state: WorkflowState, now: number, isRetry: boolean): Exclude<RunNowResult, "unknown"> {
+    if (this.running.has(definition.id)) {
+      this.skip(definition.id, now, "overlap");
+      return "overlap";
+    }
+    if (!takeDailyRun(state, localDay(now, definition.schedule.timezone), definition.maxRunsPerDay)) {
+      this.skip(definition.id, now, "daily-cap");
+      return "daily-cap";
+    }
 
     this.running.add(definition.id);
     void this.run(definition)
       .catch((err: unknown): RunOutcome => ({ status: "failed", reason: "exit", error: err instanceof Error ? err.message : String(err) }))
       .then((outcome) => {
         this.running.delete(definition.id);
-        const finishedAt = this.now();
-        const durationMs = finishedAt - now;
+        const durationMs = this.now() - now;
+        const current = this.states.get(definition.id) === state;
         if (outcome.status === "ok") {
           state.failures = 0;
-          this.store.appendRun(definition.id, { at: now, status: "ok", durationMs });
+          // A run that works again ends the pause (a manual run after logging in).
+          state.paused = null;
+          const { say, silent, charts } = outcome.result;
+          this.store.appendRun(definition.id, { at: now, status: "ok", durationMs, say, silent, charts });
+          this.onEvent({ kind: "result", definition, result: outcome.result });
         } else {
-          state.failures += 1;
           this.store.appendRun(definition.id, { at: now, status: "failed", reason: outcome.reason, durationMs, error: outcome.error });
-          if (state.failures >= MAX_FAILURES) {
-            state.paused = "failing";
-            console.warn(`[workflows] "${definition.name}" paused after ${MAX_FAILURES} failed runs in a row: ${outcome.reason}`);
+          if (current && shouldRetry(outcome.reason, isRetry)) {
+            state.retryAt = this.now() + RETRY_DELAY_MS;
+          } else {
+            state.failures += 1;
+            if (outcome.reason === "auth") state.paused = "auth";
+            else if (state.failures >= MAX_FAILURES) state.paused = "failing";
+            this.onEvent({ kind: "failed", definition, reason: outcome.reason, error: outcome.error, paused: state.paused });
           }
         }
         // Skipped when the workflow was removed or disabled while it ran.
-        if (this.states.get(definition.id) === state) this.store.saveState(this.states);
+        if (current) this.rearm();
       });
+    return "started";
   }
 }
