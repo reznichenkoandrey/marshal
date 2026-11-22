@@ -177,6 +177,7 @@ describe("saveSettings", () => {
       assistantWidgetPosition: { x: 1500, y: 40 },
       assistantDispatcher: true,
       assistantDispatcherModel: "haiku",
+      planRunnerEnabled: false,
       assistantGeneralDir: "~/htdocs",
       assistantGeneralPermissionMode: "bypass",
       assistantTerminalHost: "claude-desktop"

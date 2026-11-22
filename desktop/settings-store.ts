@@ -228,6 +228,8 @@ export type MarshalSettings = {
   /** Voice assistant (#318): a dispatcher session and `general` in background Terminal windows. */
   assistantDispatcher: boolean;
   assistantDispatcherModel: string;
+  /** Run plans on sessions that are already open (#278); opt-in, off by default. */
+  planRunnerEnabled: boolean;
   /** Where `general` works; empty = Marshal's own folder in userData. */
   assistantGeneralDir: string;
   assistantGeneralPermissionMode: GeneralPermissionMode;
@@ -304,6 +306,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantWidgetPosition: null,
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
+  planRunnerEnabled: false,
   assistantGeneralDir: "",
   assistantGeneralPermissionMode: "bypass",
   assistantTerminalHost: "claude-desktop"
@@ -647,6 +650,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantDispatcherModel: typeof input.assistantDispatcherModel === "string" && input.assistantDispatcherModel.trim() !== ""
       ? input.assistantDispatcherModel.trim()
       : DEFAULT_SETTINGS.assistantDispatcherModel,
+    planRunnerEnabled: input.planRunnerEnabled === true,
     assistantGeneralDir: typeof input.assistantGeneralDir === "string" ? input.assistantGeneralDir.trim() : DEFAULT_SETTINGS.assistantGeneralDir,
     assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
       ? input.assistantGeneralPermissionMode

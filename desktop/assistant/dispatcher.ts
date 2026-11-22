@@ -540,6 +540,14 @@ export class AssistantDispatcher implements AssistantRoutes {
     this.queue.connect(sink);
   }
 
+  /**
+   * A plan runner step for the session named `session` (#278). Never queued:
+   * a step that cannot go out now is the runner's to handle, not to arrive later.
+   */
+  sendPlanStep(session: string, prompt: string): boolean {
+    return this.queue.listening && this.queue.submit(prompt, { plan: session });
+  }
+
   private async answer(method: string, route: string, args: string[]): Promise<string | null> {
     if (method === "GET" && route === "sessions") {
       return JSON.stringify(sessionsForDispatcher(this.liveSessions(), this.dispatcherDir));
