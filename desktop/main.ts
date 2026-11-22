@@ -3181,6 +3181,7 @@ function initAssistantDispatcher(): void {
       void speechService?.speak(text, { key: "assistant:setup" });
     },
     ask: askOwner,
+    language: uiLanguage,
     runAction: assistantVoiceAction,
     announce: announceToAssistant,
     focus: (pid) => {
