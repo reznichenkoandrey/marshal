@@ -47,6 +47,7 @@ import { openDesktopSession } from "./claude-code/desktop-session.ts";
 import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
+import { guardMenuItems } from "./claude-code/chrome-guard.ts";
 import {
   DEFAULT_MODEL_NAME,
   findInstalledModel,
@@ -372,7 +373,7 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check());
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check(), confirmBrowserOnThisMac);
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
@@ -2557,6 +2558,38 @@ function buildClaudeSessionsSubmenu(): Electron.MenuItemConstructorOptions[] {
   ];
 }
 
+/** Whose browser is this (#477): the agent proposed a browser, the person answers for this Mac. */
+async function confirmBrowserOnThisMac(deviceId: string, name: string): Promise<boolean | null> {
+  app.focus({ steal: true });
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    message: t("chromeGuard.confirmTitle", { name }),
+    detail: t("chromeGuard.confirmDetail", { id: deviceId }),
+    buttons: [t("chromeGuard.thisMac"), t("chromeGuard.anotherComputer"), t("chromeGuard.cancel")],
+    defaultId: 2,
+    cancelId: 2
+  });
+  return response === 0 ? true : response === 1 ? false : null;
+}
+
+function chromeGuardMenu(): Electron.MenuItemConstructorOptions[] {
+  const hooks = claudeHooks;
+  if (!hooks) return [];
+  const state = hooks.chromeGuardState();
+  const report = (next: { error?: string }) => {
+    if (next.error) dialog.showErrorBox(t("tray.chromeGuard"), next.error);
+  };
+  return guardMenuItems(
+    state.installed,
+    state.devices,
+    { on: t("tray.chromeGuardOn"), browsers: t("tray.chromeGuardBrowsers"), none: t("tray.chromeGuardNone") },
+    {
+      setInstalled: (installed) => void hooks.setChromeGuardInstalled(installed).then(report),
+      setHere: (deviceId, here) => report(hooks.setBrowserHere(deviceId, here))
+    }
+  );
+}
+
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
@@ -2571,6 +2604,7 @@ function buildTrayMenu(): Electron.Menu {
     { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { label: t("tray.openHub"), click: () => void openSmartHub() },
+    ...(claudeHooks ? [{ label: t("tray.chromeGuard"), submenu: chromeGuardMenu() }] : []),
     { label: t("tray.myDay"), click: () => void showDayReview() },
     { label: t("tray.remindMe"), submenu: remindMenuItems() },
     { type: "separator" },
