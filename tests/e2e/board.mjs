@@ -1,4 +1,4 @@
-// E2E check of the board window in a real Electron renderer (#276, Stage 1).
+// E2E check of the board window in a real Electron renderer (#276).
 //
 // Loads the shipped board.html with a stub `window.marshalBoard` in place of
 // the model, and the real bundled Mermaid. What only a renderer can show:
@@ -40,7 +40,8 @@ const FIXED = 'flowchart TD\n  a["login(user)"] --> b["Виправлено"]';
 function preloadSource() {
   return `
 const { contextBridge } = require("electron");
-const calls = { draw: [], repair: [] };
+const calls = { draw: [], repair: [], save: [], reveal: 0 };
+let onRequest = null;
 let repairMode = "good";
 const fence = (source) => "Here it is:\\n\`\`\`mermaid\\n" + source + "\\n\`\`\`\\n";
 
@@ -54,11 +55,16 @@ contextBridge.exposeInMainWorld("marshalBoard", {
     calls.repair.push(input);
     return { ok: true, text: repairMode === "good" ? fence(${JSON.stringify(FIXED)}) : ${JSON.stringify(BROKEN)} };
   },
+  onRequest: (cb) => { onRequest = cb; },
+  save: async (input) => { calls.save.push(input); return { ok: true, id: "test" }; },
+  reveal: async () => { calls.reveal++; return { ok: true }; },
   close: async () => ({ ok: true })
 });
 contextBridge.exposeInMainWorld("__boardProbe", {
   calls: () => calls,
-  setRepair: (mode) => { repairMode = mode; }
+  setRepair: (mode) => { repairMode = mode; },
+  // What main sends for \`./marshal do board <words>\`.
+  speak: (text) => onRequest?.({}, { text })
 });
 `;
 }
@@ -145,6 +151,18 @@ async function main() {
   record("Mermaid loaded on the first draw", (await mermaidRequests()) > 0, `${mermaidFiles} files`);
   console.log(`[board-e2e] renderer working set: ${idleMb} MB open and empty, ${rendererMb()} MB after the first diagram`);
 
+  // ── Saved as board.mmd ──────────────────────────────────────────────────
+  record(
+    "a drawn diagram is saved with its request",
+    calls.save.length === 1 && calls.save[0].source === GOOD && calls.save[0].request === "намалюй деплой" && calls.save[0].language === "auto",
+    JSON.stringify(calls.save[0] ?? null).slice(0, 120)
+  );
+  await run(`document.getElementById("reveal-btn").click()`);
+  record(
+    "the saved file can be shown in Finder",
+    !(await run(`document.getElementById("reveal-btn").hidden`)) && (await run("window.__boardProbe.calls().reveal")) === 1
+  );
+
   // ── Cyrillic font ───────────────────────────────────────────────────────
   const font = await run(`(() => {
     const width = (family) => {
@@ -221,6 +239,25 @@ async function main() {
   );
   record("a failed diagram leaves no Mermaid error graphic", (await run(`document.querySelectorAll("body > [id^='dboard-diagram'], body > svg").length`)) === 0);
 
+  record("a failed diagram is not saved", calls.save.every((item) => item.source !== BROKEN), `${calls.save.length} saves`);
+
+  // ── Spoken request (./marshal do board …) ───────────────────────────────
+  const drawsBefore = calls.draw.length;
+  await run(`window.__boardProbe.speak("draw the deploy flow")`);
+  for (let i = 0; i < 150; i++) {
+    await sleep(100);
+    if (!(await state()).busy) break;
+  }
+  now = await state();
+  calls = await run("window.__boardProbe.calls()");
+  record(
+    "a spoken request draws a board without a click",
+    now.svg && now.status === "Done" && now.text.includes("Початок деплою") && calls.draw.length === drawsBefore + 1 &&
+      calls.draw.at(-1).text === "draw the deploy flow" && (await run(`document.getElementById("request").value`)) === "draw the deploy flow",
+    `${now.status} ${now.error}`
+  );
+  record("the spoken board is saved too", calls.save.at(-1)?.request === "draw the deploy flow" && calls.save.at(-1)?.source === GOOD);
+
   // ── Model unavailable ───────────────────────────────────────────────────
   now = await draw("offline request");
   record("a silent model shows its message and keeps the board", now.error === "The model did not answer." && now.svg);
@@ -241,7 +278,7 @@ async function main() {
   record("the window switches to Ukrainian", (await run(`document.getElementById("draw-btn").textContent`)) === "Намалювати");
   await run(`document.getElementById("clear-btn").click()`);
   now = await state();
-  record("Clear empties the board", !now.svg && now.emptyShown && now.source === "" && now.error === "");
+  record("Clear empties the board", !now.svg && now.emptyShown && now.source === "" && now.error === "" && (await run(`document.getElementById("reveal-btn").hidden`)));
 
   record("renderer logged no errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 400));
 

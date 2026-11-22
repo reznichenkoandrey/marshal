@@ -575,6 +575,12 @@ const boardApi = {
     ipcRenderer.invoke("marshal:board:draw", input) as Promise<BoardReply>,
   repair: (input: { source: string; error: string; language: string }) =>
     ipcRenderer.invoke("marshal:board:repair", input) as Promise<BoardReply>,
+  // A request spoken to the assistant (`./marshal do board …`), drawn as if typed.
+  onRequest: (cb: (event: IpcRendererEvent, payload: { text: string }) => void) =>
+    registerListener<[{ text: string }]>("marshal:board-request", cb),
+  save: (input: { request: string; source: string; language: string }) =>
+    ipcRenderer.invoke("marshal:board:save", input) as Promise<{ ok: boolean; id?: string }>,
+  reveal: () => ipcRenderer.invoke("marshal:board:reveal"),
   close: () => ipcRenderer.invoke("marshal:board:close")
 };
 

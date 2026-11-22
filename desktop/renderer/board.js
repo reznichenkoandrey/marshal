@@ -1,4 +1,4 @@
-// Board window (#276, Stage 1): a text box drives one Mermaid diagram.
+// Board window (#276): a spoken or typed request drives one Mermaid diagram.
 // Everything that decides something lives in board-ops.js; this file wires it
 // to the DOM, to main (model calls) and to Mermaid, which is imported only
 // when the first diagram is drawn.
@@ -17,12 +17,15 @@ const errorLine = document.getElementById("error");
 const diagram = document.getElementById("diagram");
 const emptyNote = document.getElementById("empty");
 const sourceView = document.getElementById("source");
+const revealButton = document.getElementById("reveal-btn");
 
 let board = emptyBoard();
 let busy = false;
 let renderCount = 0;
 let mermaidLoad = null;
 let statusKey = "";
+// A spoken request that arrived while another one was being drawn; the newest wins.
+let queued = null;
 
 function setStatus(key) {
   statusKey = key;
@@ -123,6 +126,7 @@ async function submit() {
   showError("");
   try {
     let ops = directOps(text);
+    const asked = ops.length === 0 ? text : "";
     if (ops.length === 0) {
       setStatus("board.status.thinking");
       const reply = await api.draw({ text, language: languageSelect.value });
@@ -147,9 +151,19 @@ async function submit() {
       board = { ...board, diagram: lastGood };
       setStatus(lastGood ? "board.status.keptLast" : "");
       showError(t("board.error.diagram", { error: failure }));
+      return;
     }
+    // Every drawn diagram is kept as board.mmd (spec §7); a failed save never hides the board.
+    const saved = await api.save({ request: asked, source: board.diagram, language: languageSelect.value }).catch(() => null);
+    revealButton.hidden = !saved?.ok;
   } finally {
     setBusy(false);
+    if (queued !== null) {
+      const next = queued;
+      queued = null;
+      request.value = next;
+      void submit();
+    }
   }
 }
 
@@ -159,6 +173,7 @@ function clear() {
   diagram.replaceChildren();
   sourceView.textContent = "";
   emptyNote.hidden = false;
+  revealButton.hidden = true;
   showError("");
   setStatus("");
 }
@@ -185,7 +200,18 @@ request.addEventListener("keydown", (event) => {
   }
 });
 document.getElementById("clear-btn").addEventListener("click", clear);
+revealButton.addEventListener("click", () => void api.reveal());
 document.getElementById("close-btn").addEventListener("click", () => void api.close());
+api.onRequest?.((_event, payload) => {
+  const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+  if (text === "") return;
+  if (busy) {
+    queued = text;
+    return;
+  }
+  request.value = text;
+  void submit();
+});
 window.addEventListener("marshal:language", () => setStatus(statusKey));
 window.MarshalIcons?.apply();
 request.focus();
