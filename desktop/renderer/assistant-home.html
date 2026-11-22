@@ -470,6 +470,18 @@
               Once a week Marshal reads your own prompts from the last 7 days of sessions in the folders above and keeps
               the repeated ones as candidates for a skill. Nothing leaves this Mac. Off by default.
             </p>
+            <label class="checkbox-row">
+              <input id="settings-claude-remote-sessions" name="claudeCodeRemoteSessions" type="checkbox" />
+              <span data-i18n="settings.remoteSessions">List sessions on other machines over ssh (read-only)</span>
+            </label>
+            <div class="field">
+              <label for="settings-claude-remote-hosts" data-i18n="settings.remoteHosts">Allowed hosts and their folders</label>
+              <textarea id="settings-claude-remote-hosts" name="claudeCodeRemoteHosts" rows="2" spellcheck="false"
+                placeholder="devbox: ~/code, /srv/app"></textarea>
+              <p class="field-hint" data-i18n="settings.remoteHostsHint">
+                One host per line: an alias from ~/.ssh/config, a colon, then folders on that host.
+              </p>
+            </div>
           </fieldset>
           </section>
 

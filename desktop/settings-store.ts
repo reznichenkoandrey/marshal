@@ -86,6 +86,10 @@ export type MarshalSettings = {
   claudeCodeRoutingRoots: string;
   /** Weekly scan of the allowed folders' prompts for repeated requests; opt-in (#273). */
   automationIdeas: boolean;
+  /** List sessions on other machines over ssh, read-only; off by default (#288). */
+  claudeCodeRemoteSessions: boolean;
+  /** Allowed hosts, one per line: `alias: /folder, ~/folder`; only sessions under those folders are listed. */
+  claudeCodeRemoteHosts: string;
   dictationAutoPaste: boolean;
   /** Right ⌥ in the Claude desktop app toggles the app's own dictation with ⌘D (#450). */
   dictationUseClaudeApp: boolean;
@@ -254,6 +258,8 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   claudeCodeContextRouting: true,
   claudeCodeRoutingRoots: "",
   automationIdeas: false,
+  claudeCodeRemoteSessions: false,
+  claudeCodeRemoteHosts: "",
   dictationAutoPaste: false,
   dictationUseClaudeApp: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
@@ -551,6 +557,10 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       ? input.claudeCodeRoutingRoots
       : DEFAULT_SETTINGS.claudeCodeRoutingRoots,
     automationIdeas: typeof input.automationIdeas === "boolean" ? input.automationIdeas : DEFAULT_SETTINGS.automationIdeas,
+    claudeCodeRemoteSessions: input.claudeCodeRemoteSessions === true,
+    claudeCodeRemoteHosts: typeof input.claudeCodeRemoteHosts === "string"
+      ? input.claudeCodeRemoteHosts
+      : DEFAULT_SETTINGS.claudeCodeRemoteHosts,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,
