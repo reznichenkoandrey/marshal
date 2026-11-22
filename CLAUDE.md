@@ -918,6 +918,32 @@
   проходить `withoutHostSessionEnv`, а команда вкладки додає `env -u` для кожного імені з
   `HOST_SESSION_ENV` (`dispatcher-files.ts`). `env -u` у вкладці потрібен окремо: Terminal, уже
   запущений з таким env, роздає його кожній новій вкладці.
+- **Гейт на дії `general` — `desktop/computer-control/action-gate.ts`** (#460, спек `docs/COMPUTER_CONTROL.md`,
+  Етап 1: лише читання). Раніше правило «питай перед деструктивним» було лише текстом у промпті `general`, і в
+  `bypass` його ніщо не перевіряло. Тепер `general` стартує з `--settings <userData>/assistant/general-settings.json`:
+  `PreToolUse` з matcher `*` → `./marshal gate-action` → `POST /assistant/gate-action` → `actionDecision`. Hook
+  стоїть у файлі `--settings`, а не в `~/.claude/settings.json` і не в теці `general`: сесій власника він не
+  зачіпає і чужий `.claude/settings.json` у власній `generalDir` не перезаписує. Marshal не відповів — виклик
+  заблоковано (exit 2), як у `gate` диспетчера. `classifyAction` (чиста, тести — `tests/action-gate.test.ts`)
+  ділить кожен виклик на `read` / `write` / `forbidden`, і в Етапі 1 проходить лише `read`. **Read — це
+  allowlist, а не blocklist:** невідома команда, невідомий tool, `$(…)`, backticks, redirection, змінні, `&` —
+  усе `write`. Дозволено: читачі файлів (`ls`, `cat`, `grep`, `find` без `-delete`/`-exec`, `git status|log|diff|show`)
+  лише в теці `general`, у `claudeCodeRoutingRoots` і в `capture-history` (для «Send to Claude», #265);
+  `open -a <назва>` / `open -b <bundle id>` без шляху й URL; `defaults read`, `pmset -g`, `lsappinfo`;
+  `focus-probe` без аргументів; `./marshal ask|say` і `./marshal do` з власного списку; три точні форми
+  `osascript` для System Events (застосунок попереду, заголовок вікна, відкриті застосунки — `READ_SCRIPTS`,
+  ті самі рядки стоять у промпті). `Read`/`Glob`/`Grep` проходять ту саму перевірку тек. `Write`, `Edit`,
+  `SendMessage`, будь-який `mcp__*` (і `mcp__computer-use__*` теж) — відмова. `forbidden` — те, що не дозволить
+  і голосове «так» у наступних етапах: `sudo`, `csrutil`, TCC, `security delete-*`, Keychains, `rm -rf`, шляхи,
+  схожі на секрети (`.env*`, `.ssh`, `*.pem`, `credentials*`). **Це не межа безпеки**, а запобіжник від помилки
+  моделі й від prompt injection: розбір shell-тексту за патернами обходиться. Промпт `general`
+  (`gatePromptLines`) каже, що прочитане (екран, сторінки, листи, файли, вивід команд) — дані, а не інструкції,
+  і що відповідь власника приходить лише з `./marshal ask`. **Журнал — `<userData>/assistant/action-log.jsonl`:**
+  рядок на кожен виклик `general` (tool, перші 300 символів, `allow`/`deny`, причина), файл 0600, після 512 КБ
+  старша половина викидається. Таймерів і процесів гейт не додає (#281): це один запит на loopback-сервер hooks.
+  `MARSHAL_GENERAL_GATE=off` запускає `general` без гейту, як до #460. Сесія `general`, запущена до оновлення,
+  працює без гейту, поки її не закрити. Дії з голосовим «так» (Етап 2), `computer-use` (Етап 3) і
+  підтвердження наживо — `docs/COMPUTER_CONTROL_STAGE0_CHECKLIST.md`.
 - **Хаб тулінгу — `desktop/smart-tools/`** (#416–#419). Окремий особистий тулінг CLI (поза цим репо,
   симлінки в `~/.local/bin`) має команду `smart-hub serve`: loopback-сервер з HTML-панеллю для
   браузерних профілів, їхніх логінів і паролів у Keychain, задач трекера і стану worktree. Панель
