@@ -46,7 +46,7 @@ function firstLine(text: string): string | null {
   return line === "" ? null : line;
 }
 
-export type OneShotRequest = { system: string; user: string; maxTokens: number; label: string };
+export type OneShotRequest = { system: string; user: string; maxTokens: number; label: string; timeoutMs?: number };
 
 /**
  * One short, non-streamed completion through the captions summarizer's
@@ -55,12 +55,12 @@ export type OneShotRequest = { system: string; user: string; maxTokens: number; 
  * summary and context routing (#286), so neither adds an SDK of its own.
  */
 export async function completeOnce(
-  { system, user, maxTokens, label }: OneShotRequest,
+  { system, user, maxTokens, label, timeoutMs = TIMEOUT_MS }: OneShotRequest,
   env: SummarizerEnv = process.env
 ): Promise<string | null> {
   const provider = resolveSummaryProvider(env).id;
   if (provider === "off") return null;
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     if (provider === "claude-api") {
       const message = await new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).messages.create(

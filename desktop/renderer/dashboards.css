@@ -1,0 +1,96 @@
+/* Dashboards window (#279): the request field and the chart cards. The shell,
+   bar, blocks and chips come from dashboard.css; tokens only. */
+
+.ask {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.ask input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-strong);
+  font: var(--fs-sm) var(--font-sans);
+}
+
+.ask input:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+
+.dash-error {
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-sm);
+  color: var(--danger-text, var(--state-fail));
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-4);
+}
+
+.chart-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  background: var(--bg-surface);
+}
+
+.chart-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.chart-card h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.chart-body {
+  display: grid;
+  place-items: center;
+  /* The viewBox of dashboard-charts.js, so the SVG scales without distortion. */
+  aspect-ratio: 600 / 220;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Skeleton: the card is on screen before its query returns. */
+.chart-card[data-status="pending"] .chart-body {
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.chart { width: 100%; height: 100%; }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.chart-area { fill: var(--accent-soft); }
+.chart-dot,
+.chart-bar { fill: var(--accent); }
+.chart-axis { stroke: var(--text-subtle); }
+.chart-grid { stroke: var(--hairline); }
+/* viewBox units, not screen pixels: the label scales with the chart. */
+.chart-label { fill: var(--text-muted); font: 10px var(--font-mono); }
+
+.chart-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  color: var(--text-muted);
+}
+
+.chart-foot .caps { text-transform: none; letter-spacing: 0; }

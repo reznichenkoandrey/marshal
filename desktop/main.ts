@@ -58,6 +58,8 @@ import {
 } from "./dictation/model-installer.ts";
 import { MeetingIndicator } from "./meeting/meeting-indicator.ts";
 import { MeetingHistoryWindow } from "./meeting/meeting-history-window.ts";
+import { BoardWindow } from "./boards/board-window.ts";
+import { DashboardWindow } from "./dashboards/dashboard-window.ts";
 import {
   deriveAssistantState,
   groupSessions,
@@ -214,6 +216,10 @@ let isDictating = false;
 let meetingRecorder: MeetingRecorder | null = null;
 let meetingIndicator: MeetingIndicator | null = null;
 let meetingHistoryWindow: MeetingHistoryWindow | null = null;
+// Created on first open; holds nothing while its window is closed (#281).
+let boardWindow: BoardWindow | null = null;
+// Created on the first open: nothing of the dashboards exists in idle (#279, #281).
+let dashboardWindow: DashboardWindow | null = null;
 // Built on first use: the service holds no timers and no handles until then,
 // so an owner who never opens the hub pays nothing for it (#281).
 let smartHub: SmartHubService | null = null;
@@ -533,6 +539,9 @@ function registerIpcHandlers(): void {
     miniWidget?.moveTo({ x: input.x, y: input.y }, input.done === true);
     return { ok: true };
   });
+  handleIpc("marshal:assistant:idea", (_event, input: { id?: unknown; decision?: unknown } | undefined) =>
+    typeof input?.id === "string" && typeof input.decision === "string" ? decideAutomationIdea(input.id, input.decision) : { ok: false }
+  );
   handleIpc("marshal:assistant:close", () => {
     assistantHome?.close();
     return { ok: true };
@@ -1340,6 +1349,8 @@ async function performTeardown(): Promise<void> {
   meetingRecorder?.kill();
   meetingIndicator?.hide();
   meetingHistoryWindow?.close();
+  boardWindow?.close();
+  dashboardWindow?.close();
   smartHubWindow?.close();
   // Only ever a server this process started — a reused one idles out on its own.
   smartHub?.stop();
@@ -2000,13 +2011,44 @@ function replyDeps() {
 }
 
 // Repeated requests → skill candidates (#273): one scan a week, on a Stop hook, only when switched on.
+let automationIdeas: AutomationIdeas | null = null;
+
 function initAutomationIdeas(): void {
   const ideas = new AutomationIdeas({
     storePath: path.join(app.getPath("userData"), "automation-ideas.json"),
     enabled: () => loadSettings().automationIdeas,
-    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots)
+    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots),
+    // The only text sent out: the repeated phrasings themselves (buildProposalRequest).
+    complete: (request) => completeOnce({ ...request, maxTokens: 900, label: "automation ideas" }),
+    onChange: () => assistantHome?.update({ ideas: ideas.ideas() })
   });
+  automationIdeas = ideas;
   claudeHooks?.onSessionStop(() => ideas.onSessionStop());
+}
+
+// Tray → "Find repeated requests now" (#273): the on-demand scan; the result is a count, never prompt text.
+async function scanAutomationIdeas(): Promise<void> {
+  const result = await automationIdeas?.scan();
+  const found = automationIdeas?.ideas().length ?? 0;
+  const body = !result ? t("ideas.scanOff") : found > 0 ? t("ideas.scanFound", { count: found }) : t("ideas.scanNone");
+  const notification = new Notification({ title: t("ideas.title"), body, silent: true });
+  if (found > 0) notification.on("click", () => openAssistantHome());
+  notification.show();
+}
+
+// The owner's click in the home card. "create" is the only path that writes ~/.claude/skills/<name>/SKILL.md.
+function decideAutomationIdea(id: string, decision: string): { ok: boolean; error?: string } {
+  if (!automationIdeas) return { ok: false };
+  if (decision === "never") automationIdeas.reject(id);
+  else if (decision === "later") automationIdeas.later(id);
+  else if (decision === "create") {
+    const created = automationIdeas.create(id);
+    if (!created.ok) return { ok: false, error: t(created.reason === "exists" ? "ideas.exists" : "ideas.createFailed") };
+    const notification = new Notification({ title: t("ideas.created"), body: created.path, silent: true });
+    notification.on("click", () => shell.showItemInFolder(created.path));
+    notification.show();
+  } else return { ok: false };
+  return { ok: true };
 }
 
 let timedReminders: TimedReminderStore | null = null;
@@ -2624,6 +2666,15 @@ function chromeGuardMenu(): Electron.MenuItemConstructorOptions[] {
   );
 }
 
+// Built when the menu opens, no timer and no badge (#273): proposals open the home card, none = scan on demand.
+function automationIdeasTrayItems(enabled: boolean): Electron.MenuItemConstructorOptions[] {
+  if (!enabled) return [];
+  const count = automationIdeas?.ideas().length ?? 0;
+  return count > 0
+    ? [{ label: t("tray.automationIdeas", { count }), click: () => openAssistantHome() }]
+    : [{ label: t("tray.automationIdeasScan"), click: () => void scanAutomationIdeas() }];
+}
+
 function buildTrayMenu(): Electron.Menu {
   const settings = loadSettings();
   const dictationAvailable = dictationService !== null;
@@ -2639,6 +2690,7 @@ function buildTrayMenu(): Electron.Menu {
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { label: t("tray.openHub"), click: () => void openSmartHub() },
     ...(claudeHooks ? [{ label: t("tray.chromeGuard"), submenu: chromeGuardMenu() }] : []),
+    ...automationIdeasTrayItems(settings.automationIdeas),
     { label: t("tray.myDay"), click: () => void showDayReview() },
     { label: t("tray.remindMe"), submenu: remindMenuItems() },
     { type: "separator" },
@@ -2673,6 +2725,14 @@ function buildTrayMenu(): Electron.Menu {
       label: t("tray.meetingRecordings"),
       enabled: meetingAvailable,
       click: () => meetingHistoryWindow?.open()
+    },
+    // Stage 1 of voice boards (#276) is a dev tool: no voice entry yet.
+    ...(!app.isPackaged || process.env.MARSHAL_BOARDS === "1"
+      ? [{ label: t("tray.board"), click: () => (boardWindow ??= new BoardWindow(preloadPath)).open() }]
+      : []),
+    {
+      label: t("tray.dashboards"),
+      click: () => (dashboardWindow ??= new DashboardWindow(preloadPath, app.getPath("userData"))).open()
     },
     {
       label: t(captionsRunning ? "tray.stopCaptions" : "tray.startCaptions"),
@@ -3039,7 +3099,13 @@ function assistantStrip(): AssistantStrip {
 
 function pushAssistantStrip(): void {
   if (!assistantHome?.isOpen()) return;
-  assistantHome.update({ lang: uiLanguage(), strip: assistantStrip(), commands: assistantCommands(), features: assistantFeatures() });
+  assistantHome.update({
+    lang: uiLanguage(),
+    strip: assistantStrip(),
+    commands: assistantCommands(),
+    features: assistantFeatures(),
+    ideas: automationIdeas?.ideas() ?? []
+  });
 }
 
 function assistantCommandLog(): CommandLog {

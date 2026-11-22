@@ -25,6 +25,7 @@
 - E2E у реальному Electron — окремо від vitest: `npm run test:e2e` (smoke),
   `npm run test:e2e:capture` (редактор захоплення), `npm run test:e2e:region`
   (геометрія виділення області), `npm run test:e2e:history` (вікно історії знімків),
+  `npm run test:e2e:dashboards` (вікно дашбордів: скелети до даних, SVG, екранування підписів; лише локально),
   `npm run test:e2e:meetings` (вікно записів дзвінків: «Finish» для перерваних,
   «Transcribe & summarize» і нотатки; у history і meetings `MARSHAL_E2E_SHOTS=<тека>` знімає вікно в
   Lumen і Neural),
@@ -35,8 +36,9 @@
   вигляд Settings: rail, перемикач, Save;
   `MARSHAL_E2E_SHOTS=<тека>` — скріни кожного стану і Settings на трьох ширинах),
   `npm run test:e2e:ambient` (рамка-світіння, індикатор диктовки, міні-віджет: картки, клік /
-  подвійний клік / драг, пауза після 30 с idle)
-  У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home і ambient: вони працюють через
+  подвійний клік / драг, пауза після 30 с idle), `npm run test:e2e:board` (дошка: справжній Mermaid,
+  набір лапок, один repair, `MARSHAL_E2E_SHOTS=<тека>` знімає вікно в light і dark)
+  У CI (macOS) крутяться smoke, alternatives, captions, history, meetings, home, ambient і board: вони працюють через
   stub-preload і не потребують TCC. `capture` і `region` — лише локально, бо їм потрібен
   Screen Recording, якого GitHub runner дати не може. Чіпаєш захоплення — запусти їх руками.
   **home і ambient не заважають роботі** (`tests/e2e/quiet-window.mjs`): без іконки в Dock, вікно
@@ -956,6 +958,32 @@
   проходить `withoutHostSessionEnv`, а команда вкладки додає `env -u` для кожного імені з
   `HOST_SESSION_ENV` (`dispatcher-files.ts`). `env -u` у вкладці потрібен окремо: Terminal, уже
   запущений з таким env, роздає його кожній новій вкладці.
+- **Гейт на дії `general` — `desktop/computer-control/action-gate.ts`** (#460, спек `docs/COMPUTER_CONTROL.md`,
+  Етап 1: лише читання). Раніше правило «питай перед деструктивним» було лише текстом у промпті `general`, і в
+  `bypass` його ніщо не перевіряло. Тепер `general` стартує з `--settings <userData>/assistant/general-settings.json`:
+  `PreToolUse` з matcher `*` → `./marshal gate-action` → `POST /assistant/gate-action` → `actionDecision`. Hook
+  стоїть у файлі `--settings`, а не в `~/.claude/settings.json` і не в теці `general`: сесій власника він не
+  зачіпає і чужий `.claude/settings.json` у власній `generalDir` не перезаписує. Marshal не відповів — виклик
+  заблоковано (exit 2), як у `gate` диспетчера. `classifyAction` (чиста, тести — `tests/action-gate.test.ts`)
+  ділить кожен виклик на `read` / `write` / `forbidden`, і в Етапі 1 проходить лише `read`. **Read — це
+  allowlist, а не blocklist:** невідома команда, невідомий tool, `$(…)`, backticks, redirection, змінні, `&` —
+  усе `write`. Дозволено: читачі файлів (`ls`, `cat`, `grep`, `find` без `-delete`/`-exec`, `git status|log|diff|show`)
+  лише в теці `general`, у `claudeCodeRoutingRoots` і в `capture-history` (для «Send to Claude», #265);
+  `open -a <назва>` / `open -b <bundle id>` без шляху й URL; `defaults read`, `pmset -g`, `lsappinfo`;
+  `focus-probe` без аргументів; `./marshal ask|say` і `./marshal do` з власного списку; три точні форми
+  `osascript` для System Events (застосунок попереду, заголовок вікна, відкриті застосунки — `READ_SCRIPTS`,
+  ті самі рядки стоять у промпті). `Read`/`Glob`/`Grep` проходять ту саму перевірку тек. `Write`, `Edit`,
+  `SendMessage`, будь-який `mcp__*` (і `mcp__computer-use__*` теж) — відмова. `forbidden` — те, що не дозволить
+  і голосове «так» у наступних етапах: `sudo`, `csrutil`, TCC, `security delete-*`, Keychains, `rm -rf`, шляхи,
+  схожі на секрети (`.env*`, `.ssh`, `*.pem`, `credentials*`). **Це не межа безпеки**, а запобіжник від помилки
+  моделі й від prompt injection: розбір shell-тексту за патернами обходиться. Промпт `general`
+  (`gatePromptLines`) каже, що прочитане (екран, сторінки, листи, файли, вивід команд) — дані, а не інструкції,
+  і що відповідь власника приходить лише з `./marshal ask`. **Журнал — `<userData>/assistant/action-log.jsonl`:**
+  рядок на кожен виклик `general` (tool, перші 300 символів, `allow`/`deny`, причина), файл 0600, після 512 КБ
+  старша половина викидається. Таймерів і процесів гейт не додає (#281): це один запит на loopback-сервер hooks.
+  `MARSHAL_GENERAL_GATE=off` запускає `general` без гейту, як до #460. Сесія `general`, запущена до оновлення,
+  працює без гейту, поки її не закрити. Дії з голосовим «так» (Етап 2), `computer-use` (Етап 3) і
+  підтвердження наживо — `docs/COMPUTER_CONTROL_STAGE0_CHECKLIST.md`.
 - **Хаб тулінгу — `desktop/smart-tools/`** (#416–#419). Окремий особистий тулінг CLI (поза цим репо,
   симлінки в `~/.local/bin`) має команду `smart-hub serve`: loopback-сервер з HTML-панеллю для
   браузерних профілів, їхніх логінів і паролів у Keychain, задач трекера і стану worktree. Панель
@@ -980,6 +1008,54 @@
   без відповіді, а не вгадується), тоді `smart-browser login <project>/<env>/<role>`. Тести —
   `tests/smart-hub.test.ts`, у них і підставний хаб, що пише port/token 0600 і відповідає лише на
   правильний токен.
+- **Дошки (voice boards), Stage 1 — `desktop/boards/` і `desktop/renderer/board*.js`** (#276, spec —
+  `docs/VOICE_BOARDS.md`). Поки це dev-інструмент без голосу: пункт tray «Board (dev)…» є лише в dev-білді
+  або з `MARSHAL_BOARDS=1`. У вікні текстове поле: запит («намалюй схему авторизації», «draw the deploy
+  flow») іде моделі, вставлений Mermaid-код чи рядки ops малюються без моделі. **Модель пише Mermaid, не
+  SVG і не HTML:** одна відповідь = один fenced-блок ` ```mermaid `, вікно замінює діаграму цілком.
+  Ядро чисте й тестоване без Electron — `desktop/renderer/board-ops.js`: `createOpStream` віддає op лише
+  тоді, коли рядок JSON завершений або fence закритий (недописане не малюється ніколи), невідомий op
+  викидається, `applyOp` не мутує дошку, дубль `addNode` за id — це оновлення. Ops мозкового штурму
+  (`addNode`, `addEdge`, `setSummary`…) уже розбираються й застосовуються до стану, але малює їх Stage 3.
+  **Parse перед render, один repair** (`resolveDiagram`): `mermaid.parse` впав — зламаний код і текст
+  помилки йдуть моделі один раз; друга невдача лишає попередню діаграму й один рядок помилки. Третього
+  запиту немає. Модель викликає main (`board-prompt.ts` → `completeOnce`, той самий провайдер, що в
+  summary; timeout 45 с замість 8), IPC-обробники висять на `webContents.ipc` самого вікна.
+  **Mermaid — devDependency, закріплений на 12.3.0** (MIT): пакет важить 120 МБ, а `node_modules/**`
+  іде в бандл цілком, тому `postbuild.mjs` копіює лише ESM-збірку без source maps (6 МБ) у
+  `dist/desktop/renderer/vendor/mermaid/`. Вікно вантажить його через `import()` на першій діаграмі,
+  типи діаграм — окремими chunks. CSP вікна без `unsafe-eval` (перевірено e2e), `securityLevel: "strict"`,
+  вікно не відкриває нових вікон і нікуди не переходить. Кольори Mermaid бере з токенів: він рахує
+  палітру сам і `var()` не розуміє, тож `tokenColor` у `board.js` зводить токен до hex; тема оновлюється
+  на наступному малюванні. Шрифт підписів — bundled Fixel, у ньому є кирилиця (e2e це міряє).
+  **Мова:** ключові слова Mermaid й id завжди англійською, підписи — мовою запиту (`summaryLanguageName`)
+  або примусово `uk` / `en` із селекта вікна; терміни (`deploy`, `rate limit`) не перекладаються.
+  **Пастки лапок** (набір `tests/fixtures/boards/quoting.json`, звіряється зі справжнім парсером у e2e):
+  кожен підпис у лапках `id["текст"]`, подвійна лапка всередині — `#quot;`. Текст повідомлення в
+  `sequenceDiagram` у лапки взяти не можна, і `;` там закінчує statement: писати `#59;`, а `#` — `#35;`.
+  Заміряно в e2e (working set renderer-а, не footprint): 93–105 МБ відкрите порожнє вікно, 163–172 МБ
+  після першої діаграми; із закритим вікном дошка не коштує нічого. Далі за spec: голос і збереження
+  (Stage 2), мозковий штурм (3), правки й експорт (4), presenter і PDF (5).
+- **Дашборди з даних — `desktop/dashboards/`** (#279, етап 1 із `docs/VOICE_DASHBOARDS.md`). Tray → «Дашборди…»
+  відкриває вікно з полем запиту: «коміти по днях за два тижні», «PR за місяць за станами». Запит можна
+  надиктувати правим ⌥ у це поле. Джерела — лише `git log` і `gh issue list` / `gh pr list` у теці репозиторію,
+  яку власник обирає кнопкою з текою. Postgres, шаблони і голосова команда `./marshal do dashboard` — наступні етапи.
+  **Модель не пише команд.** Вона відповідає NDJSON-рядками (`protocol.ts`): `title`, `plan` (до 8 графіків),
+  `query` і `keep`. `query` — вибір із фіксованих опцій: `source` (`git` / `github`), `metric` (`commits` /
+  `issues` / `prs`), `groupBy` (`day` / `week` / `author` / `state` / `label`), `days` (1–365). Аргументи `git` і
+  `gh` збирає main (`sourceCommand` у `sources.ts`), тож read-only правило живе в одному місці. Рядок, що не
+  парситься, довший за 64 KB чи з невідомим `type`, ігнорується з рядком у лог. `plan` малює скелети карток до
+  першого запиту. `keep` у follow-up («додай issues за labels») лишає графік з його даними і не перезапитує його.
+  На графік — один запит за побудову, на всю побудову — 3 хв. Модель — провайдери summarizer'а субтитрів
+  (`createSummaryStreamer`, `MARSHAL_CAPTIONS_*`), окремого SDK немає.
+  **Дані оновлюються лише поки вікно відкрите:** на відкритті (кеш, потім свіжі дані), кнопкою Refresh і на
+  побудові. Таймера немає, а закриття вікна обриває побудову (`DashboardService.cancel`). Refresh модель не
+  викликає: він перезапускає збережені запити. Стан — `<userData>/dashboards/state.json` (тека, план, запити,
+  останні рядки). `DashboardWindow` створюється на першому кліку в tray, IPC-обробники висять на `webContents.ipc`
+  цього вікна і зникають разом із ним. Вікно `alwaysOnTop` (#168) і content-protected: у screen share його не видно.
+  Графіки — inline SVG з `desktop/renderer/dashboard-charts.js` (line і bar, чисті функції, без chart-бібліотеки),
+  кольори лише через класи з `dashboards.css`. Підписи приходять з репозиторію (автори, labels), тому
+  `renderChart` їх екранує. Під кожним графіком видно, що саме виконав main (`git log · day · 14d`).
 - **Scheduled workflows, етап 1 — `desktop/workflows/`** (#280, spec — `docs/SCHEDULED_WORKFLOWS.md`).
   Workflow — запуск `claude -p` за cron-розкладом, локально і під логіном власника. Поки є лише ядро:
   definition пишеться руками, результат іде тільки в журнал. Побудови з тексту, озвучення, нотифікацій
@@ -1068,7 +1144,7 @@
   (`<userData>/decks/`), атомарний запис, id лише `[a-z0-9-]`. Сховище **нічого не видаляє саме**:
   `overBudget()` називає найстаріші decks понад 50 штук / 100 МБ, а видаляє UI після підтвердження.
 - **Повторювані прохання → кандидати на skill — `desktop/automation-ideas/`** (#273, спека
-  `docs/AUTOMATION_IDEAS.md`). Зроблено лише Етап A: детекція без моделі й без UI. Opt-in: Settings →
+  `docs/AUTOMATION_IDEAS.md`). Зроблено Етапи A і B: детекція без моделі, пропозиція моделі та картка в home. Opt-in: Settings →
   Claude Code → «Шукати прохання, які я повторюю» (`automationIdeas`, за замовчуванням вимкнено).
   Scan запускає перший Stop hook тижня (`scanDue`: останній scan старший за понеділок 00:00), таймера
   немає (#281), тож без встановлених hooks він не запускається. **Читаються лише сесії з
@@ -1083,9 +1159,24 @@
   кластерами. Кандидат = ≥ 3 повтори на ≥ 2 днях або ≥ 5 в одному проєкті (`projectOf`); пороги —
   константи, на реальній історії ще не калібровані. Результат — `<userData>/automation-ideas.json`
   (0600): кандидати й лише ті рядки, на які вони посилаються; `rejected` і `created` переживають
-  новий scan. У лог ідуть тільки лічильники, без тексту промптів. `verifyProposal` (перевірка
-  пропозиції моделі за локальними лічильниками, розділ 4.5 спеки) вже є і тестована, але її ще ніхто
-  не викликає: модель, tray, home і голос — Етапи B–D.
+  новий scan. У лог ідуть тільки лічильники, без тексту промптів. **Етап B — пропозиція моделі і skill лише після кліку** (`propose.ts`). Одразу після scan іде один запит
+  `completeOnce` (провайдер summary). **З Mac виходить лише** (`buildProposalRequest`): для кожного кандидата
+  (до 20) id його рядків, найдовше нормалізоване формулювання (нижній регістр, без чисел, ≤ 400 символів),
+  лічильник і кількість днів. Назв проєктів, дат, шляхів, transcript-ів і відхилених ідей у запиті немає.
+  Відповіді моделі не довіряємо. `parseProposals`: назва — лише slug `[a-z0-9-]` (вона стає текою), опис і
+  кроки — по одному рядку до 200 символів без `<`, `>`, backtick і `---`, не більше 8 кроків і 5 пропозицій.
+  `acceptProposals`: `verifyProposal` (id існують, ≥ 3 повтори на ≥ 2 днях за локальними рядками, назва вільна
+  в `~/.claude/skills/`), і жоден крок не просить push, merge, deploy, release чи видалення (`findForbidden` з
+  plan runner). Лічильники в пропозиції рахуються локально. Без провайдера або при збої пропозицій немає, а
+  кандидати лишаються. Власник бачить пропозиції в картці «Пропозиції автоматизації» у home (назва, опис,
+  кроки, «Що ти просив») і в tray: «Пропозиції автоматизації (N)» відкриває home, а без пропозицій пункт
+  «Знайти повторювані прохання зараз» запускає scan і показує нотифікацію з числом. Бейджа немає, текст
+  промптів у нотифікації й лог не йде. **`SKILL.md` пише лише `AutomationIdeas.create`** на «Створити skill» і
+  другий клік по шляху: шаблон `skillMarkdown`, `mkdir` без `recursive` і запис із прапорцем `wx`, тож наявна
+  тека чи файл не перезаписується. Після запису — нотифікація зі шляхом, клік показує файл у Finder.
+  «Ніколи» кладе формулювання в `rejected`, і схожий кандидат (`withoutDecided`, той самий Jaccard) більше
+  не йде моделі; «Не зараз» прибирає пропозицію до наступного scan. Підказка в Settings каже, що саме йде
+  моделі. Голос (Етап C) і «Save as rule» (Етап D) не зроблені. Тести — `tests/automation-ideas-propose.test.ts`.
 - **Сесії з інших машин — `desktop/claude-code/remote-source.ts`** (#288, етап 1 з `docs/REMOTE_SESSIONS.md`).
   Opt-in і лише читання: Settings → Claude Code → «Показувати сесії з інших машин через ssh»
   (`claudeCodeRemoteSessions`, за замовчуванням вимкнено) і allowlist `claudeCodeRemoteHosts`, рядок на хост:
@@ -1108,6 +1199,27 @@
   шляхів. Ім'я сесії з хоста — недовірені дані: керівні символи й `@` вирізаються. Тести —
   `tests/claude-code-remote-source.test.ts`: fake exec і stub `ssh`, що виконує справжній скрипт на fixture-home;
   живого хоста в тестах немає. На справжньому хості не перевірено нічого (формат файлів сесій на Linux — теж).
+  **Hooks на віддаленому хості — `desktop/claude-code/remote-hooks.ts`** (#288, хостова половина етапу 2). **До
+  `main.ts` не підключено, UI й налаштувань немає:** це єдине місце в Marshal, що пише на іншу машину, тому воно чекає
+  живої перевірки етапу 1 і кнопки на кожен хост. На хості нічого не слухає і тунель не тримається (#281): relay з
+  портом і `ssh -N -L` зі спеки не зроблені. Hook — sh-скрипт `~/.claude/marshal-remote/marshal-remote-hook.sh`, який
+  на Stop і Notification кладе запис у `spool/` поруч (0600). У записі лише тип події, session id, `cwd`,
+  `notification_type` і час хоста. Тексту відповіді й нотифікації там немає: вміст розмови з хоста не йде (§3 спеки).
+  Скрипт сам викидає записи, старші за 15 хв, і не тримає більше 200. `installRemoteHooks(host)` робить три exec-и
+  константними командами (`REMOTE_PREPARE_COMMAND`, `REMOTE_PUT_SCRIPT_COMMAND`, `REMOTE_PUT_SETTINGS_COMMAND`): читає
+  `~/.claude/settings.json` хоста, мерджить **локально** (`addRemoteHooks`, лише Stop і Notification, `async`; чужі
+  hooks і hooks локального Marshal на тому хості лишаються) і шле файл через stdin. Перший рядок stdin — кількість
+  байтів: обірване з'єднання не лишає половину файлу. `settings.json` замінюється, лише якщо він байт у байт той, що
+  був прочитаний (`cmp` з копією), інакше `changed`. Symlink (`symlink`) і файл, що не парситься (`settings`), не
+  чіпаються взагалі. Команда hook-а — константа з `$HOME`, шлях із відповіді хоста в неї не потрапляє.
+  `PermissionRequest` на хост не ставиться: голосом віддалене не дозволяється. Перша невдала інсталяція прибирає за
+  собою теку. `uninstallRemoteHooks(alias)` спершу забирає hooks із `settings.json`, потім видаляє теку; якщо файл не
+  парситься, не видаляє нічого. Стан — `{ alias: { hash, installedAt } }` у файлі 0600, шлях передає викликач;
+  `remoteHooksOutdated` порівнює хеш скрипта, перевстановлення — той самий явний виклик.
+  `drainRemoteHookEvents(host)` — один exec на вимогу і лише для хоста зі стану, інакше з'єднання немає. Команда
+  друкує й видаляє записи; `parseDrainOutput` викидає події поза теками хоста, старші за 15 хв за годинником хоста,
+  з майбутнього і з поганим id. Тести — `tests/claude-code-remote-hooks.test.ts`: fake run і stub `ssh`, що виконує
+  справжні команди й справжній hook-скрипт на fixture-home. На живому хості не запускалось нічого.
 - **Бюджет ресурсів — гейт для кожної фічі епіку #275** (#281). Marshal має літати на M3 Pro
   18 ГБ. Idle з усіма фічами асистента: **≤ 300 МБ footprint** на всі процеси, ~0% CPU, жодної
   моделі в пам'яті. Модель мовлення — одна на застосунок (`whisper-server`, ~1 ГБ з q8_0, вантажиться на

@@ -1,7 +1,7 @@
 {
   "name": "local-chatgpt-agent",
   "productName": "Marshal",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "Local autonomous agent that uses the ChatGPT web UI via Playwright as its reasoning engine.",
@@ -38,8 +38,10 @@
     "test:e2e:region": "npm run build && electron tests/e2e/capture-region.mjs",
     "test:e2e:history": "npm run build && electron tests/e2e/capture-history.mjs",
     "test:e2e:meetings": "npm run build && electron tests/e2e/meeting-history.mjs",
+    "test:e2e:dashboards": "npm run build && electron tests/e2e/dashboards.mjs",
     "test:e2e:home": "npm run build && electron tests/e2e/assistant-home.mjs",
-    "test:e2e:ambient": "npm run build && electron tests/e2e/assistant-ambient.mjs"
+    "test:e2e:ambient": "npm run build && electron tests/e2e/assistant-ambient.mjs",
+    "test:e2e:board": "npm run build && electron tests/e2e/board.mjs"
   },
   "build": {
     "appId": "com.marshal.desktop",
@@ -149,6 +151,7 @@
     "electron": "^41.7.2",
     "electron-builder": "^26.15.2",
     "electron-playwright-helpers": "^2.1.0",
+    "mermaid": "12.3.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.5"
   },

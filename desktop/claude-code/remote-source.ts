@@ -80,11 +80,15 @@ export const REMOTE_LIST_COMMAND =
   'printf "file %s\\n" "$p"; tr -d "\\n\\r" < "$f"; printf "\\n"; ' +
   "done'";
 
-/** argv for one read-only exec. Every option here closes something stage 1 must not do. */
-export function sshArgs(alias: string): string[] {
+/**
+ * argv for one exec. Every option here closes something Marshal must not do.
+ * `command` is always one of the constants of this feature, never text built
+ * from data; `stdin` is for the hook install (#288 stage 2), which sends a file.
+ */
+export function sshArgs(alias: string, command: string = REMOTE_LIST_COMMAND, stdin = false): string[] {
   if (!ALIAS.test(alias)) throw new Error("invalid ssh host alias");
   return [
-    "-n", // no stdin
+    ...(stdin ? [] : ["-n"]), // no stdin unless a file is being sent
     "-T", // no tty
     "-a", // no agent forwarding
     "-x", // no X11
@@ -97,17 +101,17 @@ export function sshArgs(alias: string): string[] {
     "-o", "LogLevel=ERROR",
     "--",
     alias,
-    REMOTE_LIST_COMMAND
+    command
   ];
 }
 
-function isUnderRemoteRoots(cwd: string, roots: readonly string[]): boolean {
+export function isUnderRemoteRoots(cwd: string, roots: readonly string[]): boolean {
   if (!path.posix.isAbsolute(cwd)) return false;
   const dir = path.posix.normalize(cwd);
   return roots.some((root) => dir === root || dir.startsWith(root.endsWith("/") ? root : `${root}/`));
 }
 
-function resolveRoots(roots: readonly string[], home: string | null): string[] {
+export function resolveRoots(roots: readonly string[], home: string | null): string[] {
   return roots.flatMap((root) => {
     if (root !== "~" && !root.startsWith("~/")) return [path.posix.normalize(root)];
     return home ? [path.posix.join(home, root.slice(1))] : [];
@@ -180,8 +184,8 @@ export type SshExec = (
 
 export type RemoteDeps = { exec: SshExec; sshPath: string; warn: (message: string) => void; now: () => number };
 
-const EXEC_TIMEOUT_MS = 10_000;
-const MAX_OUTPUT_BYTES = 512 * 1024;
+export const EXEC_TIMEOUT_MS = 10_000;
+export const MAX_OUTPUT_BYTES = 512 * 1024;
 const CACHE_MS = 5 * 60_000;
 
 const defaultDeps: RemoteDeps = {
