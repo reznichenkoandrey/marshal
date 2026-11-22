@@ -232,6 +232,11 @@
             <button type="button" id="settings-assistant-speaker-erase" class="btn btn-secondary" hidden data-i18n="settings.eraseOwnVoice">
               Erase my voice print
             </button>
+            <label class="checkbox-row">
+              <input id="settings-workflows-enabled" name="workflowsEnabled" type="checkbox" />
+              <span data-i18n="settings.workflowsEnabled">Scheduled workflows</span>
+            </label>
+            <p class="field-hint" data-i18n="settings.workflowsHint">Runs Claude Code unattended on a schedule, with read-only tools, and tells you the result. Say “Marshal, every morning at nine check …” to add one.</p>
 
             <div class="field">
               <label for="settings-assistant-general-dir" data-i18n-html="settings.folderCodeGeneralCodeWorks">Folder <code>general</code> works in</label>
