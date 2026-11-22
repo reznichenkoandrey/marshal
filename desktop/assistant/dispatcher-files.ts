@@ -9,7 +9,7 @@
 import path from "node:path";
 
 import { isUnderRoots } from "../claude-code/context-router.ts";
-import { gatePromptLines } from "../computer-control/action-gate.ts";
+import { gatePromptLines, type GateMode } from "../computer-control/action-gate.ts";
 import type { ClaudeSession } from "../claude-code/registry.ts";
 
 export const DISPATCHER_NAME = "marshal-dispatcher";
@@ -62,12 +62,14 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - record the call or meeting, or stop that recording ("запиши дзвінок", "зупини запис") → \`./marshal do record-call\`; with the screen ("запиши екран") → \`./marshal do record-screen\`
    - the list of recorded meetings → \`./marshal do recordings\`
    - a screenshot of an area ("скрін", "знімок екрана") → \`./marshal do capture\`
+   - a slide deck or presentation ("зроби 5 слайдів про …", "презентація про …", "make a deck about …") → \`./marshal do deck <what the owner said about the deck: the topic and the number of slides, without the routing words>\`. Marshal builds it in its own window and says when it is ready; open the last deck ("покажи слайди", "open the deck") → \`./marshal do decks\`
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
    - Marshal's settings → \`./marshal do settings\`
    - the hub panel with the browser profiles, tracker tasks and worktrees ("хаб", "hub", "панель", "профілі") → \`./marshal do hub\`
    - log a browser profile in ("залогінь мене в …", "увійди в профіль …", "log me into …") → \`./marshal do hub-login <what the owner said about the profile, without the routing words>\`. Marshal matches it against the hub's own list of profiles and answers aloud; never invent a profile name.
    - draw a diagram or scheme on the board ("намалюй схему …", "покажи діаграму …", "draw the … flow", "diagram of …") → \`./marshal do board <what to draw, in the owner's own words and language, without the routing words>\`; just open the board ("дошка", "відкрий дошку") → \`./marshal do board\`; close it → \`./marshal do board-close\`. Marshal draws it itself: never write the diagram, and never send this to a session.
+   - scheduled workflows, tasks Marshal runs by itself on a schedule ("щоранку о дев'ятій перевіряй …", "кожну годину дивись …", "every morning at nine check …") → \`./marshal do workflow-add <the whole request as said, with the schedule>\`; which workflows exist ("які в мене воркфлоу", "list my workflows") → \`./marshal do workflows\`; run one now ("запусти воркфлоу …") → \`./marshal do workflow-run <its name as said>\`; turn one off or on ("вимкни воркфлоу …", "увімкни воркфлоу …") → \`./marshal do workflow-stop <name>\` / \`./marshal do workflow-start <name>\`. Marshal answers aloud; never invent a workflow name.
    - write, type or insert text where the owner is ("напиши …", "встав …", "надрукуй …", "type …"), with no session named → \`./marshal insert "<text>"\` with only the text to insert, exactly as dictated, without the instruction words. It lands in the app the owner was in when they spoke.
 2. Talk and status — answer yourself with \`./marshal say\`, like a person, never a list read aloud:
    - A greeting or a check that you are there ("ти тут?", "привіт", "are you there"): one warm short sentence, for example "Так, я тут. Що робимо?"
@@ -222,7 +224,7 @@ export function appToolRefusal(raw: string, live: readonly ClaudeSession[], root
 }
 
 /** `probePath` and `gated` describe the read-only gate (#460); without them the prompt only adds the data-not-instructions rule. */
-export function buildGeneralPrompt(helperPath: string, probePath = "", gated = false): string {
+export function buildGeneralPrompt(helperPath: string, probePath = "", gate: GateMode | "off" = "off"): string {
   const helper = shellQuote(helperPath);
   return [
     "You are the hands of Marshal, the owner's voice assistant on this Mac.",
@@ -232,7 +234,7 @@ export function buildGeneralPrompt(helperPath: string, probePath = "", gated = f
     "Your last message is read aloud: one or two short sentences in the language of the command, no markdown, no code, no file paths unless asked.",
     "Ask before anything destructive or irreversible: deleting, sending a message, buying, changing system settings.",
     `To ask, run ${helper} ask "<short question>": it speaks the question, listens and prints the owner's answer, or (no answer) — then do not proceed.`,
-    ...gatePromptLines(helper, shellQuote(probePath), gated)
+    ...gatePromptLines(helper, shellQuote(probePath), gate)
   ].join("\n");
 }
 
@@ -262,7 +264,9 @@ export function buildHelperScript(hookDir: string): string {
     "  gate|gate-action)",
     "    # PreToolUse for the Claude app's tools (#437) and for general's actions (#460): no answer from Marshal blocks the call.",
     "    ready || { echo 'Marshal is not running.' >&2; exit 2; }",
-    "    verdict=$(curl -s --fail-with-body -m 10 -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
+    "    # A change waits for the owner's spoken answer (#460); the app-tool gate answers at once.",
+    "    [ \"$cmd\" = gate-action ] && limit=60 || limit=10",
+    "    verdict=$(curl -s --fail-with-body -m \"$limit\" -H @\"$dir/auth-header\" -H 'Content-Type: application/json' --data-binary @- \"$(base)/$cmd\") || { echo \"${verdict:-Marshal did not answer.}\" >&2; exit 2; }",
     "    [ \"$verdict\" = allow ] && exit 0",
     "    echo \"$verdict\" >&2; exit 2 ;;",
     "  say|ask|do|insert|reply|spawn|sent|peek)",
