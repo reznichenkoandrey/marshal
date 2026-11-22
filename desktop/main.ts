@@ -114,6 +114,7 @@ import {
 } from "./assistant/greeting.ts";
 import { matchSleepCommand } from "./assistant/sleep.ts";
 import { installWake, isWakeReady, WakeListener, wakeEngine, type WakeEngine } from "./assistant/wake/wake-listener.ts";
+import { checkSpeaker, enrolSpeaker, eraseProfile, installSpeaker, isSpeakerInstalled, loadProfile } from "./assistant/speaker/speaker-check.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
 import { MeetingRecorder, type MeetingMode } from "./meeting/meeting-recorder.ts";
 import type { CalendarService } from "./calendar/calendar-service.ts";
@@ -1871,6 +1872,43 @@ function initSpeech(): void {
       });
     return wakeInstall;
   });
+  let speakerInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
+  handleIpc("marshal:speaker-status", async () => {
+    const calibration = (await loadProfile(speakerProfileFile()))?.calibration;
+    return {
+      installed: isSpeakerInstalled(),
+      calibration: calibration?.status ?? "none",
+      ownerSamples: calibration?.ownerSamples ?? 0
+    };
+  });
+  handleIpc("marshal:speaker-install", () => {
+    speakerInstall ??= installSpeaker()
+      .then(() => ({ ok: true as const }))
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => {
+        speakerInstall = null;
+      });
+    return speakerInstall;
+  });
+  handleIpc("marshal:speaker-enrol", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: t("dialog.pickOwnVoiceRecording"),
+      properties: ["openFile"],
+      filters: [{ name: t("dialog.audio"), extensions: ["wav", "mp3", "m4a", "flac", "aiff", "caf"] }]
+    };
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return { ok: false as const, canceled: true, error: "" };
+    try {
+      const profile = await enrolSpeaker(result.filePaths[0], speakerProfileFile());
+      // Counts only: the voice print itself never reaches a log.
+      console.log(`[speaker] voice print saved: calibration ${profile.calibration.status}`);
+      return { ok: true as const };
+    } catch (err) {
+      return { ok: false as const, canceled: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  handleIpc("marshal:speaker-erase", () => eraseProfile(speakerProfileFile()));
   let holosInstall: Promise<{ ok: true } | { ok: false; error: string }> | null = null;
   handleIpc("marshal:speech-install-holos", () => {
     holosInstall ??= installHolos()
@@ -3312,6 +3350,22 @@ async function greetOnLaunch(): Promise<void> {
   // No open mic here: a launch nobody asked for turned room talk into commands (#453).
 }
 
+// Speaker check (#287): the owner's voice print, biometric data, 0600 under userData.
+function speakerProfileFile(): string {
+  return path.join(app.getPath("userData"), "speaker", "profile.json");
+}
+
+/** False only when the check ran and the voice is not the owner's; a check that cannot run lets the command through. */
+async function verifyWakeSpeaker(clip: string | null): Promise<boolean> {
+  const verdict = await checkSpeaker(clip, speakerProfileFile()).catch(
+    () => ({ verdict: "accept", reason: "unavailable", score: null }) as const
+  );
+  if (verdict.reason !== "owner") {
+    console.log(`[speaker] wake command ${verdict.verdict === "accept" ? "let through" : "dropped"}: ${verdict.reason}${verdict.score === null ? "" : ` (score ${verdict.score.toFixed(2)})`}`);
+  }
+  return verdict.verdict === "accept";
+}
+
 // «Маршал, …» without a key (#274). Asleep it still listens: «Маршал, прокинься» is the way back.
 async function syncWakeListener(): Promise<void> {
   const engine = await wakeEngine();
@@ -3328,6 +3382,7 @@ async function syncWakeListener(): Promise<void> {
     engine,
     transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
+    speaker: { enabled: () => loadSettings().assistantSpeakerCheck, verify: verifyWakeSpeaker },
     onCommand: (text) => handleVoiceCommand(text),
     // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {

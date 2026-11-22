@@ -65,6 +65,7 @@
       "dist/desktop/presence/mic-users",
       "dist/desktop/assistant/wake/wake-listener",
       "dist/desktop/assistant/wake/speech-wake",
+      "dist/desktop/assistant/speaker/speaker-embed",
       "dist/desktop/dictation/ptt-monitor",
       "dist/desktop/dictation/whisper-cli",
       "dist/desktop/dictation/whisper-server",

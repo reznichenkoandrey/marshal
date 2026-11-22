@@ -191,6 +191,13 @@ if (process.platform === "darwin") {
       fallbackNote: "the wake phrase falls back to the sherpa keyword spotter (macOS 26 dictation needs a macOS 26 SDK)"
     },
     {
+      src: path.join(root, "desktop", "assistant", "speaker", "speaker-embed.swift"),
+      out: path.join(root, "dist", "desktop", "assistant", "speaker", "speaker-embed"),
+      label: "speaker-embed",
+      args: ["-import-objc-header", path.join(root, "desktop", "assistant", "speaker", "sherpa-speaker.h")],
+      fallbackNote: "the speaker check will let every wake command through"
+    },
+    {
       src: path.join(root, "desktop", "translator", "apple-vision-ocr.swift"),
       out: path.join(root, "dist", "desktop", "translator", "apple-vision-ocr"),
       label: "apple-vision-ocr",

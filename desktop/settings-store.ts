@@ -223,6 +223,8 @@ export type MarshalSettings = {
   assistantAsleep: boolean;
   /** «Маршал, …» without a key (#274): the mic stays open for the name. Opt-in. */
   assistantWake: boolean;
+  /** Speaker check (#287): a wake command counts only in the owner's voice. Opt-in. */
+  assistantSpeakerCheck: boolean;
   /** Where the widget was dragged last; null = top-right of the primary display. */
   assistantWidgetPosition: { x: number; y: number } | null;
   /** Voice assistant (#318): a dispatcher session and `general` in background Terminal windows. */
@@ -301,6 +303,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantWidget: false,
   assistantAsleep: false,
   assistantWake: false,
+  assistantSpeakerCheck: false,
   assistantWidgetPosition: null,
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
@@ -642,6 +645,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantWidget: typeof input.assistantWidget === "boolean" ? input.assistantWidget : DEFAULT_SETTINGS.assistantWidget,
     assistantAsleep: typeof input.assistantAsleep === "boolean" ? input.assistantAsleep : DEFAULT_SETTINGS.assistantAsleep,
     assistantWake: typeof input.assistantWake === "boolean" ? input.assistantWake : DEFAULT_SETTINGS.assistantWake,
+    assistantSpeakerCheck: input.assistantSpeakerCheck === true,
     assistantWidgetPosition: normalizePoint(input.assistantWidgetPosition),
     assistantDispatcher: typeof input.assistantDispatcher === "boolean" ? input.assistantDispatcher : DEFAULT_SETTINGS.assistantDispatcher,
     assistantDispatcherModel: typeof input.assistantDispatcherModel === "string" && input.assistantDispatcherModel.trim() !== ""
