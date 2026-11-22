@@ -30,6 +30,8 @@ export type AssistantStrip = {
   hotkey: string | null;
 };
 
+import type { IdeaView } from "../automation-ideas/scan.ts";
+
 export type AssistantView = {
   state: AssistantState;
   lang: ReminderLanguage;
@@ -39,6 +41,8 @@ export type AssistantView = {
   sessions?: SessionGroup[];
   commands?: AssistantCommands;
   features?: FeatureCard[];
+  // Skill proposals from repeated requests (#273); the card is hidden when empty.
+  ideas?: IdeaView[];
 };
 
 export type AssistantCommands = {

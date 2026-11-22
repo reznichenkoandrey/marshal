@@ -66,6 +66,20 @@ for (const filePath of sanitizedScripts) {
 await fs.rm(desktopRendererDistDir, { recursive: true, force: true });
 await copyDirectory(desktopRendererSourceDir, desktopRendererDistDir);
 
+// Mermaid for the board window (#276): the ESM build with lazy per-diagram
+// chunks, without source maps. It is a devDependency on purpose, so
+// electron-builder does not pack the 120 MB package under node_modules.
+{
+  const mermaidDist = path.join(root, "node_modules", "mermaid", "dist");
+  const vendorDir = path.join(desktopRendererDistDir, "vendor", "mermaid");
+  const chunks = path.join("chunks", "mermaid.esm.min");
+  await fs.mkdir(path.join(vendorDir, chunks), { recursive: true });
+  await fs.copyFile(path.join(mermaidDist, "mermaid.esm.min.mjs"), path.join(vendorDir, "mermaid.esm.min.mjs"));
+  for (const name of await fs.readdir(path.join(mermaidDist, chunks))) {
+    if (name.endsWith(".mjs")) await fs.copyFile(path.join(mermaidDist, chunks, name), path.join(vendorDir, chunks, name));
+  }
+}
+
 // The UI catalogs (#330) live in TypeScript for main; renderer windows get the
 // same objects as a classic script, loaded in <head> before i18n.js.
 const { CATALOGS } = await import(pathToFileURL(path.join(root, "dist", "desktop", "i18n", "catalog.js")).href);
