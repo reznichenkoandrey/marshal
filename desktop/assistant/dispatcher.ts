@@ -17,7 +17,7 @@ import { readSessionSetup, setupMismatch } from "../claude-code/desktop-session.
 import { harborCall, type HarborRequest, type HarborResponse } from "../claude-code/harbor.ts";
 import { desktopSessionLink } from "../claude-code/focus.ts";
 import { replyRefusal } from "../claude-code/reply.ts";
-import { actionLogLine, classifyAction, actionDecision, generalSettings, type GateContext } from "../computer-control/action-gate.ts";
+import { ASK_DEADLINE_MS, DECLINED, actionLogLine, classifyAction, confirmQuestion, gateStep, generalSettings, isStrictYes, type GateContext, type GateMode } from "../computer-control/action-gate.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
 import { AssistantCommandQueue } from "./command-queue.ts";
 import type { CommandRoute } from "./command-log.ts";
@@ -97,8 +97,16 @@ export function unregisteredOwnSessions(
     })));
 }
 
-// The read-only gate on `general` (#460); `MARSHAL_GENERAL_GATE=off` starts it ungated, as before.
-export const generalGateEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.MARSHAL_GENERAL_GATE?.trim().toLowerCase() !== "off";
+/**
+ * The gate on `general` (#460). Read-only unless `MARSHAL_GENERAL_GATE` says otherwise:
+ * `ask` lets a named change run after the owner's spoken yes, `off` starts `general` ungated.
+ * `ask` is opt-in until the owner has seen the hook fire in bypass mode (stage 0 checklist).
+ */
+export function generalGateMode(env: NodeJS.ProcessEnv = process.env): GateMode | "off" {
+  const value = env.MARSHAL_GENERAL_GATE?.trim().toLowerCase();
+  return value === "off" || value === "ask" ? value : "read";
+}
+export const generalGateEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => generalGateMode(env) !== "off";
 const FOCUS_PROBE = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "..", "dictation", "focus-probe");
 const ACTION_LOG_MAX_BYTES = 512 * 1024;
 
@@ -128,6 +136,8 @@ export type DispatcherDeps = {
   projectsDir?: string;
   /** Speaks a question and listens for the reply without a key (#375); null when nobody answered. */
   ask: (question: string) => Promise<string | null>;
+  /** The language of a question the gate asks before a change (#460). Absent = English. */
+  language?: () => "uk" | "en";
   /** Runs one of Marshal's own features; returns what was said about it. */
   runAction: (action: string) => Promise<string>;
   /** Shown in the home line only: the owner's own command, echoed. */
@@ -259,8 +269,36 @@ export class AssistantDispatcher implements AssistantRoutes {
     return { helperPath: this.helperPath, probePath: FOCUS_PROBE, home: os.homedir(), readRoots: roots.map((root) => path.resolve(root)) };
   }
 
-  private gateAction(body: string): string {
-    const context = this.gateContext();
+  // One spoken question at a time: the next change waits for the previous answer.
+  private asking: Promise<unknown> = Promise.resolve();
+
+  /** The owner's answer to one named change; silence, a late answer and a failed mic are all a no. */
+  private askChange(question: string): Promise<string | null> {
+    const answer = this.asking.then(() => {
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ASK_DEADLINE_MS);
+      });
+      return Promise.race([this.deps.ask(question).catch(() => null), late]).finally(() => clearTimeout(timer));
+    });
+    this.asking = answer;
+    return answer;
+  }
+
+  private async gateAction(body: string): Promise<string> {
+    const result = classifyAction(body, this.gateContext());
+    const step = gateStep(result, generalGateMode() === "ask" ? "ask" : "read");
+    if (step.verdict !== "ask") {
+      this.logAction(actionLogLine(body, result, new Date(), { allowed: step.verdict === "allow", answer: null }));
+      return step.verdict === "allow" ? "allow" : step.message;
+    }
+    const answer = await this.askChange(confirmQuestion(step.confirm, this.deps.language?.() ?? "en"));
+    const allowed = isStrictYes(answer);
+    this.logAction(actionLogLine(body, result, new Date(), { allowed, answer }));
+    return allowed ? "allow" : DECLINED;
+  }
+
+  private logAction(line: string): void {
     try {
       // Half the file goes once it is full: the log is for the owner to read, not an archive.
       if (fs.statSync(this.actionLogPath).size > ACTION_LOG_MAX_BYTES) {
@@ -272,11 +310,10 @@ export class AssistantDispatcher implements AssistantRoutes {
     }
     try {
       fs.mkdirSync(this.assistantDir, { recursive: true });
-      fs.appendFileSync(this.actionLogPath, actionLogLine(body, classifyAction(body, context), new Date()), { mode: 0o600 });
+      fs.appendFileSync(this.actionLogPath, line, { mode: 0o600 });
     } catch (err) {
       this.deps.log?.(`[assistant] action log: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return actionDecision(body, context);
   }
 
   generalDir(): string {
@@ -519,7 +556,10 @@ export class AssistantDispatcher implements AssistantRoutes {
       return;
     }
     if (method === "POST" && route === "gate-action") {
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(this.gateAction(body));
+      // Any failure here leaves the helper without "allow": the call is blocked.
+      void this.gateAction(body)
+        .catch(() => "Marshal could not check this action.")
+        .then((verdict) => res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end(verdict));
       return;
     }
     void this.answer(method, route, parseHelperArgs(body))
@@ -700,7 +740,7 @@ export class AssistantDispatcher implements AssistantRoutes {
     fs.writeFileSync(path.join(this.dispatcherDir, ".claude", "settings.json"), `${JSON.stringify(DISPATCHER_SETTINGS, null, 2)}\n`);
     fs.writeFileSync(this.helperPath, buildHelperScript(this.deps.hookDir()), { mode: 0o700 });
     fs.chmodSync(this.helperPath, 0o700);
-    fs.writeFileSync(this.generalPromptPath, buildGeneralPrompt(this.helperPath, FOCUS_PROBE, generalGateEnabled()));
+    fs.writeFileSync(this.generalPromptPath, buildGeneralPrompt(this.helperPath, FOCUS_PROBE, generalGateMode()));
     fs.writeFileSync(this.generalSettingsPath, `${JSON.stringify(generalSettings(this.helperPath, this.deps.settings().generalMode === "bypass"), null, 2)}\n`);
   }
 

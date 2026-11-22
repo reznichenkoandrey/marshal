@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="deck.windowTitle">Marshal — Decks</title>
+  <link rel="stylesheet" href="./design-tokens.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+  <link rel="stylesheet" href="./deck.css" />
+  <script src="./theme.js"></script>
+  <script src="./icons.js"></script>
+  <script src="./locales.js"></script>
+  <script src="./i18n.js"></script>
+</head>
+<body>
+  <div class="shell no-side window">
+    <header class="bar">
+      <div class="title">
+        <h1 id="deck-title" data-i18n="deck.title">Decks</h1>
+        <span id="deck-status" class="ochip hidden" data-tone="muted"></span>
+      </div>
+      <span></span>
+      <div class="bar-actions">
+        <span id="counter" class="caps"></span>
+        <button id="prev-btn" type="button" class="deck-btn" data-i18n="deck.prev">Back</button>
+        <button id="next-btn" type="button" class="deck-btn" data-i18n="deck.next">Next</button>
+        <button id="present-btn" type="button" class="deck-btn" data-i18n="deck.present">Present</button>
+        <button id="html-btn" type="button" class="deck-btn" data-i18n-title="deck.exportHtml" title="Save as HTML">HTML</button>
+        <button id="pdf-btn" type="button" class="deck-btn" data-i18n-title="deck.exportPdf" title="Save as PDF">PDF</button>
+        <button id="close-btn" type="button" class="icon-btn" data-icon="x" data-icon-size="16" title="Close" aria-label="Close" data-i18n-title="deck.close" data-i18n-aria-label="deck.close"></button>
+      </div>
+    </header>
+
+    <main class="deck">
+      <form id="ask" class="deck-ask">
+        <input id="words" type="text" autocomplete="off" placeholder="5 slides about …" data-i18n-placeholder="deck.promptPlaceholder" aria-label="What the deck is about" data-i18n-aria-label="deck.promptLabel" />
+        <button id="build-btn" type="submit" class="deck-btn" data-i18n="deck.build">Build</button>
+      </form>
+      <p id="error" class="deck-error hidden" role="alert"></p>
+
+      <div id="empty" class="deck-empty">
+        <p data-i18n="deck.empty">No deck yet.</p>
+        <p class="deck-hint" data-i18n="deck.emptyHint">Say “Marshal, make five slides about …” or type the topic above.</p>
+      </div>
+
+      <div id="body" class="deck-body hidden">
+        <ol id="rail" class="deck-rail"></ol>
+        <section class="deck-stage">
+          <div class="deck-frame">
+            <iframe id="frame" sandbox="" title="Slide" data-i18n-title="deck.slideFrame"></iframe>
+          </div>
+          <p id="notes" class="deck-notes"></p>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="./deck.js" type="module"></script>
+</body>
+</html>
