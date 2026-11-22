@@ -40,6 +40,7 @@ import { listMicrophones } from "./dictation/mic-discover.ts";
 import { DEFAULT_DICTATION_PROMPT, resolveWhisperAssetPaths } from "./dictation/whisper-backend.ts";
 import { isSharedWhisperServerRunning, stopSharedWhisperServer } from "./dictation/whisper-server.ts";
 import { defaultSessionsDir, describeStatus, listLiveSessions } from "./claude-code/registry.ts";
+import { parseRemoteHosts, remoteGroups, RemoteSessionList } from "./claude-code/remote-source.ts";
 import { focusSession } from "./claude-code/focus.ts";
 import { usesHarbor } from "./claude-code/harbor.ts";
 import { openDesktopSession } from "./claude-code/desktop-session.ts";
@@ -70,6 +71,8 @@ import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistan
 import { markVoice } from "./assistant/voice-timing.ts";
 import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
 import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
+import { startWorkflows } from "./workflows/index.ts";
+import type { WorkflowScheduler } from "./workflows/scheduler.ts";
 import { buildDayReview } from "./standup/day-review.ts";
 import { sendTaskToSession, taskMessage, type TaskCall } from "./meeting/meeting-tasks.ts";
 import { parseNotesLanguage } from "./meeting/meeting-notes.ts";
@@ -79,6 +82,7 @@ import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher, listProcesses } from "./assistant/dispatcher.ts";
 import { GENERAL_NAME, screenshotCommand, withoutHostSessionEnv } from "./assistant/dispatcher-files.ts";
+import { AutomationIdeas } from "./automation-ideas/scan.ts";
 import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
 import {
   classifyPermissionAnswer,
@@ -161,6 +165,11 @@ process.env.PATH = withUserBinDirs(process.env.PATH, app.getPath("home"));
 const preloadPath = path.join(desktopDistDir, "preload.cjs");
 const appIconPath = path.join(projectRootDir, "assets", "icon.png");
 const execFileAsync = promisify(execFile);
+// Sessions on other machines (#288): read over ssh only when a window or the tray asks.
+const remoteSessions = new RemoteSessionList(() => {
+  const settings = loadSettings();
+  return settings.claudeCodeRemoteSessions ? parseRemoteHosts(settings.claudeCodeRemoteHosts) : [];
+});
 
 if (app.isPackaged) {
   // The backend utility process inherits this env; without it agent state resolves against cwd "/" (#206, #233).
@@ -367,6 +376,8 @@ async function bootstrap(): Promise<void> {
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
+      workflowScheduler = startWorkflows(app.getPath("userData"));
+      initAutomationIdeas();
       initSpeech();
       initAssistantDispatcher();
       registerAssistantHotkey();
@@ -1324,6 +1335,7 @@ async function performTeardown(): Promise<void> {
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
   wakeListener?.stop();
+  workflowScheduler?.stop();
   claudeHooks?.stop();
   dictationIndicator?.hide();
   meetingRecorder?.kill();
@@ -1952,7 +1964,18 @@ function replyDeps() {
   };
 }
 
+// Repeated requests → skill candidates (#273): one scan a week, on a Stop hook, only when switched on.
+function initAutomationIdeas(): void {
+  const ideas = new AutomationIdeas({
+    storePath: path.join(app.getPath("userData"), "automation-ideas.json"),
+    enabled: () => loadSettings().automationIdeas,
+    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots)
+  });
+  claudeHooks?.onSessionStop(() => ideas.onSessionStop());
+}
+
 let timedReminders: TimedReminderStore | null = null;
+let workflowScheduler: WorkflowScheduler | null = null;
 
 // Typed reminders (#270). The file lives in userData; the tick runs only while one is pending.
 function initTimedReminders(): void {
@@ -2514,15 +2537,24 @@ async function runModelDownload(name: string = DEFAULT_MODEL_NAME): Promise<void
 // Read when the menu opens, never in the background (#281).
 function buildClaudeSessionsSubmenu(): Electron.MenuItemConstructorOptions[] {
   const sessions = listLiveSessions();
-  if (sessions.length === 0) return [{ label: t("tray.noSessions"), enabled: false }];
-  return sessions.map((session) => ({
-    label: `${session.name} · ${path.basename(session.cwd)} · ${describeStatus(session, uiLanguage())}`,
-    click: () => {
-      void focusSession(session.pid).catch((err: unknown) => {
-        console.warn("[claude-sessions] focus failed:", err instanceof Error ? err.message : err);
-      });
-    }
-  }));
+  // The menu cannot wait for ssh: it shows the last answer and asks for the next one.
+  const remote = remoteSessions.current().flatMap((result) => result.sessions);
+  void remoteSessions.refresh();
+  if (sessions.length + remote.length === 0) return [{ label: t("tray.noSessions"), enabled: false }];
+  return [
+    ...sessions.map((session) => ({
+      label: `${session.name} · ${path.basename(session.cwd)} · ${describeStatus(session, uiLanguage())}`,
+      click: () => {
+        void focusSession(session.pid).catch((err: unknown) => {
+          console.warn("[claude-sessions] focus failed:", err instanceof Error ? err.message : err);
+        });
+      }
+    })),
+    ...remote.map((session) => ({
+      label: `${session.name} · ${path.posix.basename(session.cwd)} · ${describeStatus(session, uiLanguage())}`,
+      enabled: false
+    }))
+  ];
 }
 
 function buildTrayMenu(): Electron.Menu {
@@ -3619,7 +3651,7 @@ function refreshAssistantSessions(): void {
   setAssistantInputs(sessionCounts(live));
   countWaitingSessions();
   const groups = groupSessions(live);
-  assistantHome?.update({ sessions: groups });
+  assistantHome?.update({ sessions: [...groups, ...remoteGroups(remoteSessions.current(), uiLanguage())] });
   miniWidget?.update({ cards: widgetCards(groups) });
 }
 
@@ -3632,6 +3664,9 @@ function watchAssistantSessions(open: boolean): void {
   sessionsWatcher = null;
   if (!open) return;
   refreshAssistantSessions();
+  void remoteSessions.refresh().then(() => {
+    if (sessionsShown()) refreshAssistantSessions();
+  });
   try {
     sessionsWatcher = fs.watch(defaultSessionsDir(), () => {
       // One status change rewrites the file a few times; read once after the burst.
