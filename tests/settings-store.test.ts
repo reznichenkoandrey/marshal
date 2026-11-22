@@ -129,6 +129,7 @@ describe("saveSettings", () => {
       claudeCodeSummaryLanguage: "en",
       claudeCodeContextRouting: false,
       claudeCodeRoutingRoots: "~/htdocs",
+      automationIdeas: false,
       dictationAutoPaste: true,
       dictationUseClaudeApp: true,
       dictationHoldDelayMs: 350,

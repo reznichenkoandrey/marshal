@@ -342,6 +342,8 @@ export const en = {
   "settings.routeACommandThatNames": "Tell the assistant what each session works on",
   "settings.keepsA3LineSummary": "Keeps a 3-line summary of each live session in the allowed folders (built from its recent turns, at most every 10 minutes). The voice assistant\'s dispatcher uses it to pick the session for a command that names none.",
   "settings.foldersWhoseSessionsMayBe": "Folders whose sessions may be read",
+  "settings.automationIdeas": "Look for requests I repeat",
+  "settings.automationIdeasHint": "Once a week Marshal reads your own prompts from the last 7 days of sessions in the folders above and keeps the repeated ones as candidates for a skill. Nothing leaves this Mac. Off by default.",
   "settings.liveCaptions": "Live captions",
   "settings.subtitlesAndA23": "Subtitles and a 2–3 bullet AI summary of whatever the Mac is playing, on an overlay that screen sharing cannot see. Toggle with the hotkey below or from the tray.",
   "settings.toggleHotkey": "Toggle hotkey",

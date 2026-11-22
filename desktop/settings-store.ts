@@ -84,6 +84,8 @@ export type MarshalSettings = {
   claudeCodeContextRouting: boolean;
   /** Folders (one per line) whose sessions context routing may read; empty = none (#303). */
   claudeCodeRoutingRoots: string;
+  /** Weekly scan of the allowed folders' prompts for repeated requests; opt-in (#273). */
+  automationIdeas: boolean;
   dictationAutoPaste: boolean;
   /** Right ⌥ in the Claude desktop app toggles the app's own dictation with ⌘D (#450). */
   dictationUseClaudeApp: boolean;
@@ -251,6 +253,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   claudeCodeSummaryLanguage: "auto",
   claudeCodeContextRouting: true,
   claudeCodeRoutingRoots: "",
+  automationIdeas: false,
   dictationAutoPaste: false,
   dictationUseClaudeApp: false,
   dictationHoldDelayMs: DEFAULT_HOLD_DELAY_MS,
@@ -547,6 +550,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     claudeCodeRoutingRoots: typeof input.claudeCodeRoutingRoots === "string"
       ? input.claudeCodeRoutingRoots
       : DEFAULT_SETTINGS.claudeCodeRoutingRoots,
+    automationIdeas: typeof input.automationIdeas === "boolean" ? input.automationIdeas : DEFAULT_SETTINGS.automationIdeas,
     dictationAutoPaste: typeof input.dictationAutoPaste === "boolean"
       ? input.dictationAutoPaste
       : DEFAULT_SETTINGS.dictationAutoPaste,

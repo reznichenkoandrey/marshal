@@ -78,6 +78,7 @@ import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
 import { AssistantDispatcher, listProcesses } from "./assistant/dispatcher.ts";
 import { GENERAL_NAME, screenshotCommand, withoutHostSessionEnv } from "./assistant/dispatcher-files.ts";
+import { AutomationIdeas } from "./automation-ideas/scan.ts";
 import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
 import {
   classifyPermissionAnswer,
@@ -364,6 +365,7 @@ async function bootstrap(): Promise<void> {
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();
+      initAutomationIdeas();
       initSpeech();
       initAssistantDispatcher();
       registerAssistantHotkey();
@@ -1946,6 +1948,16 @@ function replyDeps() {
       await execFileAsync("open", ["-a", app]);
     }
   };
+}
+
+// Repeated requests → skill candidates (#273): one scan a week, on a Stop hook, only when switched on.
+function initAutomationIdeas(): void {
+  const ideas = new AutomationIdeas({
+    storePath: path.join(app.getPath("userData"), "automation-ideas.json"),
+    enabled: () => loadSettings().automationIdeas,
+    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots)
+  });
+  claudeHooks?.onSessionStop(() => ideas.onSessionStop());
 }
 
 let timedReminders: TimedReminderStore | null = null;

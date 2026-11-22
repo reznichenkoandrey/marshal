@@ -344,6 +344,8 @@ export const uk: Record<MessageKey, string> = {
   "settings.routeACommandThatNames": "Описувати сесіям асистента, над чим працює кожна сесія",
   "settings.keepsA3LineSummary": "Тримає 3-рядкове summary кожної живої сесії з дозволених тек (з її останніх реплік, не частіше ніж раз на 10 хвилин). Диспетчер голосового асистента за ним вирішує, якій сесії передати команду без імені.",
   "settings.foldersWhoseSessionsMayBe": "Теки, сесії з яких можна читати",
+  "settings.automationIdeas": "Шукати прохання, які я повторюю",
+  "settings.automationIdeasHint": "Раз на тиждень Marshal читає твої власні промпти за останні 7 днів із сесій у теках вище і зберігає повторювані як кандидатів на skill. Нічого не виходить за межі цього Mac. За замовчуванням вимкнено.",
   "settings.liveCaptions": "Живі субтитри",
   "settings.subtitlesAndA23": "Субтитри і AI-summary на 2–3 пункти того, що грає Mac, на оверлеї, якого не видно у screen share. Вмикається хоткеєм нижче або з tray.",
   "settings.toggleHotkey": "Хоткей увімкнення",
