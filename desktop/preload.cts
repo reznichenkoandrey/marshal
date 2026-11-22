@@ -174,6 +174,7 @@ const desktopApi = {
     assistantGeneralDir?: string;
     assistantGeneralPermissionMode?: string;
     assistantDispatcherModel?: string;
+    planRunnerEnabled?: boolean;
     speechEngine?: string;
     speechRate?: number;
     speechVoiceUk?: string;

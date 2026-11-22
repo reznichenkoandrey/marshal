@@ -4,7 +4,8 @@
 // is also the only "the dispatcher listens" signal: no heartbeat, no poller.
 
 /** `previous`: where the last voice command went, while the owner may still be continuing that conversation (#412). */
-export type AssistantCommand = { id: string; at: string; text: string; target?: string; previous?: string };
+/** `plan`: the session a plan runner step goes to, verbatim (#278). */
+export type AssistantCommand = { id: string; at: string; text: string; target?: string; previous?: string; plan?: string };
 
 export interface CommandSink {
   write(line: string): void;
@@ -26,7 +27,7 @@ export class AssistantCommandQueue {
   }
 
   /** True when a dispatcher received it now, false when it waits. */
-  submit(text: string, fields: { target?: string; previous?: string } = {}): boolean {
+  submit(text: string, fields: { target?: string; previous?: string; plan?: string } = {}): boolean {
     // Two commands in one millisecond still get distinct ids.
     this.lastId = Math.max(this.now(), this.lastId + 1);
     const command: AssistantCommand = {
@@ -34,7 +35,8 @@ export class AssistantCommandQueue {
       at: new Date(this.now()).toISOString(),
       text,
       ...(fields.target ? { target: fields.target } : {}),
-      ...(fields.previous ? { previous: fields.previous } : {})
+      ...(fields.previous ? { previous: fields.previous } : {}),
+      ...(fields.plan ? { plan: fields.plan } : {})
     };
     if (this.deliver(command)) return true;
     this.queued = [...this.queued, command].slice(-MAX_QUEUED_COMMANDS);

@@ -88,6 +88,10 @@ import { AssistantDispatcher, listProcesses } from "./assistant/dispatcher.ts";
 import { GENERAL_NAME, screenshotCommand, withoutHostSessionEnv } from "./assistant/dispatcher-files.ts";
 import { AutomationIdeas } from "./automation-ideas/scan.ts";
 import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
+import { PlanRunner } from "./plan-runner/runner.ts";
+import { readUsagePct } from "./plan-runner/usage.ts";
+import { planCommand, planEventSentence } from "./plan-runner/voice.ts";
+import { installStatusLine, uninstallStatusLine } from "./claude-code/statusline.ts";
 import {
   classifyPermissionAnswer,
   describePermission,
@@ -388,6 +392,7 @@ async function bootstrap(): Promise<void> {
       initAutomationIdeas();
       initSpeech();
       initAssistantDispatcher();
+      initPlanRunner();
       registerAssistantHotkey();
       initAmbient();
       if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) void syncWakeListener();
@@ -568,6 +573,7 @@ function registerIpcHandlers(): void {
     restartDictation();
     syncCalendar();
     void syncAssistantDispatcher();
+    syncPlanRunner(before.planRunnerEnabled, saved.planRunnerEnabled);
     void syncWakeListener();
     workflows?.sync();
     // Captions read their config from the env on the next start; only the
@@ -1346,6 +1352,7 @@ async function performTeardown(): Promise<void> {
   stopSharedWhisperServer();
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
+  planRunner?.dispose();
   wakeListener?.stop();
   workflows?.stop();
   claudeHooks?.stop();
@@ -3624,6 +3631,51 @@ function sayAsAssistant(text: string): void {
   void speechService?.speak(text);
 }
 
+// Plan runner (#278): sends the steps of the owner's plan to sessions that are
+// already open. Opt-in (`planRunnerEnabled`); the object holds no timer until a plan runs.
+let planRunner: PlanRunner | null = null;
+const planUsageDir = (): string => path.join(app.getPath("userData"), "claude-code", "usage");
+
+function initPlanRunner(): void {
+  const tellOwner = (text: string, aloud: boolean): void => {
+    new Notification({ title: "Marshal", body: text, silent: true }).show();
+    announceToAssistant(text);
+    if (aloud && !assistantInputs.asleep) void speechService?.speak(text, { key: "plan" });
+  };
+  planRunner = new PlanRunner({
+    plansRoot: path.join(app.getPath("userData"), "plans"),
+    enabled: () => loadSettings().planRunnerEnabled,
+    roots: () => parseRoutingRoots(loadSettings().claudeCodeRoutingRoots),
+    sessions: () => listLiveSessions(),
+    isAssistantSession: (session) =>
+      session.name === GENERAL_NAME ||
+      (assistantDispatcher !== null &&
+        (assistantDispatcher.isDispatcher(session) || path.resolve(session.cwd) === path.resolve(assistantDispatcher.generalDir()))),
+    usagePct: () => readUsagePct(planUsageDir(), Date.now()),
+    canDeliver: () => assistantDispatcher?.listening ?? false,
+    deliver: (session, prompt) => assistantDispatcher?.sendPlanStep(session, prompt) ?? false,
+    // A waiting session is already announced by the hooks (#359): no second sentence for `blocked`.
+    notify: (event) => tellOwner(planEventSentence(event, uiLanguage()), event.kind !== "blocked")
+  });
+  claudeHooks?.onSessionStop((sessionId, lastMessage) => planRunner?.onSessionStop(sessionId, lastMessage));
+  if (loadSettings().planRunnerEnabled) syncPlanRunner(false, true);
+  const interrupted = planRunner.restore();
+  if (interrupted) tellOwner(t("plan.event.restart", { title: interrupted.title }), true);
+}
+
+/** The usage limit comes from the statusline wrapper (#268): installed with the opt-in, removed with it. */
+function syncPlanRunner(before: boolean, now: boolean): void {
+  if (before === now) return;
+  try {
+    if (now) installStatusLine(planUsageDir());
+    else uninstallStatusLine(planUsageDir());
+  } catch (err) {
+    console.warn("[plan-runner] statusline not updated:", err instanceof Error ? err.message : err);
+  }
+  // Turned off: a running plan pauses now, not on its next timer tick.
+  if (!now) planRunner?.tick();
+}
+
 function speakSessionEvent(event: SpokenSessionEvent): void {
   assistantDispatcher?.noteSessionEvent(event.sessionId, event.kind);
   // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
@@ -3855,8 +3907,15 @@ async function assistantVoiceAction(action: string): Promise<string> {
       }
       break;
     }
+    case "plan":
+      reply = planRunner
+        ? planCommand(planRunner, action.trim().slice("plan".length), uiLanguage(), (file) => void shell.openPath(file))
+        : t("Plan runner недоступний.", "The plan runner is not available.");
+      break;
     default:
       return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, board-close, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
+      return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
+      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
   }
   sayAsAssistant(reply);
   return reply;
