@@ -18,19 +18,6 @@ const STALL_TIMEOUT_MS = 10_000;
 const SPEED_MIN = 0.7;
 const SPEED_MAX = 1.3;
 
-/** ffmpeg arguments that play raw mono s16le from stdin as it arrives. */
-export const SONIOX_PLAYER_ARGS = [
-  "-hide_banner",
-  "-loglevel", "error",
-  "-fflags", "nobuffer",
-  "-f", "s16le",
-  "-ar", String(SONIOX_SAMPLE_RATE),
-  "-ac", "1",
-  "-i", "pipe:0",
-  "-f", "audiotoolbox",
-  "-"
-];
-
 export function sonioxApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
   const key = env.SONIOX_API_KEY?.trim();
   return key ? key : null;

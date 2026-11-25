@@ -268,6 +268,15 @@
             </div>
 
             <div class="field">
+              <label for="settings-assistant-voice-mode" data-i18n="settings.assistantVoiceMode">How Marshal answers voice commands</label>
+              <select id="settings-assistant-voice-mode" name="assistantVoiceMode">
+                <option value="simple" data-i18n="settings.assistantVoiceModeSimple">Simple — Marshal answers itself</option>
+                <option value="dispatcher" data-i18n="settings.assistantVoiceModeDispatcher">Dispatcher — a Claude Code session routes</option>
+              </select>
+              <p class="field-hint" data-i18n="settings.assistantVoiceModeHint">Simple: one quick model turn per command, always answered aloud; it passes requests to an idle session by typing them in. Dispatcher: a separate session routes commands, runs plans and the general session.</p>
+            </div>
+
+            <div class="field">
               <label for="settings-assistant-model" data-i18n="settings.dispatcherModel">Dispatcher model</label>
               <input id="settings-assistant-model" name="assistantDispatcherModel" type="text" placeholder="haiku" autocomplete="off" />
             </div>

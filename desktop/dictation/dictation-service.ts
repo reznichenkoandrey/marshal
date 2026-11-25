@@ -58,6 +58,7 @@ const MAX_RECORDING_MS = 60_000;
 const RECORDER_READY_MAX_WAIT_MS = 1_500;
 // The recorder's PCM pipe closes right after it exits; this only guards a pipe that never does.
 const PCM_DRAIN_MAX_WAIT_MS = 500;
+const KEY_UP_TAIL_MS = 250;
 const currentFilePath = fileURLToPath(import.meta.url);
 const distDictationDir = path.dirname(currentFilePath);
 // asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
@@ -75,7 +76,7 @@ function debug(...args: unknown[]): void {
 export type DictationMode = "paste" | "talk" | "assistant" | "answer";
 
 export type DictationEvents = {
-  "recording-start": [];
+  "recording-start": [mode: DictationMode];
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
   // Recorded with the talk key or the home mic: a command for the dispatcher.
@@ -178,7 +179,7 @@ export class DictationService extends EventEmitter {
     // Backend selection happens inside createPushToTalkHotkey: modifier-only
     // hotkeys go through the Swift helper that sidesteps the Sequoia
     // CGEventTap TCC race; everything else stays on uiohook.
-    this.talkHotkey = createPushToTalkHotkey(process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_TALK_HOTKEY);
+    this.talkHotkey = createPushToTalkHotkey(process.env.MARSHAL_DICTATION_HOTKEY ?? DEFAULT_TALK_HOTKEY, { startOnPress: true });
     this.backend = createWhisperBackend(resolveBackendName(process.env.MARSHAL_DICTATION_BACKEND));
     this.recorderBin = process.env.MARSHAL_DICTATION_RECORDER_BIN ?? DEFAULT_RECORDER_BIN;
 
@@ -398,7 +399,7 @@ export class DictationService extends EventEmitter {
       // Already released or cancelled: announcing a start now would leave the
       // indicator up after its recording-stop.
       if (this.isStopping) return;
-      this.emit("recording-start");
+      this.emit("recording-start", mode);
     });
     if (endOnPause) this.watchForEndOfSpeech(child, mode);
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -494,7 +495,9 @@ export class DictationService extends EventEmitter {
         await Promise.race([soniox.pcmClosed, new Promise((resolve) => setTimeout(resolve, PCM_DRAIN_MAX_WAIT_MS))]);
         const text = await soniox.session.finish();
         debug("soniox text in", Date.now() - started, "ms");
-        return { text };
+        if (text.trim()) return { text };
+        // Soniox hears nothing in a quiet voice now and then; whisper still may (#522).
+        console.warn("[dictation] soniox returned no text, whisper fallback");
       } catch (err) {
         console.warn("[dictation] soniox failed, whisper fallback:", err instanceof Error ? err.message : String(err));
       }
@@ -625,6 +628,8 @@ export class DictationService extends EventEmitter {
       // crashed before stdout flush) we proceed anyway so the loop doesn't
       // wedge. Issue: fast-tap race after #82.
       await this.waitForRecorderReady(child);
+      // The last word is still being said when the key comes up (#522).
+      await new Promise((resolve) => setTimeout(resolve, KEY_UP_TAIL_MS));
 
       await new Promise<void>((resolve) => {
         if (child.exitCode !== null) return resolve();
@@ -664,7 +669,8 @@ export class DictationService extends EventEmitter {
       // not the post-processed version — listeners that telemeter accuracy
       // need the raw output.
       const cleanText = transcriptToDeliver(result.text);
-      if (cleanText.length > 0 && this.mode !== "paste") {
+      // An empty command still goes out: the assistant says it heard nothing instead of staying silent (#522).
+      if (this.mode !== "paste") {
         this.emit("assistant-command", cleanText.trim());
       } else if (cleanText.length > 0) {
         // The clipboard is both what deliverText() pastes and the manual

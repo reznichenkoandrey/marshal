@@ -11,6 +11,8 @@ import {
 import type { GeneralPermissionMode } from "./assistant/dispatcher-files.ts";
 import type { AssistantLanguageSetting } from "./assistant/strip.ts";
 import type { TerminalHost } from "./claude-code/harbor.ts";
+
+export type AssistantVoiceMode = "simple" | "dispatcher";
 import { DEFAULT_DICTATION_PROMPT, PREVIOUS_DEFAULT_DICTATION_PROMPTS } from "./dictation/whisper-backend.ts";
 import {
   DEFAULT_CAPTIONS_DRAG_MODIFIER,
@@ -236,6 +238,8 @@ export type MarshalSettings = {
   /** Voice assistant (#318): a dispatcher session and `general` in background Terminal windows. */
   assistantDispatcher: boolean;
   assistantDispatcherModel: string;
+  /** How a voice command is answered (#522): one model turn in Marshal, or the dispatcher session. */
+  assistantVoiceMode: AssistantVoiceMode;
   /** Run plans on sessions that are already open (#278); opt-in, off by default. */
   planRunnerEnabled: boolean;
   /** Where `general` works; empty = Marshal's own folder in userData. */
@@ -318,6 +322,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantWidgetPosition: null,
   assistantDispatcher: false,
   assistantDispatcherModel: "haiku",
+  assistantVoiceMode: "simple",
   planRunnerEnabled: false,
   assistantGeneralDir: "",
   assistantGeneralPermissionMode: "bypass",
@@ -672,6 +677,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
       ? input.assistantGeneralPermissionMode
       : DEFAULT_SETTINGS.assistantGeneralPermissionMode,
+    assistantVoiceMode: input.assistantVoiceMode === "dispatcher" ? "dispatcher" : "simple",
     assistantTerminalHost: input.assistantTerminalHost === "harbor" || input.assistantTerminalHost === "terminal" || input.assistantTerminalHost === "claude-desktop"
       ? input.assistantTerminalHost
       : DEFAULT_SETTINGS.assistantTerminalHost

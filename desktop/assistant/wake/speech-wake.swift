@@ -39,7 +39,8 @@ import Speech
 
 let sampleRate = 16_000
 let chunkSamples = sampleRate / 10
-let leadInSamples = sampleRate / 2
+// A fresh analyzer drops its first ~0.5 s: with a 0.5 s lead-in «Маршал» came out as «Ми» or nothing.
+let leadInSamples = sampleRate
 // Unheld stretches end after this much quiet, or this long: room talk is not kept.
 let quietToCloseSamples = sampleRate
 let maxUnheldSamples = sampleRate * 12

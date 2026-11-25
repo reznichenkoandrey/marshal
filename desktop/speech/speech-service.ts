@@ -22,9 +22,10 @@ import {
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
-import { SONIOX_PLAYER_ARGS, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
-import { MeetingAudioMixer } from "../meeting/audio-mixer.ts";
+import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
+import { encodeWavPcm16Mono } from "../captions/wav.ts";
 
+const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG === "1";
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
 // The cue for "heard you, thinking" (#507): a stock macOS sound, quiet, no asset of our own.
@@ -157,7 +158,10 @@ export class SpeechService {
     const settings = this.settings();
     if (!settings.enabled && !options.force) return { ok: false, error: "Spoken updates are off in Settings." };
     // Dropped, not held: a phrase spoken an hour later is stale, and the notification stays on screen.
-    if (!options.force && (await this.onCall())) return { ok: false, error: "Silent on a call." };
+    if (!options.force && (await this.onCall())) {
+      if (DEBUG) console.log(`[speech] dropped on a call: ${JSON.stringify(trimmed)}`);
+      return { ok: false, error: "Silent on a call." };
+    }
 
     const lang = options.lang ?? detectSpeechLang(trimmed);
     const spoken = lang === "uk" ? pronounceForUkrainian(trimmed) : trimmed;
@@ -205,6 +209,7 @@ export class SpeechService {
 
   /** Drops the phrase being spoken and moves on to the next one. */
   skip(): void {
+    if (DEBUG && this.current) console.log(`[speech] skipped ${JSON.stringify(this.current.phrase.text)}`);
     this.cut(false);
   }
 
@@ -232,6 +237,7 @@ export class SpeechService {
 
   /** Silence now; the cut phrase is spoken again from the start later. */
   interrupt(): void {
+    if (DEBUG && this.current) console.log(`[speech] interrupted ${JSON.stringify(this.current.phrase.text)}`);
     this.cut(true);
   }
 
@@ -251,13 +257,19 @@ export class SpeechService {
       return;
     }
     this.startGate();
-    if (this.blockedReason()) return;
+    const blocked = this.blockedReason();
+    if (blocked) {
+      if (DEBUG) console.log(`[speech] waiting: ${blocked}`);
+      return;
+    }
     const phrase = this.queue.take();
     if (!phrase) return;
     const entry: Playback = { phrase, child: null, requeue: false, cut: false };
     this.current = entry;
     this.onSpeakingChange(true);
+    if (DEBUG) console.log(`[speech] play ${phrase.engine} ${JSON.stringify(phrase.text)}`);
     void this.play(entry).then((error) => {
+      if (DEBUG) console.log(`[speech] played ${JSON.stringify(phrase.text)}${entry.cut ? " (cut)" : ""}${error ? ` error: ${error}` : ""}`);
       if (this.current !== entry) return;
       this.current = null;
       if (error) console.warn("[speech] playback failed:", error);
@@ -300,56 +312,34 @@ export class SpeechService {
     return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.sayText);
   }
 
-  /** Streams Soniox PCM into ffmpeg's audiotoolbox output, so playback starts on the first chunk. */
-  private playSoniox(entry: Playback, text: string, rate: number): Promise<{ error?: string; started: boolean }> {
-    const ffmpeg = MeetingAudioMixer.getBinaryPath();
-    if (!ffmpeg) return Promise.resolve({ error: "ffmpeg was not found for Soniox playback.", started: false });
-    return new Promise((resolve) => {
-      let started = false;
-      let error: string | undefined;
-      let stderr = "";
-      const player = spawn(ffmpeg, SONIOX_PLAYER_ARGS, { stdio: ["pipe", "ignore", "pipe"] });
-      entry.child = player;
-      player.stdin.on("error", () => {});
-      player.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-      const phrase = this.soniox.speak(text, sonioxSpeedForRate(rate), (pcm) => {
-        if (!started) {
-          started = true;
-          markVoice("audio");
-        }
-        player.stdin.write(pcm);
-      });
-      // SIGKILL: ffmpeg traps SIGTERM but stays blocked reading stdin, so it would never exit.
-      const silence = (): void => {
-        player.kill("SIGKILL");
-      };
-      entry.stop = () => {
-        phrase.cancel();
-        silence();
-      };
-      phrase.done.then(
-        () => player.stdin.end(),
-        (err: unknown) => {
-          error = err instanceof Error ? err.message : String(err);
-          silence();
-        }
-      );
-      let settled = false;
-      const done = (playerError?: string): void => {
-        if (settled) return;
-        settled = true;
-        entry.child = null;
-        entry.stop = undefined;
-        phrase.cancel();
-        resolve({ error: error ?? playerError, started });
-      };
-      player.on("error", (err) => done(err.message));
-      player.on("exit", (code, signal) =>
-        done(code === 0 || signal ? undefined : stderr.trim().split("\n").pop() || `ffmpeg exit ${code}`)
-      );
-    });
+  /**
+   * Collects the Soniox phrase and plays it with afplay. Streaming PCM into ffmpeg's audiotoolbox
+   * output was silent on AirPods (#522): the output exits before its queue plays. afplay is the path
+   * Holos and Piper already use; the cost is the rest of the phrase arriving, ~0.6 s.
+   */
+  private async playSoniox(entry: Playback, text: string, rate: number): Promise<{ error?: string; started: boolean }> {
+    const chunks: Buffer[] = [];
+    const phrase = this.soniox.speak(text, sonioxSpeedForRate(rate), (pcm) => chunks.push(pcm));
+    entry.stop = phrase.cancel;
+    try {
+      await phrase.done;
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err), started: false };
+    } finally {
+      entry.stop = undefined;
+    }
+    if (entry.cut) return { started: false };
+    const pcm = Buffer.concat(chunks);
+    if (pcm.length === 0) return { error: "Soniox returned no audio.", started: false };
+    const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+    const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
+    try {
+      await fs.promises.writeFile(wav, encodeWavPcm16Mono(samples, SONIOX_SAMPLE_RATE));
+      markVoice("audio");
+      return { error: await this.run(entry, AFPLAY_PATH, [wav]), started: true };
+    } finally {
+      await fs.promises.rm(wav, { force: true });
+    }
   }
 
   private async synthesize(entry: Playback, phrase: QueuedPhrase, wav: string, rate: number): Promise<string | undefined> {

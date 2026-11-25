@@ -200,6 +200,7 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
   private lastTapAt = 0;
   private tapCount = 0;
   private pressedAt = 0;
+  private startedOnPress = false;
 
   constructor(inner: PushToTalkBackend, options: Partial<DictationGestureOptions> = {}) {
     super();
@@ -210,7 +211,8 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
       toggleTapThresholdMs: Math.min(
         Math.max(Math.trunc(options.toggleTapThresholdMs ?? DEFAULT_TOGGLE_TAP_THRESHOLD_MS), 150),
         1_000
-      )
+      ),
+      startOnPress: options.startOnPress ?? false
     };
 
     this.inner.on("hold-start", () => this.handleRawHoldStart());
@@ -254,6 +256,12 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
     this.pendingHold = true;
     this.pressedAt = Date.now();
 
+    if (this.options.startOnPress) {
+      this.startedOnPress = true;
+      this.promotePendingHold();
+      return;
+    }
+
     if (this.options.holdDelayMs === 0) {
       this.promotePendingHold();
       return;
@@ -274,6 +282,13 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
 
     if (!this.activeHold) return;
     this.activeHold = false;
+    const tap = this.startedOnPress && Date.now() - this.pressedAt < this.options.holdDelayMs;
+    this.startedOnPress = false;
+    if (tap) {
+      this.emit("hold-cancel");
+      this.registerShortTap();
+      return;
+    }
     this.lastTapAt = 0;
     this.emit("hold-end");
   }
@@ -298,6 +313,7 @@ export class GesturePushToTalkHotkey extends EventEmitter implements PushToTalkB
     }
 
     this.lastTapAt = 0;
+    this.startedOnPress = false;
     if (this.pendingHold) {
       this.pendingHold = false;
       this.clearHoldTimer();
