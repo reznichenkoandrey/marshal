@@ -92,7 +92,8 @@ import { AssistantHomeWindow, type AssistantCommands, type AssistantStrip } from
 import { glowFor, widgetCards } from "./assistant/ambient.ts";
 import { GlowFrame, MiniWidget } from "./assistant/ambient-windows.ts";
 import { assistantHotkeyFromEnv, findAcceleratorConflict } from "./assistant/strip.ts";
-import { AssistantDispatcher, listProcesses } from "./assistant/dispatcher.ts";
+import { AssistantDispatcher, formatRecentTurns, listProcesses } from "./assistant/dispatcher.ts";
+import { readRecentTurns } from "./claude-code/dossier.ts";
 import { GENERAL_NAME, screenshotCommand, withoutHostSessionEnv } from "./assistant/dispatcher-files.ts";
 import { AutomationIdeas } from "./automation-ideas/scan.ts";
 import { isUnderRoots, parseRoutingRoots } from "./claude-code/context-router.ts";
@@ -3591,6 +3592,14 @@ function conversation(): VoiceConversation {
       await execFileAsync("open", [app.path]);
       return true;
     },
+    peek: (name) => {
+      const session = findConversationSession(name);
+      if (!session || session === "ambiguous") return "missing";
+      // Same rule as dossiers (#303): a session outside the allowed folders is not read.
+      if (!isUnderRoots(session.cwd, parseRoutingRoots(loadSettings().claudeCodeRoutingRoots))) return "unreadable";
+      // The tail is enough to tell the stage; long turns would only slow the model down.
+      return formatRecentTurns(readRecentTurns(session)).slice(-PEEK_CHARS);
+    },
     open: async (name) => {
       const session = findConversationSession(name);
       if (!session || session === "ambiguous") return false;
@@ -3610,6 +3619,7 @@ function conversation(): VoiceConversation {
   return voiceConversation;
 }
 
+const PEEK_CHARS = 4_000;
 const APP_DIRS = ["/Applications", "/Applications/Utilities", path.join(os.homedir(), "Applications"), "/System/Applications", "/System/Applications/Utilities"];
 
 // Installed apps by lower-cased name; read on each turn, a few directory listings.
@@ -3652,8 +3662,11 @@ async function tellSession(name: string, text: string, delivering: () => void): 
   if (session === "ambiguous") return "ambiguous";
   if (replyRefusal(session, name)) return session.status === "waiting" ? "dialog" : "busy";
   delivering();
-  const result = await replyToSession(session, text, replyDeps()).catch(() => "failed");
-  if (result !== "ok") return "failed";
+  const result = await replyToSession(session, text, replyDeps()).catch((err: unknown) => (err instanceof Error ? err.message : String(err)));
+  if (result !== "ok") {
+    console.warn(`[conversation] tell ${session.name} failed: ${result}`);
+    return "failed";
+  }
   // The session's answer is what the owner waits to hear: its Stop hook speaks it.
   assistantDispatcher?.expectAnswer(session.sessionId);
   return "ok";

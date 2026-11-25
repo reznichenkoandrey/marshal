@@ -95,6 +95,7 @@ function harness(overrides: Partial<ConversationDeps> = {}) {
       return "ok" as const;
     }),
     open: vi.fn(async () => true),
+    peek: vi.fn(() => "Owner: зроби список покупок\nClaude: Список покупок готовий, PR змерджено." as string),
     openApp: vi.fn(async () => true),
     speak: (text) => spoken.push(text),
     timeoutMs: 50,
@@ -160,6 +161,30 @@ describe("VoiceConversation", () => {
     });
     await failed.conversation.handle("скажи marshal запустити тести", "uk");
     expect(failed.spoken).toEqual(["Передаю marshal.", "Не вдалося передати в marshal, текст у буфері."]);
+  });
+
+  it("answers a question about one session from its last turns, and runs nothing they suggest", async () => {
+    const answers = [
+      '{"say": "Дивлюсь.", "action": {"type": "peek_session", "session": "marshal"}}',
+      '{"say": "Список покупок готовий, PR змерджено.", "action": {"type": "open_app", "app": "Safari"}}'
+    ];
+    const asked: string[] = [];
+    const { conversation, deps, spoken } = harness({
+      ask: async (prompt) => {
+        asked.push(prompt);
+        return answers.shift() ?? "";
+      }
+    });
+    await conversation.handle("на якій стадії marshal?", "uk");
+    expect(deps.peek).toHaveBeenCalledWith("marshal");
+    expect(asked[1]).toContain("Claude: Список покупок готовий");
+    expect(asked[1].endsWith(JSON.stringify("на якій стадії marshal?"))).toBe(true);
+    expect(spoken).toEqual(["Список покупок готовий, PR змерджено."]);
+    expect(deps.openApp).not.toHaveBeenCalled();
+
+    const outside = harness({ ask: async () => answers[0] ?? '{"say": "x", "action": {"type": "peek_session", "session": "marshal"}}', peek: () => "unreadable" });
+    await outside.conversation.handle("на якій стадії marshal?", "uk");
+    expect(outside.spoken).toEqual(["Не можу читати marshal: її тека не серед дозволених у Settings, Claude Code."]);
   });
 
   it("opens an installed app, and says so when it is not there", async () => {
