@@ -295,6 +295,39 @@ describe("GesturePushToTalkHotkey", () => {
   });
 });
 
+describe("GesturePushToTalkHotkey startOnPress (#522)", () => {
+  const make = () => {
+    const inner = new FakePttBackend();
+    const hotkey = new GesturePushToTalkHotkey(inner, { holdDelayMs: 200, toggleTapCount: 0, toggleTapThresholdMs: 350, startOnPress: true });
+    const events: string[] = [];
+    for (const name of ["hold-start", "hold-end", "hold-cancel", "double-tap"]) hotkey.on(name, () => events.push(name));
+    return { inner, events };
+  };
+
+  it("starts on the press and ends a real hold normally", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+    inner.down();
+    expect(events).toEqual(["hold-start"]);
+    vi.advanceTimersByTime(600);
+    inner.up();
+    expect(events).toEqual(["hold-start", "hold-end"]);
+  });
+
+  it("turns a tap into a cancel, and two taps still toggle the meeting", () => {
+    vi.useFakeTimers();
+    const { inner, events } = make();
+    inner.down();
+    vi.advanceTimersByTime(80);
+    inner.up();
+    vi.advanceTimersByTime(150);
+    inner.down();
+    vi.advanceTimersByTime(80);
+    inner.up();
+    expect(events).toEqual(["hold-start", "hold-cancel", "hold-start", "hold-cancel", "double-tap"]);
+  });
+});
+
 describe("GesturePushToTalkHotkey cancel (#239)", () => {
   const make = (toggleTapCount = 0) => {
     const inner = new FakePttBackend();

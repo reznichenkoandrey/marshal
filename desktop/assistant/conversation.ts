@@ -50,11 +50,13 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   '- {"type": "feature", "name": "<feature>", "words": "<owner\'s words, only where the feature takes words>"}',
   '- {"type": "tell_session", "session": "<exact session name from the list>", "text": "<what the owner wants from that session, in their words>"}',
   '- {"type": "open_session", "session": "<exact session name from the list>"}',
+  '- {"type": "open_app", "app": "<exact name from Installed apps>"}',
   "",
   "Features:",
   ...FEATURES.map(([name, , description]) => `- ${name}: ${description}`),
   "",
-  "Sessions are Claude Code sessions working on the owner's projects.",
+  "Opening a program on this Mac is open_app with its exact name from Installed apps, even when a session has a similar name. Not in the list = say it is not installed.",
+  "Sessions are Claude Code sessions working on the owner's projects; open_session only when the owner asks for a session.",
   "- A question about how sessions are doing: answer from the list only (working, idle, waiting for an answer or a permission).",
   "- The owner wants a session to do something or asks something only that session knows: tell_session, and say a short confirmation such as \"Передаю marshal.\" The session's own answer is spoken later.",
   "- A follow-up without a session name continues with the session the conversation was about.",
@@ -66,6 +68,7 @@ export type ConversationSession = { name: string; project: string; status: strin
 export type ConversationFacts = {
   now: Date;
   sessions: readonly ConversationSession[];
+  apps: readonly string[];
   meeting: { title: string; start: Date } | null;
 };
 export type Exchange = { said: string; answer: string; at: number };
@@ -73,7 +76,8 @@ export type Exchange = { said: string; answer: string; at: number };
 export type ConversationAction =
   | { kind: "feature"; action: string }
   | { kind: "tell"; session: string; text: string }
-  | { kind: "open"; session: string };
+  | { kind: "open"; session: string }
+  | { kind: "app"; app: string };
 export type ConversationReply = { say: string; action: ConversationAction | null };
 
 function sessionState(session: ConversationSession): string {
@@ -98,6 +102,7 @@ export function buildConversationPrompt(said: string, facts: ConversationFacts, 
     ? `${meeting.start.toLocaleDateString("en-GB", { weekday: "long" })} `
     : "";
   lines.push("", meeting ? `Next meeting: "${meeting.title}" at ${meetingDay}${clock(meeting.start)}.` : "Next meeting: none.");
+  lines.push("", `Installed apps: ${facts.apps.join(", ") || "none"}.`);
   if (history.length > 0) {
     lines.push("", "Earlier in this conversation:");
     for (const exchange of history) lines.push(`Owner: ${exchange.said}`, `Marshal: ${exchange.answer}`);
@@ -122,6 +127,10 @@ function parseAction(value: unknown): ConversationAction | null | undefined {
     if (takesWords === undefined) return undefined;
     const words = takesWords ? (text(action.words, MAX_SESSION_TEXT) ?? "") : "";
     return { kind: "feature", action: words ? `${name} ${words}` : name };
+  }
+  if (action.type === "open_app") {
+    const app = text(action.app, 200);
+    return app ? { kind: "app", app } : undefined;
   }
   const session = text(action.session, 200);
   if (!session) return undefined;
@@ -166,7 +175,7 @@ export class ConversationHistory {
 }
 
 export type TellResult = "ok" | "missing" | "ambiguous" | "busy" | "dialog" | "failed";
-type Line = "unheard" | "unclear" | "timeout" | "failed" | "missing" | "ambiguous" | "busy" | "dialog" | "delivery";
+type Line = "unheard" | "unclear" | "timeout" | "failed" | "missing" | "ambiguous" | "busy" | "dialog" | "delivery" | "noApp";
 
 const LINES: Record<ConversationLang, Record<Line, string>> = {
   uk: {
@@ -179,7 +188,8 @@ const LINES: Record<ConversationLang, Record<Line, string>> = {
     busy: "{name} зараз працює, скажи пізніше.",
     dialog: "{name} чекає на відповідь у своєму вікні.",
     // `replyToSession` leaves the words on the clipboard when it cannot type them.
-    delivery: "Не вдалося передати в {name}, текст у буфері."
+    delivery: "Не вдалося передати в {name}, текст у буфері.",
+    noApp: "Не знайшов застосунок {name}."
   },
   en: {
     unheard: "I didn't hear anything.",
@@ -190,7 +200,8 @@ const LINES: Record<ConversationLang, Record<Line, string>> = {
     ambiguous: "There are several sessions called {name}, be more specific.",
     busy: "{name} is working now, tell me later.",
     dialog: "{name} is waiting for your answer in its window.",
-    delivery: "Couldn't pass it to {name}, the text is on the clipboard."
+    delivery: "Couldn't pass it to {name}, the text is on the clipboard.",
+    noApp: "I can't find an app called {name}."
   }
 };
 
@@ -205,6 +216,8 @@ export type ConversationDeps = {
   runAction: (action: string) => Promise<string>;
   tell: (session: string, text: string) => Promise<TellResult>;
   open: (session: string) => Promise<boolean>;
+  /** Opens an installed app by its exact listed name; false when there is none. */
+  openApp: (app: string) => Promise<boolean>;
   speak: (text: string, lang: ConversationLang) => void;
   commands?: { add(text: string): void; route(route: CommandRoute): void };
   log?: (message: string) => void;
@@ -269,6 +282,15 @@ export class VoiceConversation {
         this.deps.log?.(`[conversation] ${action.action} failed: ${err instanceof Error ? err.message : String(err)}`);
         return this.fail(conversationLine("failed", lang), lang);
       }
+    }
+    if (action.kind === "app") {
+      const opened = await this.deps.openApp(action.app).catch(() => false);
+      this.deps.commands?.route({ kind: "feature", target: action.app, outcome: opened ? "answered" : "failed" });
+      if (opened) {
+        this.deps.speak(reply.say, lang);
+        return reply.say;
+      }
+      return this.fail(conversationLine("noApp", lang, action.app), lang);
     }
     if (action.kind === "open") {
       if (await this.deps.open(action.session)) {

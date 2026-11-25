@@ -2,6 +2,11 @@ export type DictationGestureOptions = {
   holdDelayMs: number;
   toggleTapCount: number;
   toggleTapThresholdMs: number;
+  /**
+   * Record from the key press, not after holdDelayMs: the first words are not lost (#522).
+   * A release before holdDelayMs is then a cancel, so taps keep their meaning.
+   */
+  startOnPress?: boolean;
 };
 
 export const DEFAULT_HOLD_DELAY_MS = 200;

@@ -3578,10 +3578,18 @@ function conversation(): VoiceConversation {
         status: session.status,
         waitingFor: session.waitingFor
       })),
-      meeting: calendarService?.nextMeeting() ?? null
+      meeting: calendarService?.nextMeeting() ?? null,
+      apps: [...installedApps().values()].map((app) => app.name)
     }),
     runAction: assistantVoiceAction,
     tell: tellSession,
+    // Only a name from the list the model was given: nothing else reaches `open`.
+    openApp: async (name) => {
+      const app = installedApps().get(name.toLowerCase());
+      if (!app) return false;
+      await execFileAsync("open", [app.path]);
+      return true;
+    },
     open: async (name) => {
       const session = findConversationSession(name);
       if (!session || session === "ambiguous") return false;
@@ -3599,6 +3607,27 @@ function conversation(): VoiceConversation {
     log: (message) => console.log(message)
   });
   return voiceConversation;
+}
+
+const APP_DIRS = ["/Applications", "/Applications/Utilities", path.join(os.homedir(), "Applications"), "/System/Applications", "/System/Applications/Utilities"];
+
+// Installed apps by lower-cased name; read on each turn, a few directory listings.
+function installedApps(): Map<string, { name: string; path: string }> {
+  const apps = new Map<string, { name: string; path: string }>();
+  for (const dir of APP_DIRS) {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".app")) continue;
+      const label = name.slice(0, -4);
+      if (!apps.has(label.toLowerCase())) apps.set(label.toLowerCase(), { name: label, path: path.join(dir, name) });
+    }
+  }
+  return apps;
 }
 
 // The owner's sessions only: the dispatcher and `general` are Marshal's plumbing.
