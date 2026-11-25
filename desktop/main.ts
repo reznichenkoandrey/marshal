@@ -3530,6 +3530,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
   // Open at once too: the owner may go on before «Слухаю.» is synthesized.
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
   const spoken = await speechService.speak(ack, { key: "assistant:ask" });
+  if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[wake] ${ack} → ${spoken.ok ? "queued" : spoken.error}`);
   if (spoken.ok) announceToAssistant(ack);
   await Promise.race([speechService.whenQuiet(), new Promise((resolve) => setTimeout(resolve, ANSWER_QUIET_WAIT_MS))]);
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);

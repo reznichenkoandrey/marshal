@@ -25,6 +25,7 @@ import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from
 import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
 import { encodeWavPcm16Mono } from "../captions/wav.ts";
 
+const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG === "1";
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
 // The cue for "heard you, thinking" (#507): a stock macOS sound, quiet, no asset of our own.
@@ -157,7 +158,10 @@ export class SpeechService {
     const settings = this.settings();
     if (!settings.enabled && !options.force) return { ok: false, error: "Spoken updates are off in Settings." };
     // Dropped, not held: a phrase spoken an hour later is stale, and the notification stays on screen.
-    if (!options.force && (await this.onCall())) return { ok: false, error: "Silent on a call." };
+    if (!options.force && (await this.onCall())) {
+      if (DEBUG) console.log(`[speech] dropped on a call: ${JSON.stringify(trimmed)}`);
+      return { ok: false, error: "Silent on a call." };
+    }
 
     const lang = options.lang ?? detectSpeechLang(trimmed);
     const spoken = lang === "uk" ? pronounceForUkrainian(trimmed) : trimmed;
@@ -205,6 +209,7 @@ export class SpeechService {
 
   /** Drops the phrase being spoken and moves on to the next one. */
   skip(): void {
+    if (DEBUG && this.current) console.log(`[speech] skipped ${JSON.stringify(this.current.phrase.text)}`);
     this.cut(false);
   }
 
@@ -232,6 +237,7 @@ export class SpeechService {
 
   /** Silence now; the cut phrase is spoken again from the start later. */
   interrupt(): void {
+    if (DEBUG && this.current) console.log(`[speech] interrupted ${JSON.stringify(this.current.phrase.text)}`);
     this.cut(true);
   }
 
@@ -251,13 +257,19 @@ export class SpeechService {
       return;
     }
     this.startGate();
-    if (this.blockedReason()) return;
+    const blocked = this.blockedReason();
+    if (blocked) {
+      if (DEBUG) console.log(`[speech] waiting: ${blocked}`);
+      return;
+    }
     const phrase = this.queue.take();
     if (!phrase) return;
     const entry: Playback = { phrase, child: null, requeue: false, cut: false };
     this.current = entry;
     this.onSpeakingChange(true);
+    if (DEBUG) console.log(`[speech] play ${phrase.engine} ${JSON.stringify(phrase.text)}`);
     void this.play(entry).then((error) => {
+      if (DEBUG) console.log(`[speech] played ${JSON.stringify(phrase.text)}${entry.cut ? " (cut)" : ""}${error ? ` error: ${error}` : ""}`);
       if (this.current !== entry) return;
       this.current = null;
       if (error) console.warn("[speech] playback failed:", error);
