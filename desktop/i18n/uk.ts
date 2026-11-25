@@ -302,6 +302,8 @@ export const uk: Record<MessageKey, string> = {
   "settings.indicators": "Індикатори",
   "settings.assistantWidget": "Міні-віджет на екрані",
   "settings.assistantWidgetHint": "Маленький голосовий візуал, який можна перетягнути куди завгодно. Показує, яка сесія чекає на тебе; подвійний клік відкриває це вікно.",
+  "settings.assistantCue": "Звук, коли команда пішла в модель",
+  "settings.assistantCueHint": "Короткий сигнал одразу після твоїх слів, щоб очікування відповіді не було тишею. Команди, на які Marshal відповідає сам, без звуку.",
   "settings.assistantGlow": "Світіння по краях екрана",
   "settings.assistantGlowHint": "Краї екрана світяться лише поки ти диктуєш або Marshal говорить. Під час дзвінка вимкнено; у screen share не видно.",
   "settings.assistantBadge": "Лічильник у menu bar",
