@@ -199,6 +199,7 @@ const desktopApi = {
     piperInstalled: boolean;
     holosInstalled: boolean;
     holosVoices: { presets: string[]; custom: string[] };
+    sonioxConfigured: boolean;
   }>,
   installPiperVoice: () => ipcRenderer.invoke("marshal:speech-install-piper") as Promise<
     { ok: true } | { ok: false; error: string }

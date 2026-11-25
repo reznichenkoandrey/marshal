@@ -22,6 +22,8 @@ import {
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
+import { SONIOX_PLAYER_ARGS, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
+import { MeetingAudioMixer } from "../meeting/audio-mixer.ts";
 
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
@@ -61,12 +63,31 @@ export type SpeechVoiceReport = {
   piperInstalled: boolean;
   holosInstalled: boolean;
   holosVoices: HolosVoices;
+  sonioxConfigured: boolean;
 };
 
-/** `voice` is the `say` voice; empty when only Piper can speak the phrase (no fallback then). */
-type QueuedPhrase = SpeechItem & { voice: string; engine: SpeechEngine };
+/** The engine can speak now: downloaded, or for Soniox a key in `.env`. */
+export function speechEngineReady(engine: SpeechEngine): boolean {
+  if (engine === "piper") return isPiperInstalled();
+  if (engine === "holos") return isHolosInstalled();
+  if (engine === "soniox") return sonioxApiKey() !== null;
+  return true;
+}
 
-type Playback = { phrase: QueuedPhrase; child: ChildProcess | null; requeue: boolean; cut: boolean };
+/**
+ * `voice` is the `say` voice; empty when only another engine can speak the
+ * phrase (no fallback then). `sayText` is what `say` reads if that engine fails.
+ */
+type QueuedPhrase = SpeechItem & { voice: string; engine: SpeechEngine; sayText: string };
+
+type Playback = {
+  phrase: QueuedPhrase;
+  child: ChildProcess | null;
+  /** Stops work that is not a child process (a Soniox stream). */
+  stop?: () => void;
+  requeue: boolean;
+  cut: boolean;
+};
 
 /**
  * Spoken updates (#266) through the native `say` voices — no model, no extra
@@ -74,6 +95,11 @@ type Playback = { phrase: QueuedPhrase; child: ChildProcess | null; requeue: boo
  * captions, a call): a pending phrase waits, a playing one is cut and spoken
  * again from the start once the reason clears.
  */
+function engineLabel(engine: SpeechEngine, holosVoice: string): string {
+  if (engine === "holos") return `Holos · ${holosVoice || "default"}`;
+  return engine === "soniox" ? SONIOX_VOICE_LABEL : PIPER_VOICE_LABEL;
+}
+
 export class SpeechService {
   private readonly queue = new SpeechQueue<QueuedPhrase>();
   private current: Playback | null = null;
@@ -81,6 +107,7 @@ export class SpeechService {
   private voices: Promise<SystemVoice[]> | null = null;
   private gateTimer: NodeJS.Timeout | null = null;
   private readonly holos = new HolosServer();
+  private readonly soniox = new SonioxTts();
   private readonly quietWaiters: Array<() => void> = [];
 
   constructor(
@@ -118,7 +145,8 @@ export class SpeechService {
       en: voicesForLang(voices, "en"),
       piperInstalled: isPiperInstalled(),
       holosInstalled: isHolosInstalled(),
-      holosVoices: listHolosVoices()
+      holosVoices: listHolosVoices(),
+      sonioxConfigured: sonioxApiKey() !== null
     };
   }
 
@@ -137,16 +165,17 @@ export class SpeechService {
     let voice = pickVoice(await this.listVoices(), lang, preferred);
     // A voice installed after the first listing should work without a restart.
     voice ??= pickVoice(await this.listVoices(true), lang, preferred);
-    const installed = settings.engine === "holos" ? isHolosInstalled() : isPiperInstalled();
-    const engine = chooseSpeechEngine(settings.engine, lang, installed);
+    const engine = chooseSpeechEngine(settings.engine, lang, speechEngineReady(settings.engine));
     if (engine !== "macos") {
-      this.queue.enqueue({ text: spoken, lang, key: options.key, voice: voice?.name ?? "", engine });
+      // Soniox says English terms right on its own; the rewrite made phrases longer and stilted (#515).
+      const text = engine === "soniox" ? trimmed : spoken;
+      this.queue.enqueue({ text, sayText: spoken, lang, key: options.key, voice: voice?.name ?? "", engine });
       this.pump();
-      return { ok: true, lang, voice: engine === "holos" ? `Holos · ${settings.holosVoice || "default"}` : PIPER_VOICE_LABEL };
+      return { ok: true, lang, voice: engineLabel(engine, settings.holosVoice) };
     }
     if (!voice) return { ok: false, lang, error: lang === "uk" ? NO_UK_VOICE_MESSAGE : NO_EN_VOICE_MESSAGE };
 
-    this.queue.enqueue({ text: spoken, lang, key: options.key, voice: voice.name, engine });
+    this.queue.enqueue({ text: spoken, sayText: spoken, lang, key: options.key, voice: voice.name, engine });
     this.pump();
     return { ok: true, lang, voice: voice.name };
   }
@@ -186,11 +215,14 @@ export class SpeechService {
     this.stopGate();
     this.settleQuiet();
     this.holos.stop();
+    this.soniox.close();
   }
 
-  /** A spoken answer is on its way (a voice command was sent): load Holos now, not on the answer. */
+  /** A spoken answer is on its way (a voice command was sent): load Holos or open Soniox now, not on the answer. */
   warmUp(): void {
-    if (this.settings().engine === "holos") this.holos.warmUp();
+    const { engine } = this.settings();
+    if (engine === "holos") this.holos.warmUp();
+    else if (engine === "soniox") this.soniox.warmUp();
   }
 
   /** Clones a Holos voice from a recording; resolves with the new voice name. */
@@ -207,6 +239,7 @@ export class SpeechService {
     if (!this.current) return;
     this.current.requeue = requeue;
     this.current.cut = true;
+    this.current.stop?.();
     this.current.child?.kill();
   }
 
@@ -239,7 +272,14 @@ export class SpeechService {
   private async play(entry: Playback): Promise<string | undefined> {
     const { phrase } = entry;
     const rate = normalizeSpeechRate(this.settings().rate);
-    if (phrase.engine !== "macos") {
+    if (phrase.engine === "soniox") {
+      const result = await this.playSoniox(entry, phrase.text, rate);
+      if (entry.cut || !result.error) return undefined;
+      // Half a phrase already played: repeating it on another voice would be worse than stopping.
+      if (result.started) return result.error;
+      console.warn("[speech] soniox failed, falling back to say:", result.error);
+      if (!phrase.voice) return `soniox failed and no macOS voice is installed for this language.`;
+    } else if (phrase.engine !== "macos") {
       const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
       try {
         const synthError = await this.synthesize(entry, phrase, wav, rate);
@@ -257,7 +297,59 @@ export class SpeechService {
     }
     markVoice("audio");
     // stdin, not argv: text that starts with "-" would otherwise parse as a flag.
-    return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.text);
+    return this.run(entry, SAY_PATH, ["-v", phrase.voice, "-r", String(rate)], phrase.sayText);
+  }
+
+  /** Streams Soniox PCM into ffmpeg's audiotoolbox output, so playback starts on the first chunk. */
+  private playSoniox(entry: Playback, text: string, rate: number): Promise<{ error?: string; started: boolean }> {
+    const ffmpeg = MeetingAudioMixer.getBinaryPath();
+    if (!ffmpeg) return Promise.resolve({ error: "ffmpeg was not found for Soniox playback.", started: false });
+    return new Promise((resolve) => {
+      let started = false;
+      let error: string | undefined;
+      let stderr = "";
+      const player = spawn(ffmpeg, SONIOX_PLAYER_ARGS, { stdio: ["pipe", "ignore", "pipe"] });
+      entry.child = player;
+      player.stdin.on("error", () => {});
+      player.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      const phrase = this.soniox.speak(text, sonioxSpeedForRate(rate), (pcm) => {
+        if (!started) {
+          started = true;
+          markVoice("audio");
+        }
+        player.stdin.write(pcm);
+      });
+      // SIGKILL: ffmpeg traps SIGTERM but stays blocked reading stdin, so it would never exit.
+      const silence = (): void => {
+        player.kill("SIGKILL");
+      };
+      entry.stop = () => {
+        phrase.cancel();
+        silence();
+      };
+      phrase.done.then(
+        () => player.stdin.end(),
+        (err: unknown) => {
+          error = err instanceof Error ? err.message : String(err);
+          silence();
+        }
+      );
+      let settled = false;
+      const done = (playerError?: string): void => {
+        if (settled) return;
+        settled = true;
+        entry.child = null;
+        entry.stop = undefined;
+        phrase.cancel();
+        resolve({ error: error ?? playerError, started });
+      };
+      player.on("error", (err) => done(err.message));
+      player.on("exit", (code, signal) =>
+        done(code === 0 || signal ? undefined : stderr.trim().split("\n").pop() || `ffmpeg exit ${code}`)
+      );
+    });
   }
 
   private async synthesize(entry: Playback, phrase: QueuedPhrase, wav: string, rate: number): Promise<string | undefined> {
