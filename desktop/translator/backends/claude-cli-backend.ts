@@ -56,6 +56,8 @@ export function claudeTranslatorArgs(model: string, systemPrompt = SYSTEM_PROMPT
     "--disable-slash-commands",
     "--no-chrome",
     "--exclude-dynamic-system-prompt-sections",
+    // Every request otherwise leaves a transcript in ~/.claude/projects that session tooling then reads.
+    "--no-session-persistence",
     "--system-prompt", systemPrompt
   ];
 }

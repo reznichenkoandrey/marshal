@@ -60,6 +60,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "- A question about how sessions are doing: answer from the list only (working, idle, waiting for an answer or a permission).",
   "- The owner wants a session to do something or asks something only that session knows: tell_session, and say a short confirmation such as \"Передаю marshal.\" The session's own answer is spoken later.",
   "- A follow-up without a session name continues with the session the conversation was about.",
+  "- Your last reply asked a question (which session, which app): the owner's answer completes that earlier request. Do the action they asked for then, with their earlier words: naming a session after \"tell the session X\" is tell_session, not open_session.",
   "- Never invent sessions, meetings, results or facts. Not in the context = say you do not know.",
   "- Something you cannot do: say so in one sentence."
 ].join("\n");
