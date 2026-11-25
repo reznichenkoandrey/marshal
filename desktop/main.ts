@@ -3313,10 +3313,8 @@ function initAssistantDispatcher(): void {
       announceToAssistant(text);
       void answerAloud(text);
     },
-    warn: (text) => {
-      announceToAssistant(text);
-      void speechService?.speak(text, { key: "assistant:setup" });
-    },
+    // The owner does not want setup details spoken (#520): the home line only.
+    warn: announceToAssistant,
     ask: askOwner,
     language: uiLanguage,
     runAction: assistantVoiceAction,
