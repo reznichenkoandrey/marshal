@@ -174,6 +174,7 @@ describe("saveSettings", () => {
       assistantAsleep: false,
       workflowsEnabled: false,
       assistantWake: false,
+      assistantCue: true,
       assistantSpeakerCheck: false,
       assistantWidget: true,
       assistantWidgetPosition: { x: 1500, y: 40 },
@@ -193,6 +194,12 @@ describe("saveSettings", () => {
     expect(saveSettings({ captureEditorAlwaysOnTop: false }).captureEditorAlwaysOnTop).toBe(false);
     expect(loadSettings().captureEditorAlwaysOnTop).toBe(false);
     expect(saveSettings({ captureEditorAlwaysOnTop: true }).captureEditorAlwaysOnTop).toBe(true);
+  });
+
+  it("plays the command cue by default and keeps it off once switched off (#507)", () => {
+    expect(loadSettings().assistantCue).toBe(true);
+    expect(saveSettings({ assistantCue: false }).assistantCue).toBe(false);
+    expect(loadSettings().assistantCue).toBe(false);
   });
 
   it("keeps the Claude desktop host for the assistant (#437)", () => {

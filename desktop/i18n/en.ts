@@ -300,6 +300,8 @@ export const en = {
   "settings.indicators": "Indicators",
   "settings.assistantWidget": "Mini widget on screen",
   "settings.assistantWidgetHint": "A small voice visual you can drag anywhere. Shows which session waits for you; double-click opens this window.",
+  "settings.assistantCue": "Sound when a command goes to the model",
+  "settings.assistantCueHint": "A short tick right after you finish speaking, so the wait for the answer is not silence. Commands Marshal answers itself get no sound.",
   "settings.assistantGlow": "Screen edge glow",
   "settings.assistantGlowHint": "The edges of the screen light up only while you dictate or Marshal speaks. Off during calls; hidden from screen sharing.",
   "settings.assistantBadge": "Waiting count in the menu bar",

@@ -25,6 +25,9 @@ import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from
 
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
+// The cue for "heard you, thinking" (#507): a stock macOS sound, quiet, no asset of our own.
+const CUE_SOUND = "/System/Library/Sounds/Tink.aiff";
+const CUE_VOLUME = "0.5";
 // How often a pending or playing phrase re-checks the "must stay silent"
 // signals. Push-to-talk calls interrupt() directly; this catches the rest.
 const GATE_POLL_MS = 250;
@@ -149,6 +152,14 @@ export class SpeechService {
   }
 
   /** A phrase with this key waits in the queue, not yet spoken. */
+  /** A short sound when a voice command goes to a model (#507); none while anything plays or must stay silent. */
+  cue(): void {
+    if (!this.isAvailable() || !this.settings().enabled || this.current || this.blockedReason()) return;
+    spawn(AFPLAY_PATH, ["-v", CUE_VOLUME, CUE_SOUND], { stdio: "ignore" }).on("error", (err) => {
+      console.warn("[speech] cue failed:", err.message);
+    });
+  }
+
   isQueued(key: string): boolean {
     return this.queue.has(key);
   }

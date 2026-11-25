@@ -69,6 +69,7 @@ const dom = {
   settingsWorkflowsEnabled: document.getElementById("settings-workflows-enabled"),
   settingsAssistantWidget: document.getElementById("settings-assistant-widget"),
   settingsAssistantGlow: document.getElementById("settings-assistant-glow"),
+  settingsAssistantCue: document.getElementById("settings-assistant-cue"),
   settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
@@ -480,6 +481,7 @@ async function openSettings() {
     if (dom.settingsSpeechEnabled) dom.settingsSpeechEnabled.checked = current.speechEnabled ?? false;
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
     if (dom.settingsAssistantWake) dom.settingsAssistantWake.checked = current.assistantWake ?? false;
+    if (dom.settingsAssistantCue) dom.settingsAssistantCue.checked = current.assistantCue ?? true;
     void refreshWakeState();
     if (dom.settingsAssistantSpeakerCheck) dom.settingsAssistantSpeakerCheck.checked = current.assistantSpeakerCheck ?? false;
     void refreshSpeakerState();
@@ -697,6 +699,7 @@ async function saveSettingsFromForm() {
     speechEnabled: dom.settingsSpeechEnabled?.checked ?? false,
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
     assistantWake: dom.settingsAssistantWake?.checked ?? false,
+    assistantCue: dom.settingsAssistantCue?.checked ?? true,
     assistantSpeakerCheck: dom.settingsAssistantSpeakerCheck?.checked ?? false,
     workflowsEnabled: dom.settingsWorkflowsEnabled?.checked ?? false,
     assistantWidget: dom.settingsAssistantWidget?.checked ?? false,

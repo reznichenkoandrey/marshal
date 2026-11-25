@@ -3526,6 +3526,7 @@ function handleVoiceCommand(text: string): void {
     void answerLocally(text, local);
     return;
   }
+  if (loadSettings().assistantCue) speechService?.cue();
   assistantDispatcher?.submit(text);
 }
 
