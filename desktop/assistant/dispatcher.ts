@@ -498,6 +498,11 @@ export class AssistantDispatcher implements AssistantRoutes {
     this.kill(session.pid);
   }
 
+  /** Whether a voice command waits for this session's answer, without using the claim up. */
+  isAwaitingAnswer(sessionId: string): boolean {
+    return this.awaitingAnswer.has(sessionId);
+  }
+
   /** Whether this session event answers a voice command; a finished turn uses the claim up. */
   answersVoiceCommand(sessionId: string, finished: boolean): boolean {
     if (!this.awaitingAnswer.has(sessionId)) return false;

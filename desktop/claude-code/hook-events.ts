@@ -87,6 +87,21 @@ export function shortAnswer(text: string, maxChars = 140): string | null {
   return trimmed;
 }
 
+// A list, a heading, a table or code is not something to read aloud as is.
+const NOT_SPOKEN = /^\s*(?:[-*+>#|]|\d+[.)]\s)|```/m;
+
+/**
+ * The closing paragraph of an answer to a voice command (#508). Sessions are
+ * asked to end with one or two plain sentences, so that paragraph is spoken
+ * as is, without the summary model; null when it is not plain enough.
+ */
+export function spokenTail(text: string, maxChars = 300): string | null {
+  const last = text.trim().split(/\n\s*\n/).pop()?.trim() ?? "";
+  if (last === "" || NOT_SPOKEN.test(last)) return null;
+  const plain = last.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+  return plain !== "" && plain.length <= maxChars ? plain : null;
+}
+
 export function looksUkrainian(text: string): boolean {
   const letters = text.match(/\p{L}/gu) ?? [];
   const cyrillic = letters.filter((ch) => /\p{Script=Cyrillic}/u.test(ch)).length;

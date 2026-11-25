@@ -77,7 +77,9 @@ export class ClaudeHooksController {
     // Call check (#267): finished results are held while a call is active.
     callCheck: () => Promise<boolean> = async () => false,
     // Whose browser is this (#477): only the person may say a browser is on this Mac.
-    private readonly confirmBrowser: ConfirmBrowser = async () => null
+    private readonly confirmBrowser: ConfirmBrowser = async () => null,
+    // Turns that answer a voice command are spoken from their own last paragraph (#508).
+    voiceAnswer: (sessionId: string, name: string) => boolean = () => false
   ) {
     this.dossiers = new DossierKeeper({
       storePath: path.join(userDataDir, "claude-code", "dossiers.json"),
@@ -86,6 +88,7 @@ export class ClaudeHooksController {
     this.notifier = new SessionNotifier({
       notify: (title, body, onClick) => this.notify(title, body, onClick),
       speak,
+      voiceAnswer,
       onCall: callCheck,
       language: uiLanguage,
       summarize: (text) => summarizeAnswer(text, loadSettings().claudeCodeSummaryLanguage),
