@@ -22,7 +22,15 @@ import {
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
-import { SONIOX_PLAYER_ARGS, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
+import {
+  SONIOX_DRAIN_MS,
+  SONIOX_PLAYER_ARGS,
+  SONIOX_VOICE_LABEL,
+  SonioxTts,
+  sonioxApiKey,
+  sonioxPlayedUntil,
+  sonioxSpeedForRate
+} from "./soniox.ts";
 import { MeetingAudioMixer } from "../meeting/audio-mixer.ts";
 
 const SAY_PATH = "/usr/bin/say";
@@ -306,6 +314,8 @@ export class SpeechService {
     if (!ffmpeg) return Promise.resolve({ error: "ffmpeg was not found for Soniox playback.", started: false });
     return new Promise((resolve) => {
       let started = false;
+      let playedUntil = 0;
+      let drain: NodeJS.Timeout | null = null;
       let error: string | undefined;
       let stderr = "";
       const player = spawn(ffmpeg, SONIOX_PLAYER_ARGS, { stdio: ["pipe", "ignore", "pipe"] });
@@ -319,6 +329,7 @@ export class SpeechService {
           started = true;
           markVoice("audio");
         }
+        playedUntil = sonioxPlayedUntil(playedUntil, Date.now(), pcm.length);
         player.stdin.write(pcm);
       });
       // SIGKILL: ffmpeg traps SIGTERM but stays blocked reading stdin, so it would never exit.
@@ -330,7 +341,9 @@ export class SpeechService {
         silence();
       };
       phrase.done.then(
-        () => player.stdin.end(),
+        () => {
+          drain = setTimeout(() => player.stdin.end(), Math.max(0, playedUntil - Date.now()) + SONIOX_DRAIN_MS);
+        },
         (err: unknown) => {
           error = err instanceof Error ? err.message : String(err);
           silence();
@@ -340,6 +353,7 @@ export class SpeechService {
       const done = (playerError?: string): void => {
         if (settled) return;
         settled = true;
+        if (drain) clearTimeout(drain);
         entry.child = null;
         entry.stop = undefined;
         phrase.cancel();

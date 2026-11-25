@@ -7,6 +7,7 @@ import {
   buildSonioxConfig,
   parseSonioxMessage,
   sonioxApiKey,
+  sonioxPlayedUntil,
   sonioxSpeedForRate
 } from "../desktop/speech/soniox.ts";
 
@@ -212,5 +213,14 @@ describe("SonioxTts", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(sockets[0].closed).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("sonioxPlayedUntil", () => {
+  it("queues chunks back to back and restarts the clock after the queue ran dry", () => {
+    const second = 48_000;
+    expect(sonioxPlayedUntil(0, 1_000, second)).toBe(2_000);
+    expect(sonioxPlayedUntil(2_000, 1_100, second / 2)).toBe(2_500);
+    expect(sonioxPlayedUntil(2_500, 4_000, second / 2)).toBe(4_500);
   });
 });

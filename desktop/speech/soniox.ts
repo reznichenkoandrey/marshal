@@ -18,6 +18,18 @@ const STALL_TIMEOUT_MS = 10_000;
 const SPEED_MIN = 0.7;
 const SPEED_MAX = 1.3;
 
+/** Kept after the last sample: the output device still holds this much when ffmpeg is told to stop. */
+export const SONIOX_DRAIN_MS = 300;
+
+/**
+ * When the audio written so far ends playing. ffmpeg's audiotoolbox output queues buffers and exits
+ * on EOF without waiting for them, which cut every short phrase to silence, so stdin stays open
+ * until this moment. A chunk that arrives after the queue ran dry starts playing on arrival.
+ */
+export function sonioxPlayedUntil(previous: number, now: number, bytes: number): number {
+  return Math.max(previous, now) + (bytes / (SONIOX_SAMPLE_RATE * 2)) * 1000;
+}
+
 /** ffmpeg arguments that play raw mono s16le from stdin as it arrives. */
 export const SONIOX_PLAYER_ARGS = [
   "-hide_banner",
