@@ -3537,6 +3537,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
 
 function handleVoiceCommand(text: string): void {
   markVoice("transcript");
+  if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[assistant] heard ${JSON.stringify(text)}`);
   if (!text) {
     void conversation().handle("", uiLanguage());
     return;

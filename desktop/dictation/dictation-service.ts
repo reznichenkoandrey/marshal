@@ -494,7 +494,9 @@ export class DictationService extends EventEmitter {
         await Promise.race([soniox.pcmClosed, new Promise((resolve) => setTimeout(resolve, PCM_DRAIN_MAX_WAIT_MS))]);
         const text = await soniox.session.finish();
         debug("soniox text in", Date.now() - started, "ms");
-        return { text };
+        if (text.trim()) return { text };
+        // Soniox hears nothing in a quiet voice now and then; whisper still may (#522).
+        console.warn("[dictation] soniox returned no text, whisper fallback");
       } catch (err) {
         console.warn("[dictation] soniox failed, whisper fallback:", err instanceof Error ? err.message : String(err));
       }
