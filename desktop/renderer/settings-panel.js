@@ -78,6 +78,7 @@ const dom = {
   settingsAssistantTerminal: document.getElementById("settings-assistant-terminal"),
   settingsSpeechEngine: document.getElementById("settings-speech-engine"),
   settingsSpeechPiperStatus: document.getElementById("settings-speech-piper-status"),
+  settingsSpeechSonioxStatus: document.getElementById("settings-speech-soniox-status"),
   settingsSpeechPiperInstall: document.getElementById("settings-speech-piper-install"),
   settingsSpeechHolosVoice: document.getElementById("settings-speech-holos-voice"),
   settingsSpeechHolosStatus: document.getElementById("settings-speech-holos-status"),
@@ -169,6 +170,8 @@ async function populateSpeechVoices(voiceUk, voiceEn, holosVoice) {
   showPiperState(report?.piperInstalled === true);
   fillHolosVoices(report?.holosVoices ?? { presets: [], custom: [] }, holosVoice);
   showHolosState(report?.holosInstalled === true);
+  sonioxConfigured = report?.sonioxConfigured === true;
+  showSonioxState();
   if (!dom.settingsSpeechStatus) return;
   dom.settingsSpeechStatus.textContent = !report?.available
     ? t("settings.speechUnavailable")
@@ -285,6 +288,16 @@ function fillHolosVoices(voices, preferred) {
   group("settings.holosPresetVoices", voices.presets);
   const all = [...voices.custom, ...voices.presets];
   select.value = all.includes(preferred) ? preferred : "";
+}
+
+let sonioxConfigured = false;
+
+// The key lives in .env, not in Settings, so the hint says whether Marshal found it.
+function showSonioxState() {
+  const status = dom.settingsSpeechSonioxStatus;
+  if (!status) return;
+  status.hidden = dom.settingsSpeechEngine?.value !== "soniox";
+  status.textContent = t(sonioxConfigured ? "settings.sonioxReady" : "settings.sonioxNoKey");
 }
 
 function showHolosState(installed) {
@@ -496,7 +509,8 @@ async function openSettings() {
     if (dom.settingsAssistantTerminal) dom.settingsAssistantTerminal.value = current.assistantTerminalHost ?? "auto";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
     if (dom.settingsSpeechEngine) {
-      dom.settingsSpeechEngine.value = ["piper", "holos"].includes(current.speechEngine) ? current.speechEngine : "macos";
+      dom.settingsSpeechEngine.value = ["piper", "holos", "soniox"].includes(current.speechEngine) ? current.speechEngine : "macos";
+      showSonioxState();
     }
     void populateSpeechVoices(current.speechVoiceUk ?? "", current.speechVoiceEn ?? "", current.speechHolosVoice ?? "");
     refreshSettingsVisibility();
@@ -995,6 +1009,7 @@ function bindEvents() {
   dom.settingsCheckUpdatesNow?.addEventListener("click", checkForUpdatesFromSettings);
   dom.settingsSpeechTest?.addEventListener("click", speakTestPhrase);
   dom.settingsSpeechPiperInstall?.addEventListener("click", installPiperVoice);
+  dom.settingsSpeechEngine?.addEventListener("change", showSonioxState);
   dom.settingsAssistantWakeInstall?.addEventListener("click", installWakeModel);
   dom.settingsAssistantSpeakerInstall?.addEventListener("click", () =>
     runSpeakerAction(dom.settingsAssistantSpeakerInstall, "settings.speakerDownloading", "settings.piperDownloadFailed", api?.installSpeaker));

@@ -236,14 +236,20 @@ export function pronounceForUkrainian(text: string): string {
   );
 }
 
-/** `macos` = `say`; `piper` (#325) and `holos` (#333) = downloaded local neural Ukrainian voices. */
-export type SpeechEngine = "macos" | "piper" | "holos";
+/**
+ * `macos` = `say`; `piper` (#325) and `holos` (#333) = downloaded local neural
+ * Ukrainian voices; `soniox` (#515) = the Soniox cloud voice.
+ */
+export type SpeechEngine = "macos" | "piper" | "holos" | "soniox";
 
 export function normalizeSpeechEngine(value: unknown): SpeechEngine {
-  return value === "piper" || value === "holos" ? value : "macos";
+  return value === "piper" || value === "holos" || value === "soniox" ? value : "macos";
 }
 
-/** The local engines speak only Ukrainian, so English and a missing download stay on `say`. */
+/**
+ * The other engines speak only Ukrainian, so English and a missing download
+ * (or, for Soniox, a missing key) stay on `say`.
+ */
 export function chooseSpeechEngine(engine: SpeechEngine, lang: SpeechLang, engineInstalled: boolean): SpeechEngine {
   return engine !== "macos" && lang === "uk" && engineInstalled ? engine : "macos";
 }

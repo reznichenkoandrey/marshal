@@ -30,9 +30,9 @@ import { GifDialog } from "./capture/gif-dialog.ts";
 import { GifEncoder } from "./capture/gif-encoder.ts";
 import { DEFAULT_CAPTIONS_HOTKEY, DEFAULT_CAPTIONS_OCR_HOTKEY, DEFAULT_CAPTIONS_PROMPT } from "./captions/captions-defaults.ts";
 import { LiveCaptionsService } from "./captions/captions-service.ts";
-import { SpeechService } from "./speech/speech-service.ts";
-import { installPiper, isPiperInstalled } from "./speech/piper.ts";
-import { installHolos, isHolosInstalled } from "./speech/holos.ts";
+import { SpeechService, speechEngineReady } from "./speech/speech-service.ts";
+import { installPiper } from "./speech/piper.ts";
+import { installHolos } from "./speech/holos.ts";
 import { warmUpAppleVisionOcr } from "./translator/backends/apple-vision-backend.ts";
 import { DictationService } from "./dictation/dictation-service.ts";
 import { DictationIndicator } from "./dictation/dictation-indicator.ts";
@@ -3177,7 +3177,7 @@ function assistantFeatures(): FeatureCard[] {
       enabled: settings.speechEnabled,
       speaking: assistantInputs.speaking,
       engine,
-      engineInstalled: engine === "piper" ? isPiperInstalled() : engine === "holos" ? isHolosInstalled() : true
+      engineInstalled: speechEngineReady(engine)
     },
     calendar: {
       enabled: settings.calendarEnabled,
