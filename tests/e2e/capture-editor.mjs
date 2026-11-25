@@ -368,6 +368,38 @@ app.whenReady().then(async () => {
     await fs.writeFile(afterCropPath, afterCropImg.toPNG());
     report.artifacts.push(afterCropPath);
 
+    // ── #524: a small region opens a narrow editor; every toolbar and
+    // bottom-bar action must stay inside the window and hit-testable. Ukrainian labels are the
+    // longest, 640 is the window's minWidth, 866 the width seen in the report.
+    await win.webContents.executeJavaScript(`window.MarshalI18n.set("uk")`);
+    const barIds = ["save-as", "redo", "zoom-out", "zoom-in", "zoom-fit", "claude-note", "send-to-claude", "copy", "stay-on-top", "pin", "save-quick"];
+    const narrow = {};
+    for (const width of [640, 866]) {
+      win.setContentSize(width, 420);
+      await sleep(400);
+      narrow[width] = await win.webContents.executeJavaScript(`
+        (() => {
+          const bars = [...document.querySelectorAll('.toolbar, .statusbar')];
+          const out = ${JSON.stringify(barIds)}.filter((id) => {
+            const el = document.getElementById(id);
+            const r = el.getBoundingClientRect();
+            const inside = r.width > 0 && r.left >= 0 && r.top >= 0 &&
+              r.right <= window.innerWidth && r.bottom <= window.innerHeight;
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return !(inside && hit && el.contains(hit));
+          });
+          return { unreachable: out, barOverflows: bars.some((bar) => bar.scrollWidth > bar.clientWidth) };
+        })()
+      `);
+      await fs.writeFile(path.join(SHOTS, `live-narrow-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    log("narrow bottom bar", narrow);
+    report.checks.narrowBarReachable = Object.values(narrow)
+      .every((r) => r.unreachable.length === 0 && !r.barOverflows);
+    win.setContentSize(1100, 760);
+    await win.webContents.executeJavaScript(`window.MarshalI18n.set("en")`);
+    await sleep(400);
+
     // ── Send to Claude (#265): note field, Enter sends, stubbed session target ──
     const sent = [];
     ipcMain.handle("marshal:capture-send-to-claude", (_event, payload) => {
@@ -421,6 +453,7 @@ app.whenReady().then(async () => {
       "textDrawn",
       "cropRestoresUsableTool",
       "drawableRightAfterCrop",
+      "narrowBarReachable",
       "noteKeepsToolKeys",
       "sentToClaude",
       "noConsoleErrors"
