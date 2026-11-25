@@ -5,7 +5,7 @@
 
 import path from "node:path";
 
-import { shortAnswer, WAITING_REMINDER_MS, type HookEvent } from "./hook-events.ts";
+import { shortAnswer, spokenTail, WAITING_REMINDER_MS, type HookEvent } from "./hook-events.ts";
 import type { ClaudeSession } from "./registry.ts";
 import { translate, type UiLanguage } from "../i18n/catalog.ts";
 import { shouldHoldNotification } from "../presence/call-policy.ts";
@@ -19,6 +19,8 @@ export type NotifierDeps = {
   notify: (title: string, body: string, onClick: () => void) => void;
   speak?: (event: SpokenSessionEvent) => void;
   summarize: (text: string) => Promise<string | null>;
+  /** The turn answers the owner's voice command (#508): its plain closing paragraph is spoken without a summary. */
+  voiceAnswer?: (sessionId: string, name: string) => boolean;
   findSession: (sessionId: string) => ClaudeSession | undefined;
   focus: (pid: number) => void;
   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout;
@@ -51,7 +53,8 @@ export class SessionNotifier {
     const lang = this.deps.language?.() ?? "en";
 
     if (event.type === "stop") {
-      const summary = shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
+      const direct = this.deps.voiceAnswer?.(event.sessionId, name) ? spokenTail(event.lastMessage) : null;
+      const summary = direct ?? shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
       const title = translate(lang, "claude.finished", { name });
       const body = summary ?? translate(lang, "claude.finishedFallback");
       if (shouldHoldNotification(false, (await this.deps.onCall?.()) ?? false)) this.hold(title, body);

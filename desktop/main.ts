@@ -386,7 +386,8 @@ async function bootstrap(): Promise<void> {
       initDictation();
       initMeetingRecorder();
       initLiveCaptions();
-      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check(), confirmBrowserOnThisMac);
+      claudeHooks = new ClaudeHooksController(app.getPath("userData"), announceToAssistant, () => countWaitingSessions(), speakSessionEvent, answerPermissionByVoice, () => callMonitor.check(), confirmBrowserOnThisMac,
+        (sessionId, name) => name === GENERAL_NAME || (assistantDispatcher?.isAwaitingAnswer(sessionId) ?? false));
       void claudeHooks.startIfInstalled();
       initCalendar();
       initTimedReminders();

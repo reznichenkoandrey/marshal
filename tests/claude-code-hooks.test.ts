@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildSummaryRequest } from "../desktop/claude-code/answer-summary.ts";
-import { EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, type HookEvent } from "../desktop/claude-code/hook-events.ts";
+import { EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, spokenTail, type HookEvent } from "../desktop/claude-code/hook-events.ts";
 import {
   addMarshalHooks,
   hasMarshalHooks,
@@ -247,6 +247,38 @@ describe("session notifier", () => {
     answered.setStatus("busy");
     answered.fire();
     expect(answered.notes).toEqual(["Feature 1494 needs your input | Which one?"]);
+  });
+});
+
+describe("spoken tail of a voice answer (#508)", () => {
+  it("takes the plain closing paragraph and drops inline markdown", () => {
+    const reply = "## Що зроблено\n\n- тести\n- PR\n\nУсі **тести** проходять, PR `#512` відкрито.\nЧекаю на CI.";
+    expect(spokenTail(reply)).toBe("Усі тести проходять, PR #512 відкрито. Чекаю на CI.");
+  });
+
+  it("refuses a closing list, heading, table, code or a long paragraph", () => {
+    expect(spokenTail("Done:\n\n- one\n- two")).toBeNull();
+    expect(spokenTail("1. first\n2. second")).toBeNull();
+    expect(spokenTail("# Title")).toBeNull();
+    expect(spokenTail("| a | b |")).toBeNull();
+    expect(spokenTail("```sh\nnpm test\n```")).toBeNull();
+    expect(spokenTail("word ".repeat(80))).toBeNull();
+    expect(spokenTail("   ")).toBeNull();
+  });
+
+  it("speaks a voice answer's tail without calling the summary model", async () => {
+    const summarize = vi.fn(async () => "summary");
+    const notes: string[] = [];
+    const notifier = new SessionNotifier({
+      notify: (title, body) => notes.push(`${title} | ${body}`),
+      summarize,
+      voiceAnswer: () => true,
+      findSession: () => undefined,
+      focus: () => undefined
+    });
+    await notifier.handle({ type: "stop", sessionId: "s1", cwd: "/p/marshal", lastMessage: "Detail.\n\nTests pass, the PR is open." });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(notes).toEqual(["marshal: finished | Tests pass, the PR is open."]);
   });
 });
 
