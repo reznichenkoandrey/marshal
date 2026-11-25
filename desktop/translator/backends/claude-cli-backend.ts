@@ -43,7 +43,7 @@ export function translatorClaudeModel(env: NodeJS.ProcessEnv = process.env): str
  * a coding agent's. Input is stream-json so the process can start before the
  * request exists — plain `-p` gives up on an empty stdin after 3 s.
  */
-export function claudeTranslatorArgs(model: string): string[] {
+export function claudeTranslatorArgs(model: string, systemPrompt = SYSTEM_PROMPT): string[] {
   return [
     "-p",
     "--input-format", "stream-json",
@@ -56,7 +56,7 @@ export function claudeTranslatorArgs(model: string): string[] {
     "--disable-slash-commands",
     "--no-chrome",
     "--exclude-dynamic-system-prompt-sections",
-    "--system-prompt", SYSTEM_PROMPT
+    "--system-prompt", systemPrompt
   ];
 }
 
@@ -77,7 +77,7 @@ export function claudeTranslatorEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEn
   return clean;
 }
 
-type UserContent =
+export type UserContent =
   | string
   | Array<
     | { type: "text"; text: string }
@@ -108,6 +108,7 @@ export function parseStreamResult(line: string): { ok: boolean; text: string } |
 /** One `claude` process that answers exactly one request. */
 class ClaudeRequestProcess {
   readonly model: string;
+  private readonly timeoutMs: number;
   private readonly child: ChildProcessWithoutNullStreams | null;
   private spawnError: Error | null = null;
   private exited = false;
@@ -116,11 +117,12 @@ class ClaudeRequestProcess {
   private stderr = "";
   private settle: ((outcome: { text?: string; error?: Error }) => void) | null = null;
 
-  constructor(model: string) {
+  constructor(model: string, systemPrompt: string, timeoutMs: number) {
     this.model = model;
+    this.timeoutMs = timeoutMs;
     let child: ChildProcessWithoutNullStreams | null = null;
     try {
-      child = spawn(CLAUDE_BIN, claudeTranslatorArgs(model), {
+      child = spawn(CLAUDE_BIN, claudeTranslatorArgs(model, systemPrompt), {
         stdio: ["pipe", "pipe", "pipe"],
         env: claudeTranslatorEnv(process.env)
       });
@@ -158,8 +160,8 @@ class ClaudeRequestProcess {
 
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.finish({ error: new Error(`Claude CLI timed out after ${REQUEST_TIMEOUT_MS}ms`) });
-      }, REQUEST_TIMEOUT_MS);
+        this.finish({ error: new Error(`Claude CLI timed out after ${this.timeoutMs}ms`) });
+      }, this.timeoutMs);
       this.settle = ({ text, error }) => {
         clearTimeout(timer);
         if (error) reject(error);
@@ -211,15 +213,26 @@ class ClaudeRequestProcess {
  * of it. A fresh process per request means no conversation grows between
  * translations and overlapping requests never queue behind each other.
  */
-class ClaudeProcessPool {
+export class ClaudeProcessPool {
   private spare: ClaudeRequestProcess | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
 
-  take(): ClaudeRequestProcess {
-    const model = translatorClaudeModel();
+  constructor(
+    private readonly model: () => string = translatorClaudeModel,
+    private readonly systemPrompt = SYSTEM_PROMPT,
+    private readonly timeoutMs = REQUEST_TIMEOUT_MS
+  ) {}
+
+  /** One request on the warm spare (or a fresh process), then a new spare starts. */
+  ask(content: UserContent): Promise<string> {
+    return this.take().ask(content);
+  }
+
+  private take(): ClaudeRequestProcess {
+    const model = this.model();
     const spare = this.spare;
     this.spare = null;
-    const chosen = spare && spare.usable && spare.model === model ? spare : new ClaudeRequestProcess(model);
+    const chosen = spare && spare.usable && spare.model === model ? spare : this.spawn(model);
     if (spare && spare !== chosen) spare.kill();
     this.warm();
     return chosen;
@@ -228,7 +241,7 @@ class ClaudeProcessPool {
   warm(): void {
     if (!this.spare || !this.spare.usable) {
       this.spare?.kill();
-      this.spare = new ClaudeRequestProcess(translatorClaudeModel());
+      this.spare = this.spawn(this.model());
     }
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.dispose(), SPARE_IDLE_MS);
@@ -240,6 +253,10 @@ class ClaudeProcessPool {
     this.idleTimer = null;
     this.spare?.kill();
     this.spare = null;
+  }
+
+  private spawn(model: string): ClaudeRequestProcess {
+    return new ClaudeRequestProcess(model, this.systemPrompt, this.timeoutMs);
   }
 }
 
@@ -297,7 +314,7 @@ export class ClaudeCliTranslatorBackend implements TranslatorBackend {
   }
 
   private ask(content: UserContent): Promise<string> {
-    return this.pool.take().ask(content);
+    return this.pool.ask(content);
   }
 }
 

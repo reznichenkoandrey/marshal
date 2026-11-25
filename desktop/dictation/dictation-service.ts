@@ -75,7 +75,7 @@ function debug(...args: unknown[]): void {
 export type DictationMode = "paste" | "talk" | "assistant" | "answer";
 
 export type DictationEvents = {
-  "recording-start": [];
+  "recording-start": [mode: DictationMode];
   "recording-stop": [];
   transcribed: [{ text: string; language?: string }];
   // Recorded with the talk key or the home mic: a command for the dispatcher.
@@ -398,7 +398,7 @@ export class DictationService extends EventEmitter {
       // Already released or cancelled: announcing a start now would leave the
       // indicator up after its recording-stop.
       if (this.isStopping) return;
-      this.emit("recording-start");
+      this.emit("recording-start", mode);
     });
     if (endOnPause) this.watchForEndOfSpeech(child, mode);
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -664,7 +664,8 @@ export class DictationService extends EventEmitter {
       // not the post-processed version — listeners that telemeter accuracy
       // need the raw output.
       const cleanText = transcriptToDeliver(result.text);
-      if (cleanText.length > 0 && this.mode !== "paste") {
+      // An empty command still goes out: the assistant says it heard nothing instead of staying silent (#522).
+      if (this.mode !== "paste") {
         this.emit("assistant-command", cleanText.trim());
       } else if (cleanText.length > 0) {
         // The clipboard is both what deliverText() pastes and the manual

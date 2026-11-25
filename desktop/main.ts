@@ -46,7 +46,14 @@ import { parseRemoteHosts, remoteGroups, RemoteSessionList } from "./claude-code
 import { focusSession } from "./claude-code/focus.ts";
 import { usesHarbor } from "./claude-code/harbor.ts";
 import { openDesktopSession } from "./claude-code/desktop-session.ts";
-import { hostAppOf, replyToSession } from "./claude-code/reply.ts";
+import { hostAppOf, replyRefusal, replyToSession } from "./claude-code/reply.ts";
+import { ClaudeProcessPool } from "./translator/backends/claude-cli-backend.ts";
+import {
+  CONVERSATION_SYSTEM_PROMPT,
+  TURN_TIMEOUT_MS,
+  VoiceConversation,
+  type TellResult
+} from "./assistant/conversation.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import { guardMenuItems } from "./claude-code/chrome-guard.ts";
@@ -287,6 +294,9 @@ let tray: Tray | null = null;
 let claudeHooks: ClaudeHooksController | null = null;
 let meetingLibrary: MeetingLibrary | null = null;
 let assistantDispatcher: AssistantDispatcher | null = null;
+// Simple voice mode (#522): one warm model process, made on the first command.
+let conversationPool: ClaudeProcessPool | null = null;
+let voiceConversation: VoiceConversation | null = null;
 let wakeListener: WakeListener | null = null;
 let wakeListenerEngine: WakeEngine | null = null;
 let trayRefreshTimer: NodeJS.Timeout | null = null;
@@ -1355,6 +1365,7 @@ async function performTeardown(): Promise<void> {
   stopSharedWhisperServer();
   // The dispatcher reads Marshal's command stream; `general` may hold work and stays.
   assistantDispatcher?.stop();
+  conversationPool?.dispose();
   planRunner?.dispose();
   wakeListener?.stop();
   workflows?.stop();
@@ -1636,10 +1647,16 @@ function initDictation(): void {
   // discoverable enough — see #98).
   dictationIndicator ??= new DictationIndicator(preloadPath);
 
-  dictationService.on("recording-start", () => {
+  dictationService.on("recording-start", (mode) => {
     isDictating = true;
     setAssistantInputs({ dictating: true });
-    speechService?.interrupt();
+    if (mode === "paste" || mode === "answer") speechService?.interrupt();
+    else {
+      // A new command is barge-in: the old answer is dropped, not resumed after (#522).
+      speechService?.skip();
+      voiceConversation?.interrupt();
+      if (simpleVoice()) conversationPool?.warm();
+    }
     dictationIndicator?.show();
     void refreshTrayState();
   });
@@ -3367,6 +3384,11 @@ async function syncAssistantDispatcher(): Promise<void> {
     sayAsAssistant(`Асистент не запустився: ${hooks.error}`);
     return;
   }
+  // Simple mode (#522) needs only the Stop hook, to speak a session's answer; no dispatcher session.
+  if (simpleVoice()) {
+    assistantDispatcher.stop();
+    return;
+  }
   await assistantDispatcher.start();
 }
 
@@ -3400,7 +3422,9 @@ function enableAssistantOnce(): void {
   if (loadSettings().assistantDispatcher) return;
   saveSettings({ assistantDispatcher: true, speechEnabled: true });
   pushAssistantStrip();
-  announceToAssistant("Асистент увімкнено: hooks Claude Code встановлено, диспетчер і general стартують у Terminal.");
+  announceToAssistant(simpleVoice()
+    ? "Асистент увімкнено: hooks Claude Code встановлено."
+    : "Асистент увімкнено: hooks Claude Code встановлено, диспетчер і general стартують у Terminal.");
   void syncAssistantDispatcher();
 }
 
@@ -3513,6 +3537,10 @@ async function listenForWakeCommand(ack: string): Promise<void> {
 
 function handleVoiceCommand(text: string): void {
   markVoice("transcript");
+  if (!text) {
+    void conversation().handle("", uiLanguage());
+    return;
+  }
   const sleep = matchSleepCommand(text);
   if (sleep) {
     setAssistantAsleep(sleep === "sleep");
@@ -3526,7 +3554,77 @@ function handleVoiceCommand(text: string): void {
     return;
   }
   if (loadSettings().assistantCue) speechService?.cue();
-  assistantDispatcher?.submit(text);
+  if (simpleVoice()) void conversation().handle(text, uiLanguage());
+  else assistantDispatcher?.submit(text);
+}
+
+function simpleVoice(): boolean {
+  return loadSettings().assistantVoiceMode === "simple";
+}
+
+// Simple mode (#522): the model answers in one turn and picks at most one action from a closed list.
+function conversation(): VoiceConversation {
+  voiceConversation ??= new VoiceConversation({
+    ask: (prompt) => {
+      conversationPool ??= new ClaudeProcessPool(() => loadSettings().assistantDispatcherModel, CONVERSATION_SYSTEM_PROMPT, TURN_TIMEOUT_MS);
+      return conversationPool.ask(prompt);
+    },
+    facts: () => ({
+      now: new Date(),
+      sessions: conversationSessions().map((session) => ({
+        name: session.name,
+        project: projectOf(session.cwd),
+        status: session.status,
+        waitingFor: session.waitingFor
+      })),
+      meeting: calendarService?.nextMeeting() ?? null
+    }),
+    runAction: assistantVoiceAction,
+    tell: tellSession,
+    open: async (name) => {
+      const session = findConversationSession(name);
+      if (!session || session === "ambiguous") return false;
+      return (await focusSession(session.pid).catch(() => null)) !== null;
+    },
+    speak: (text, lang) => {
+      announceToAssistant(text);
+      markVoice("answer");
+      // The owner asked aloud: the answer is spoken even with spoken updates off.
+      void speechService?.speak(text, { lang, force: true }).then((result) => {
+        if (!result.ok) console.warn(`[conversation] could not speak the answer: ${result.error}`);
+      });
+    },
+    commands: assistantCommandLog(),
+    log: (message) => console.log(message)
+  });
+  return voiceConversation;
+}
+
+// The owner's sessions only: the dispatcher and `general` are Marshal's plumbing.
+function conversationSessions() {
+  return listLiveSessions().filter((session) => !assistantDispatcher?.isDispatcher(session) && session.name !== GENERAL_NAME);
+}
+
+// The model may name a session by its name or by its project.
+function findConversationSession(name: string) {
+  const wanted = name.trim().toLowerCase();
+  const sessions = conversationSessions();
+  const byName = sessions.filter((session) => session.name.toLowerCase() === wanted);
+  const matches = byName.length > 0 ? byName : sessions.filter((session) => projectOf(session.cwd).toLowerCase() === wanted);
+  if (matches.length > 1) return "ambiguous" as const;
+  return matches[0];
+}
+
+async function tellSession(name: string, text: string): Promise<TellResult> {
+  const session = findConversationSession(name);
+  if (!session) return "missing";
+  if (session === "ambiguous") return "ambiguous";
+  if (replyRefusal(session, name)) return session.status === "waiting" ? "dialog" : "busy";
+  const result = await replyToSession(session, text, replyDeps()).catch(() => "failed");
+  if (result !== "ok") return "failed";
+  // The session's answer is what the owner waits to hear: its Stop hook speaks it.
+  assistantDispatcher?.expectAnswer(session.sessionId);
+  return "ok";
 }
 
 // No model turn for these (#506): the same actions and wording the dispatcher would reach.

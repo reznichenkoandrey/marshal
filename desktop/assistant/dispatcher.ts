@@ -498,6 +498,11 @@ export class AssistantDispatcher implements AssistantRoutes {
     this.kill(session.pid);
   }
 
+  /** Simple mode passed a voice command to this session (#522): its next answer is spoken. */
+  expectAnswer(sessionId: string): void {
+    this.awaitingAnswer.add(sessionId);
+  }
+
   /** Whether a voice command waits for this session's answer, without using the claim up. */
   isAwaitingAnswer(sessionId: string): boolean {
     return this.awaitingAnswer.has(sessionId);

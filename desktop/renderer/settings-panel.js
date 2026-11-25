@@ -76,6 +76,7 @@ const dom = {
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
+  settingsAssistantVoiceMode: document.getElementById("settings-assistant-voice-mode"),
   settingsPlanRunner: document.getElementById("settings-plan-runner"),
   settingsAssistantTerminal: document.getElementById("settings-assistant-terminal"),
   settingsSpeechEngine: document.getElementById("settings-speech-engine"),
@@ -513,6 +514,7 @@ async function openSettings() {
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
+    if (dom.settingsAssistantVoiceMode) dom.settingsAssistantVoiceMode.value = current.assistantVoiceMode ?? "simple";
     if (dom.settingsPlanRunner) dom.settingsPlanRunner.checked = current.planRunnerEnabled ?? false;
     if (dom.settingsAssistantTerminal) dom.settingsAssistantTerminal.value = current.assistantTerminalHost ?? "auto";
     if (dom.settingsSpeechRate) dom.settingsSpeechRate.value = String(current.speechRate ?? 190);
@@ -731,6 +733,7 @@ async function saveSettingsFromForm() {
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
+    assistantVoiceMode: dom.settingsAssistantVoiceMode?.value ?? "simple",
     planRunnerEnabled: dom.settingsPlanRunner?.checked ?? false,
     assistantTerminalHost: dom.settingsAssistantTerminal?.value ?? "auto",
     speechEngine: dom.settingsSpeechEngine?.value ?? "macos",
