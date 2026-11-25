@@ -130,7 +130,7 @@ export type DispatcherDeps = {
   context: () => Promise<string>;
   /** Spoken and shown in the home line. */
   say: (text: string) => void;
-  /** Spoken and shown, but not an answer: the mic does not open after it. Absent = `say`. */
+  /** A setup note shown in the home line, never spoken (#520). Absent = `say`. */
   warn?: (text: string) => void;
   /** Where Claude Code keeps transcripts; ~/.claude/projects. */
   projectsDir?: string;
