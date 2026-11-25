@@ -33,6 +33,7 @@ body {
 .toolbar {
   -webkit-app-region: drag;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3) var(--space-2) 84px;
@@ -226,9 +227,9 @@ body {
 /* Statusbar */
 .statusbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
   padding: var(--space-2) var(--space-3);
   background: var(--bg-surface);
   border-top: 1px solid var(--ce-hairline);
@@ -254,6 +255,7 @@ body {
 .drag-hint {
   -webkit-app-region: drag;
   display: inline-flex;
+  margin-inline: auto;
   align-items: center;
   gap: var(--space-2);
   color: var(--text-subtle);
@@ -270,6 +272,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  /* A small region gives a narrow window: the actions wrap to their own
+     right-aligned row and the note shrinks instead of clipping Copy (#524). */
+  margin-left: auto;
+  min-width: 0;
 }
 
 .size-label {
@@ -285,6 +291,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
   margin-right: var(--space-2);
   padding: 2px;
   border: 1px solid var(--ce-hairline);
@@ -294,8 +301,9 @@ body {
 .command:focus-within { border-color: var(--accent); }
 
 #claude-note {
-  width: 260px;
-  min-width: 0;
+  flex: 0 1 260px;
+  width: 0;
+  min-width: calc(var(--space-10) * 4);
   height: 28px;
   padding: 0 10px;
   border: 0;
@@ -322,6 +330,7 @@ body {
   background: transparent;
   color: var(--text-default);
   font-size: var(--fs-sm);
+  white-space: nowrap;
   cursor: pointer;
   transition: background var(--dur-fast);
 }
