@@ -90,7 +90,10 @@ function harness(overrides: Partial<ConversationDeps> = {}) {
     ask: vi.fn(async () => '{"say": "Так, я тут."}'),
     facts: () => facts,
     runAction: vi.fn(async () => "Відкрив перекладач."),
-    tell: vi.fn(async () => "ok" as const),
+    tell: vi.fn(async (_session: string, _text: string, delivering: () => void) => {
+      delivering();
+      return "ok" as const;
+    }),
     open: vi.fn(async () => true),
     openApp: vi.fn(async () => true),
     speak: (text) => spoken.push(text),
@@ -141,16 +144,22 @@ describe("VoiceConversation", () => {
     const reply = '{"say": "Передаю marshal.", "action": {"type": "tell_session", "session": "marshal", "text": "запусти тести"}}';
     const sent = harness({ ask: async () => reply });
     await sent.conversation.handle("скажи marshal запустити тести", "uk");
-    expect(sent.deps.tell).toHaveBeenCalledWith("marshal", "запусти тести");
-    expect(sent.spoken).toEqual(["Передаю marshal."]);
+    expect(sent.deps.tell).toHaveBeenCalledWith("marshal", "запусти тести", expect.any(Function));
+    expect(sent.spoken).toEqual(["Передаю marshal.", "Готово."]);
 
     const busy = harness({ ask: async () => reply, tell: async () => "busy" });
     await busy.conversation.handle("скажи marshal запустити тести", "uk");
     expect(busy.spoken).toEqual(["marshal зараз працює, скажи пізніше."]);
 
-    const failed = harness({ ask: async () => reply, tell: async () => "failed" });
+    const failed = harness({
+      ask: async () => reply,
+      tell: async (_session, _text, delivering) => {
+        delivering();
+        return "failed";
+      }
+    });
     await failed.conversation.handle("скажи marshal запустити тести", "uk");
-    expect(failed.spoken).toEqual(["Не вдалося передати в marshal, текст у буфері."]);
+    expect(failed.spoken).toEqual(["Передаю marshal.", "Не вдалося передати в marshal, текст у буфері."]);
   });
 
   it("opens an installed app, and says so when it is not there", async () => {

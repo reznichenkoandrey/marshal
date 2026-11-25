@@ -176,10 +176,11 @@ export class ConversationHistory {
 }
 
 export type TellResult = "ok" | "missing" | "ambiguous" | "busy" | "dialog" | "failed";
-type Line = "unheard" | "unclear" | "timeout" | "failed" | "missing" | "ambiguous" | "busy" | "dialog" | "delivery" | "noApp";
+type Line = "done" | "unheard" | "unclear" | "timeout" | "failed" | "missing" | "ambiguous" | "busy" | "dialog" | "delivery" | "noApp";
 
 const LINES: Record<ConversationLang, Record<Line, string>> = {
   uk: {
+    done: "Готово.",
     unheard: "Не почув.",
     unclear: "Не зрозумів, повтори.",
     timeout: "Не встиг, повтори.",
@@ -193,6 +194,7 @@ const LINES: Record<ConversationLang, Record<Line, string>> = {
     noApp: "Не знайшов застосунок {name}."
   },
   en: {
+    done: "Done.",
     unheard: "I didn't hear anything.",
     unclear: "I didn't get that, say it again.",
     timeout: "That took too long, say it again.",
@@ -215,7 +217,8 @@ export type ConversationDeps = {
   facts: () => ConversationFacts;
   /** Runs a Marshal feature; it says its own fixed reply and returns it. */
   runAction: (action: string) => Promise<string>;
-  tell: (session: string, text: string) => Promise<TellResult>;
+  /** `delivering` runs once the session passed its checks, before the slow focus and paste. */
+  tell: (session: string, text: string, delivering: () => void) => Promise<TellResult>;
   open: (session: string) => Promise<boolean>;
   /** Opens an installed app by its exact listed name; false when there is none. */
   openApp: (app: string) => Promise<boolean>;
@@ -300,15 +303,12 @@ export class VoiceConversation {
       }
       return this.fail(conversationLine("missing", lang, action.session), lang);
     }
-    const result = await this.deps.tell(action.session, action.text);
+    // Focus and paste take ~3 s: the confirmation is said while they run, "done" after.
+    const result = await this.deps.tell(action.session, action.text, () => this.deps.speak(reply.say, lang));
     this.deps.commands?.route({ kind: "session", target: action.session, outcome: result === "ok" ? "sent" : "failed" });
-    if (result === "ok") {
-      this.deps.speak(reply.say, lang);
-      return reply.say;
-    }
-    const line = conversationLine(result === "failed" ? "delivery" : result, lang, action.session);
+    const line = conversationLine(result === "ok" ? "done" : result === "failed" ? "delivery" : result, lang, action.session);
     this.deps.speak(line, lang);
-    return line;
+    return result === "ok" ? reply.say : line;
   }
 
   private fail(line: string, lang: ConversationLang): string {

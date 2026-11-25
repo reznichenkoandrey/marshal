@@ -3645,11 +3645,12 @@ function findConversationSession(name: string) {
   return matches[0];
 }
 
-async function tellSession(name: string, text: string): Promise<TellResult> {
+async function tellSession(name: string, text: string, delivering: () => void): Promise<TellResult> {
   const session = findConversationSession(name);
   if (!session) return "missing";
   if (session === "ambiguous") return "ambiguous";
   if (replyRefusal(session, name)) return session.status === "waiting" ? "dialog" : "busy";
+  delivering();
   const result = await replyToSession(session, text, replyDeps()).catch(() => "failed");
   if (result !== "ok") return "failed";
   // The session's answer is what the owner waits to hear: its Stop hook speaks it.
