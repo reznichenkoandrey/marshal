@@ -507,6 +507,11 @@ export class AssistantDispatcher implements AssistantRoutes {
     return true;
   }
 
+  /** Marshal answered a command itself (#506): a follow-up continues with the dispatcher. */
+  answeredLocally(): void {
+    this.notePrevious(DISPATCHER_NAME);
+  }
+
   private notePrevious(target: string, sessionId?: string): void {
     this.previous = { target, sessionId, at: Date.now() };
   }

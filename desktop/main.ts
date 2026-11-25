@@ -122,6 +122,7 @@ import {
   writeLastGreeted
 } from "./assistant/greeting.ts";
 import { matchSleepCommand } from "./assistant/sleep.ts";
+import { describeSessionStatus, matchLocalCommand, type LocalCommand } from "./assistant/local-command.ts";
 import { installWake, isWakeReady, WakeListener, wakeEngine, type WakeEngine } from "./assistant/wake/wake-listener.ts";
 import { checkSpeaker, enrolSpeaker, eraseProfile, installSpeaker, isSpeakerInstalled, loadProfile } from "./assistant/speaker/speaker-check.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
@@ -3519,8 +3520,39 @@ function handleVoiceCommand(text: string): void {
     return;
   }
   enableAssistantOnce();
-  assistantDispatcher?.submit(text);
   speechService?.warmUp();
+  const local = matchLocalCommand(text);
+  if (local) {
+    void answerLocally(text, local);
+    return;
+  }
+  assistantDispatcher?.submit(text);
+}
+
+// No model turn for these (#506): the same actions and wording the dispatcher would reach.
+async function answerLocally(text: string, command: LocalCommand): Promise<void> {
+  const log = assistantCommandLog();
+  log.add(text);
+  assistantDispatcher?.answeredLocally();
+  if (command.kind === "action") {
+    markVoice("answer");
+    try {
+      await assistantVoiceAction(command.action);
+      log.route({ kind: "feature", target: command.action, outcome: "answered" });
+    } catch (err) {
+      log.route({ kind: "feature", target: command.action, outcome: "failed" });
+      console.warn(`[assistant] local action ${command.action} failed:`, err instanceof Error ? err.message : err);
+    }
+    return;
+  }
+  const reply = command.kind === "status"
+    ? describeSessionStatus(listLiveSessions()
+      .filter((session) => !assistantDispatcher?.isDispatcher(session))
+      .map((session) => ({ project: session.name === GENERAL_NAME ? GENERAL_NAME : projectOf(session.cwd), status: session.status, waitingFor: session.waitingFor })), command.lang)
+    : command.lang === "uk" ? "Так, я тут. Що робимо?" : "Yes, I'm here. What are we doing?";
+  log.route({ kind: "general", target: "marshal", outcome: "answered" });
+  announceToAssistant(reply);
+  await answerAloud(reply);
 }
 
 // No open mic after an answer: a command starts with the name or a key, never room talk (#455).
