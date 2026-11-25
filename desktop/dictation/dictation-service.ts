@@ -16,6 +16,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import type { Readable } from "node:stream";
 
 import { BrowserWindow, clipboard } from "electron";
 
@@ -34,9 +35,11 @@ import {
   resolveBackendName,
   resolveDictationLanguage,
   buildDictationPrompt,
+  type TranscribeResult,
   type WhisperBackend
 } from "./whisper-backend.ts";
 import { EndOfSpeech, endOfSpeechOptions, parseMeterLine } from "./end-of-speech.ts";
+import { SonioxSttSession, sonioxSttKey } from "./soniox-stt.ts";
 
 // Hold to talk to Marshal (#361); this key also carries the right-⌘ gestures (#239, #242).
 const DEFAULT_TALK_HOTKEY = "RightCmd";
@@ -53,6 +56,8 @@ const MAX_RECORDING_MS = 60_000;
 // 1500 ms is generous enough to cover both without making a genuine failure
 // (recorder crashed silently) feel like a hang.
 const RECORDER_READY_MAX_WAIT_MS = 1_500;
+// The recorder's PCM pipe closes right after it exits; this only guards a pipe that never does.
+const PCM_DRAIN_MAX_WAIT_MS = 500;
 const currentFilePath = fileURLToPath(import.meta.url);
 const distDictationDir = path.dirname(currentFilePath);
 // asarUnpacked() — `child_process.spawn` cannot descend into app.asar (#82).
@@ -156,6 +161,8 @@ export class DictationService extends EventEmitter {
   private isStopping = false;
   /** Meter of the current open-mic recording; null when the recording has none. */
   private endOfSpeech: EndOfSpeech | null = null;
+  /** Soniox stream of the current assistant recording (#516); null = whisper only. */
+  private soniox: { session: SonioxSttSession; pcmClosed: Promise<void> } | null = null;
   private isTranscribing = false;
   private safetyTimer: NodeJS.Timeout | null = null;
   // True once audio-recorder has printed "ready" — AVCaptureSession armed,
@@ -219,6 +226,7 @@ export class DictationService extends EventEmitter {
       void fs.unlink(this.currentWavPath).catch(() => undefined);
       this.currentWavPath = null;
     }
+    this.dropSoniox();
   }
 
   /**
@@ -270,7 +278,7 @@ export class DictationService extends EventEmitter {
    */
   stopRecording(): void {
     // A second click before anyone spoke: whisper would invent text from the silence (#392).
-    if (this.endOfSpeech && !this.endOfSpeech.heard) this.handleHoldCancel(this.mode);
+    if (this.endOfSpeech && !this.heardSpeech()) this.handleHoldCancel(this.mode);
     else this.handleHoldEnd(this.mode);
   }
 
@@ -361,12 +369,18 @@ export class DictationService extends EventEmitter {
     const micUid = (process.env.MARSHAL_DICTATION_MIC ?? "").trim();
     const recorderArgs = micUid ? [wavPath, "--device", micUid] : [wavPath];
     if (endOnPause) recorderArgs.push("--meter");
-    debug("  spawn recorder:", this.recorderBin, "→", wavPath, micUid ? `(mic=${micUid})` : "");
+    const sonioxKey = sonioxSttKey(mode);
+    if (sonioxKey) recorderArgs.push("--pcm");
+    debug("  spawn recorder:", this.recorderBin, "→", wavPath, micUid ? `(mic=${micUid})` : "", sonioxKey ? "+soniox" : "");
 
-    const child = spawn(this.recorderBin, recorderArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(this.recorderBin, recorderArgs, {
+      stdio: ["ignore", "pipe", "pipe", sonioxKey ? "pipe" : "ignore"]
+    });
     this.recorderProcess = child;
     this.isStopping = false;
     this.recorderReady = false;
+    this.dropSoniox();
+    if (sonioxKey) this.openSoniox(sonioxKey, child, mode, endOnPause);
 
     // Safety net — force stop after MAX_RECORDING_MS if the user's keyup
     // event is ever lost by the OS (#49).
@@ -391,6 +405,7 @@ export class DictationService extends EventEmitter {
       console.warn("[dictation] recorder stderr:", chunk.toString("utf8").trim());
     });
     child.on("error", (err) => {
+      this.dropSoniox();
       this.settleAnswer(null);
       this.recorderProcess = null;
       this.currentWavPath = null;
@@ -401,6 +416,7 @@ export class DictationService extends EventEmitter {
       debug("  recorder exited, code=", code, "isStopping=", this.isStopping);
       this.recorderProcess = null;
       if (!this.isStopping) {
+        this.dropSoniox();
         this.settleAnswer(null);
         this.clearSafetyTimer();
         // Recorder died unexpectedly — clean up without transcribing (partial
@@ -435,9 +451,55 @@ export class DictationService extends EventEmitter {
         const verdict = detector.feed(db, Date.now());
         debug("  end-of-speech level", db, verdict ?? "");
         if (verdict === "answered") this.handleHoldEnd(mode);
-        else if (verdict === "silent") this.handleHoldCancel(mode);
+        // Soniox may hear a voice too quiet for the level threshold.
+        else if (verdict === "silent") (this.heardSpeech() ? this.handleHoldEnd(mode) : this.handleHoldCancel(mode));
       }
     });
+  }
+
+  private heardSpeech(): boolean {
+    return Boolean(this.endOfSpeech?.heard || this.soniox?.session.transcript.text);
+  }
+
+  /** Streams the recorder's PCM (fd 3) to Soniox while the owner speaks (#516). */
+  private openSoniox(key: string, child: ChildProcess, mode: DictationMode, endOnPause: boolean): void {
+    const pcm = child.stdio[3] as Readable | null;
+    if (!pcm) return;
+    const session = new SonioxSttSession(key, this.glossaryTerms(), () => {
+      // The server heard the end of speech: on the open mic that ends the command, like EndOfSpeech.
+      if (!endOnPause || this.soniox?.session !== session || this.recorderProcess !== child || this.isStopping) return;
+      if (session.transcript.text) this.handleHoldEnd(mode);
+    });
+    const pcmClosed = new Promise<void>((resolve) => pcm.once("close", () => resolve()));
+    pcm.on("data", (chunk: Buffer) => session.write(chunk));
+    pcm.on("error", () => undefined);
+    this.soniox = { session, pcmClosed };
+  }
+
+  private dropSoniox(): void {
+    this.soniox?.session.abort();
+    this.soniox = null;
+  }
+
+  /**
+   * Soniox text when this recording streamed to it, else whisper on the WAV. Any
+   * Soniox failure (402 balance, network, timeout) falls back to whisper for this command.
+   */
+  private async transcribeRecording(wavPath: string): Promise<TranscribeResult> {
+    const soniox = this.soniox;
+    this.soniox = null;
+    if (soniox) {
+      const started = Date.now();
+      try {
+        await Promise.race([soniox.pcmClosed, new Promise((resolve) => setTimeout(resolve, PCM_DRAIN_MAX_WAIT_MS))]);
+        const text = await soniox.session.finish();
+        debug("soniox text in", Date.now() - started, "ms");
+        return { text };
+      } catch (err) {
+        console.warn("[dictation] soniox failed, whisper fallback:", err instanceof Error ? err.message : String(err));
+      }
+    }
+    return this.backend.transcribe(wavPath, { language: this.language, prompt: this.prompt });
   }
 
   private handleHoldEnd(mode: DictationMode): void {
@@ -465,6 +527,7 @@ export class DictationService extends EventEmitter {
     const child = this.recorderProcess;
     const wavPath = this.currentWavPath;
     if (!child || this.isStopping || mode !== this.mode) return;
+    this.dropSoniox();
     this.settleAnswer(null);
     this.isStopping = true;
     this.clearSafetyTimer();
@@ -575,7 +638,7 @@ export class DictationService extends EventEmitter {
       // WAV header is 44 bytes; anything smaller means we captured nothing.
       if (this.mode === "answer") {
         if (!stat || stat.size < 1024) return;
-        const result = await this.backend.transcribe(wavPath, { language: this.language, prompt: this.prompt });
+        const result = await this.transcribeRecording(wavPath);
         const text = transcriptToDeliver(result.text).trim();
         this.settleAnswer(text || null);
         return;
@@ -593,10 +656,7 @@ export class DictationService extends EventEmitter {
       }
 
       debug("transcribing… lang=", this.language ?? "auto");
-      const result = await this.backend.transcribe(wavPath, {
-        language: this.language,
-        prompt: this.prompt
-      });
+      const result = await this.transcribeRecording(wavPath);
       debug("transcribed:", result.text.length, "chars, lang=", result.language);
       // Collapse whisper repeat loops before either the clipboard or the
       // synthetic paste sees the text (#99). Keep the original on `result`
@@ -622,6 +682,7 @@ export class DictationService extends EventEmitter {
         );
       }
     } finally {
+      this.dropSoniox();
       this.settleAnswer(null);
       this.isTranscribing = false;
       this.emit("transcribe-end");

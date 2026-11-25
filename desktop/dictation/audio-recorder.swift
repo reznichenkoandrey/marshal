@@ -30,6 +30,8 @@
 //   audio-recorder <out.wav> --device <coreaudio-uniqueID>
 //   audio-recorder <out.wav> --meter   (also prints "level <dBFS>" every 100 ms
 //                                        after "ready", for end-of-speech detection, #375)
+//   audio-recorder <out.wav> --pcm     (also streams raw 16 kHz mono s16le to fd 3 while
+//                                        recording, for Soniox voice commands, #516)
 
 import Foundation
 import AVFoundation
@@ -49,6 +51,7 @@ let outURL = URL(fileURLWithPath: outPath)
 
 var requestedDeviceUID: String? = nil
 var meter = false
+var pcm = false
 var i = 2
 while i < args.count {
     let arg = args[i]
@@ -60,6 +63,11 @@ while i < args.count {
     }
     if arg == "--meter" {
         meter = true
+        i += 1
+        continue
+    }
+    if arg == "--pcm" {
+        pcm = true
         i += 1
         continue
     }
@@ -237,7 +245,56 @@ guard recorder.record() else {
     exit(5)
 }
 
+// ── PCM stream (#516) ──
+// AVAudioRecorder exposes no samples, so a second input client (AudioQueue,
+// like wake-listener) taps the same default input. The WAV above stays the
+// whisper fallback, untouched.
+
+let pcmFd: Int32 = 3
+// 50 ms buffers: the tail lost on SIGTERM is at most one buffer of trailing silence.
+let pcmBufferBytes: UInt32 = 1600
+var pcmQueue: AudioQueueRef? = nil
+
+if pcm {
+    // Marshal closing its end must not kill us before the WAV header is written.
+    signal(SIGPIPE, SIG_IGN)
+    var format = AudioStreamBasicDescription(
+        mSampleRate: 16000,
+        mFormatID: kAudioFormatLinearPCM,
+        mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+        mBytesPerPacket: 2,
+        mFramesPerPacket: 1,
+        mBytesPerFrame: 2,
+        mChannelsPerFrame: 1,
+        mBitsPerChannel: 16,
+        mReserved: 0
+    )
+    let callback: AudioQueueInputCallback = { _, queue, buffer, _, _, _ in
+        let size = Int(buffer.pointee.mAudioDataByteSize)
+        if size > 0 { _ = write(pcmFd, buffer.pointee.mAudioData, size) }
+        AudioQueueEnqueueBuffer(queue, buffer, 0, nil)
+    }
+    var queue: AudioQueueRef?
+    if AudioQueueNewInput(&format, callback, nil, nil, nil, 0, &queue) == noErr, let queue {
+        for _ in 0..<3 {
+            var buffer: AudioQueueBufferRef?
+            AudioQueueAllocateBuffer(queue, pcmBufferBytes, &buffer)
+            if let buffer { AudioQueueEnqueueBuffer(queue, buffer, 0, nil) }
+        }
+        if AudioQueueStart(queue, nil) == noErr {
+            pcmQueue = queue
+        } else {
+            FileHandle.standardError.write("pcm: cannot start the audio queue\n".data(using: .utf8)!)
+        }
+    } else {
+        FileHandle.standardError.write("pcm: cannot open the audio queue\n".data(using: .utf8)!)
+    }
+    // No queue: fd 3 closes on exit and Marshal falls back to the WAV.
+    if pcmQueue == nil { close(pcmFd) }
+}
+
 func shutdown() -> Never {
+    if let queue = pcmQueue { AudioQueueStop(queue, true) }
     // stop() flushes the WAV header and closes the file synchronously. Safe
     // to call from a DispatchSource signal handler on the main queue.
     recorder.stop()

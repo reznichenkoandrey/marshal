@@ -227,6 +227,8 @@ export type MarshalSettings = {
   assistantWake: boolean;
   /** A short sound when a voice command goes to the model (#507). */
   assistantCue: boolean;
+  /** Voice commands transcribed by Soniox in the cloud, whisper as fallback (#516). Opt-in. */
+  assistantSonioxStt: boolean;
   /** Speaker check (#287): a wake command counts only in the owner's voice. Opt-in. */
   assistantSpeakerCheck: boolean;
   /** Where the widget was dragged last; null = top-right of the primary display. */
@@ -311,6 +313,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   workflowsEnabled: false,
   assistantWake: false,
   assistantCue: true,
+  assistantSonioxStt: false,
   assistantSpeakerCheck: false,
   assistantWidgetPosition: null,
   assistantDispatcher: false,
@@ -401,6 +404,7 @@ export function applySettingsToEnv(settings: MarshalSettings): void {
   process.env.MARSHAL_DICTATION_LANGUAGE = settings.dictationLanguage;
   process.env.MARSHAL_DICTATION_AUTOPASTE = settings.dictationAutoPaste ? "1" : "0";
   process.env.MARSHAL_DICTATION_CLAUDE_APP = settings.dictationUseClaudeApp ? "1" : "0";
+  process.env.MARSHAL_ASSISTANT_STT = settings.assistantSonioxStt ? "soniox" : "whisper";
   process.env.MARSHAL_DICTATION_HOLD_DELAY_MS = String(settings.dictationHoldDelayMs);
   process.env.MARSHAL_DICTATION_TOGGLE_TAP_COUNT = String(settings.dictationToggleTapCount);
   process.env.MARSHAL_DICTATION_PROMPT = settings.dictationPrompt;
@@ -656,6 +660,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
     workflowsEnabled: typeof input.workflowsEnabled === "boolean" ? input.workflowsEnabled : DEFAULT_SETTINGS.workflowsEnabled,
     assistantWake: typeof input.assistantWake === "boolean" ? input.assistantWake : DEFAULT_SETTINGS.assistantWake,
     assistantCue: typeof input.assistantCue === "boolean" ? input.assistantCue : DEFAULT_SETTINGS.assistantCue,
+    assistantSonioxStt: input.assistantSonioxStt === true,
     assistantSpeakerCheck: input.assistantSpeakerCheck === true,
     assistantWidgetPosition: normalizePoint(input.assistantWidgetPosition),
     assistantDispatcher: typeof input.assistantDispatcher === "boolean" ? input.assistantDispatcher : DEFAULT_SETTINGS.assistantDispatcher,
