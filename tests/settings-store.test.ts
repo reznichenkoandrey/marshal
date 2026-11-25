@@ -175,6 +175,7 @@ describe("saveSettings", () => {
       workflowsEnabled: false,
       assistantWake: false,
       assistantCue: true,
+      assistantSonioxStt: false,
       assistantSpeakerCheck: false,
       assistantWidget: true,
       assistantWidgetPosition: { x: 1500, y: 40 },
@@ -200,6 +201,16 @@ describe("saveSettings", () => {
     expect(loadSettings().assistantCue).toBe(true);
     expect(saveSettings({ assistantCue: false }).assistantCue).toBe(false);
     expect(loadSettings().assistantCue).toBe(false);
+  });
+
+  it("keeps Soniox for voice commands opt-in and maps it to the env (#516)", () => {
+    expect(loadSettings().assistantSonioxStt).toBe(false);
+    const saved = saveSettings({ assistantSonioxStt: true });
+    expect(saved.assistantSonioxStt).toBe(true);
+    applySettingsToEnv(saved);
+    expect(process.env.MARSHAL_ASSISTANT_STT).toBe("soniox");
+    applySettingsToEnv(saveSettings({ assistantSonioxStt: false }));
+    expect(process.env.MARSHAL_ASSISTANT_STT).toBe("whisper");
   });
 
   it("keeps the Claude desktop host for the assistant (#437)", () => {

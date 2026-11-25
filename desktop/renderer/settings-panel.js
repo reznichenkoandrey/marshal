@@ -70,6 +70,8 @@ const dom = {
   settingsAssistantWidget: document.getElementById("settings-assistant-widget"),
   settingsAssistantGlow: document.getElementById("settings-assistant-glow"),
   settingsAssistantCue: document.getElementById("settings-assistant-cue"),
+  settingsAssistantSonioxStt: document.getElementById("settings-assistant-soniox-stt"),
+  settingsAssistantSonioxSttStatus: document.getElementById("settings-assistant-soniox-stt-status"),
   settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
@@ -298,6 +300,11 @@ function showSonioxState() {
   if (!status) return;
   status.hidden = dom.settingsSpeechEngine?.value !== "soniox";
   status.textContent = t(sonioxConfigured ? "settings.sonioxReady" : "settings.sonioxNoKey");
+  if (dom.settingsAssistantSonioxSttStatus) {
+    dom.settingsAssistantSonioxSttStatus.textContent = t(
+      sonioxConfigured ? "settings.assistantSonioxSttHint" : "settings.sonioxSttNoKey"
+    );
+  }
 }
 
 function showHolosState(installed) {
@@ -495,6 +502,7 @@ async function openSettings() {
     if (dom.settingsAssistantDispatcher) dom.settingsAssistantDispatcher.checked = current.assistantDispatcher ?? false;
     if (dom.settingsAssistantWake) dom.settingsAssistantWake.checked = current.assistantWake ?? false;
     if (dom.settingsAssistantCue) dom.settingsAssistantCue.checked = current.assistantCue ?? true;
+    if (dom.settingsAssistantSonioxStt) dom.settingsAssistantSonioxStt.checked = current.assistantSonioxStt ?? false;
     void refreshWakeState();
     if (dom.settingsAssistantSpeakerCheck) dom.settingsAssistantSpeakerCheck.checked = current.assistantSpeakerCheck ?? false;
     void refreshSpeakerState();
@@ -714,6 +722,7 @@ async function saveSettingsFromForm() {
     assistantDispatcher: dom.settingsAssistantDispatcher?.checked ?? false,
     assistantWake: dom.settingsAssistantWake?.checked ?? false,
     assistantCue: dom.settingsAssistantCue?.checked ?? true,
+    assistantSonioxStt: dom.settingsAssistantSonioxStt?.checked ?? false,
     assistantSpeakerCheck: dom.settingsAssistantSpeakerCheck?.checked ?? false,
     workflowsEnabled: dom.settingsWorkflowsEnabled?.checked ?? false,
     assistantWidget: dom.settingsAssistantWidget?.checked ?? false,
