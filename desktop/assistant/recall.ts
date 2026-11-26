@@ -193,10 +193,10 @@ function userText(o: Record<string, unknown>): string | null {
 }
 
 /** One transcript as a few facts; null when it is not this project's or not allowed (#303). */
-export function readSession(file: string, mtimeMs: number, folder: string, roots: readonly string[]): RecallSession | null {
+export function readSession(file: string, mtimeMs: number, folders: readonly string[], roots: readonly string[]): RecallSession | null {
   const head = lines(readHead(file));
   const cwd = head.find((o) => typeof o.cwd === "string")?.cwd;
-  if (typeof cwd !== "string" || !isUnderRoots(cwd, roots) || !isUnderRoots(cwd, [folder])) return null;
+  if (typeof cwd !== "string" || !isUnderRoots(cwd, roots) || !isUnderRoots(cwd, folders)) return null;
   const { text, partial } = readTail(file);
   const tail = lines(partial ? text.slice(text.indexOf("\n") + 1) : text);
   const all = [...head, ...tail];
@@ -216,12 +216,33 @@ export function readSession(file: string, mtimeMs: number, folder: string, roots
   return { at: mtimeMs, title, cwd, branch: turns.branch, firstAsk, lastAsk, lastAnswer, prs: [...prs] };
 }
 
-/** Transcript folders of the repo and of its `.claude/worktrees/*`, by Claude Code's cwd encoding. */
-function transcriptDirs(projectsDir: string, folder: string): string[] {
-  const encoded = folder.replace(/[^A-Za-z0-9]/gu, "-");
+/** The repo plus its linked worktrees anywhere on disk (`git worktree add ../Repo-x`), read from `.git/worktrees/*\/gitdir`. */
+export function projectFolders(folder: string): string[] {
+  const folders = [folder];
+  const meta = path.join(folder, ".git", "worktrees");
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(meta);
+  } catch {
+    return folders;
+  }
+  for (const name of names) {
+    try {
+      const gitFile = fs.readFileSync(path.join(meta, name, "gitdir"), "utf8").trim();
+      if (path.isAbsolute(gitFile)) folders.push(path.dirname(gitFile));
+    } catch {
+      // A pruned worktree leaves no gitdir file.
+    }
+  }
+  return folders;
+}
+
+/** Transcript folders of the repo and of its worktrees, by Claude Code's cwd encoding. */
+function transcriptDirs(projectsDir: string, folders: readonly string[]): string[] {
+  const encoded = folders.map((folder) => folder.replace(/[^A-Za-z0-9]/gu, "-"));
   try {
     return fs.readdirSync(projectsDir)
-      .filter((dir) => dir === encoded || dir.startsWith(`${encoded}--claude-worktrees-`))
+      .filter((dir) => encoded.some((base) => dir === base || dir.startsWith(`${base}--claude-worktrees-`)))
       .map((dir) => path.join(projectsDir, dir));
   } catch {
     return [];
@@ -230,7 +251,8 @@ function transcriptDirs(projectsDir: string, folder: string): string[] {
 
 export function readSessions(projectsDir: string, folder: string, roots: readonly string[], since: number): RecallSession[] {
   const files: { file: string; mtimeMs: number }[] = [];
-  for (const dir of transcriptDirs(projectsDir, folder)) {
+  const folders = projectFolders(folder);
+  for (const dir of transcriptDirs(projectsDir, folders)) {
     let names: string[] = [];
     try {
       names = fs.readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
@@ -249,7 +271,7 @@ export function readSessions(projectsDir: string, folder: string, roots: readonl
   files.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return files.slice(0, MAX_SESSIONS).flatMap(({ file, mtimeMs }) => {
     try {
-      return readSession(file, mtimeMs, folder, roots) ?? [];
+      return readSession(file, mtimeMs, folders, roots) ?? [];
     } catch {
       return [];
     }
@@ -294,8 +316,7 @@ export function buildRecall(options: RecallOptions): string {
   const sessions = readSessions(options.projectsDir ?? path.join(os.homedir(), ".claude", "projects"), project.folder, roots, since);
   if (sessions.length === 0) out.push("- none");
   for (const session of sessions) {
-    const marker = session.cwd.indexOf(`${path.sep}.claude${path.sep}worktrees${path.sep}`);
-    const worktree = marker >= 0 ? path.basename(session.cwd) : null;
+    const worktree = session.cwd === project.folder ? null : path.basename(session.cwd);
     const prsText = session.prs.map((n) => `PR #${n}${prState.has(n) ? ` (${prState.get(n)})` : ""}`).join(", ");
     const meta = [session.branch && `branch ${session.branch}`, worktree && `worktree ${worktree}`, prsText || "no PR"].filter(Boolean).join(" · ");
     out.push(`- ${clock(session.at)} ${session.title ? JSON.stringify(session.title) : "(untitled)"} · ${meta}`);

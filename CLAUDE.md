@@ -843,7 +843,8 @@
   `general`): deep link `claude://code/new` у теці проєкту і Return, як у диспетчера (`openDesktopSession`). Якщо поле
   вводу не у фокусі, brief лишається в полі, а Marshal каже натиснути Enter. **Проєкти — лише з `claudeCodeRoutingRoots`**
   (#303): корінь або його пряма підтека з `.git`-текою (linked worktree — не проєкт), transcript поза теками не
-  читається. Після `recall` дія `tell_session` заборонена в коді: текст із transcript-ів не друкується в живу сесію.
+  читається. Сесії linked worktree належать його репо: і `.claude/worktrees/*`, і сусідні теки на кшталт `Snoriq-clock`
+  (шляхи з `<repo>/.git/worktrees/*/gitdir`). Після `recall` дія `tell_session` заборонена в коді: текст із transcript-ів не друкується в живу сесію.
   Не більше 6 ходів моделі на команду (`MAX_STEPS`). Перший хід, як і раніше, обмежено 8 с, кожен наступний — 20 с
   (`AGENT_TURN_TIMEOUT_MS`). Модель та сама, що в простого режиму (`assistantDispatcherModel`, haiku): легкі кроки
   мають бути швидкими, а важку роботу робить відкрита сесія Claude. Тести — `tests/assistant-recall.test.ts`.

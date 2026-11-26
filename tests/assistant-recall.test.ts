@@ -104,6 +104,17 @@ describe("buildRecall", () => {
     expect(digest).not.toContain("secret work");
   });
 
+  it("reads sessions of a linked worktree next to the repo", () => {
+    const repo = path.join(roots[0], "Snoriq");
+    const sibling = path.join(roots[0], "Snoriq-clock");
+    write(path.join(repo, ".git", "worktrees", "clock", "gitdir"), `${path.join(sibling, ".git")}\n`);
+    write(path.join(projectsDir, sibling.replace(/[^A-Za-z0-9]/gu, "-"), "d.jsonl"),
+      transcript(sibling, [{ type: "user", message: { content: "доробити годинник пристрою" } }]));
+    const digest = buildRecall({ project: { name: "Snoriq", folder: repo }, days: 3, now, roots, prs: [], projectsDir, shotsDir });
+    expect(digest).toContain("worktree Snoriq-clock");
+    expect(digest).toContain("first ask: доробити годинник пристрою");
+  });
+
   it("says when there is nothing and when PRs are unknown", () => {
     const digest = buildRecall({ project: { name: "Snoriq", folder: path.join(roots[0], "Snoriq") }, days: 3, now, roots, prs: null, projectsDir, shotsDir });
     expect(digest).toContain("Handoff notes (newest first):\n- none");
