@@ -56,7 +56,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "",
   "action, when the owner asks for one, otherwise null:",
   '- {"type": "feature", "name": "<feature>", "words": "<owner\'s words, only where the feature takes words>"}',
-  '- {"type": "tell_session", "session": "<exact session name from the list>", "text": "<what the owner wants from that session, in their words>"}',
+  '- {"type": "tell_session", "session": "<exact session name from the list>", "text": "<the owner’s words for that session, verbatim: never shorten, soften or correct them>"}',
   '- {"type": "open_session", "session": "<exact session name from the list>"}',
   '- {"type": "peek_session", "session": "<exact session name from the list>"}',
   '- {"type": "open_app", "app": "<exact name from Installed apps>"}',

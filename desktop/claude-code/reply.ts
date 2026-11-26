@@ -15,7 +15,8 @@ const execFileAsync = promisify(execFile);
 // A terminal tab is in front at once; Claude desktop has to open the session first.
 const TAB_SETTLE_MS = 300;
 const DESKTOP_SETTLE_MS = 900;
-const PASTE_SETTLE_MS = 150;
+// 150 ms left the first paste unsent in Claude desktop (live check 2026-11-26).
+const PASTE_SETTLE_MS = 400;
 
 /** Why the words must not be typed into this session; null = go ahead. */
 export function replyRefusal(session: Pick<ClaudeSession, "name" | "status"> | undefined, name: string): string | null {

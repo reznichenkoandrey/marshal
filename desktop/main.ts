@@ -3502,7 +3502,8 @@ async function syncWakeListener(): Promise<void> {
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
     speaker: { enabled: () => loadSettings().assistantSpeakerCheck, verify: verifyWakeSpeaker },
     // Both spellings: the owner says «Снорік», the folder is Snoriq.
-    context: () => ["Маршал", ...recallProjects().flatMap((project) => [project.name, pronounceForUkrainian(project.name)])],
+    // «лог» came out as «лох» without a hint (live check 2026-11-26).
+    context: () => ["Маршал", "лог", "читай лог", ...recallProjects().flatMap((project) => [project.name, pronounceForUkrainian(project.name)])],
     onCommand: (text) => handleVoiceCommand(text),
     // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {
