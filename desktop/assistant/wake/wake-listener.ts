@@ -190,6 +190,7 @@ export class WakeListener {
   // After the name alone: the next thing said is the command, no name needed (#433).
   private followUpUntil = 0;
   private followUp = false;
+  private answer: ((text: string | null) => void) | null = null;
   // apple engine: where the helper writes the held stretch's audio for the speaker check (#287).
   private clipPath: string | null = null;
   private sentContext = "";
@@ -237,6 +238,7 @@ export class WakeListener {
   }
 
   stop(): void {
+    this.answer?.(null);
     this.stopped = true;
     const child = this.child;
     this.child = null;
@@ -254,6 +256,28 @@ export class WakeListener {
     // The command is already being heard; arming now would turn the next room talk into one.
     if (this.capturing) return;
     this.followUpUntil = Date.now() + ms;
+  }
+
+  /**
+   * apple engine: the owner's answer to Marshal's own question, heard by this helper with its
+   * project-name hints. The dictation recorder dropped a quiet voice and its mic switched AirPods
+   * to the headset profile, which stalled the next phrase (live check 2026-11-26). null = no answer.
+   */
+  listenForAnswer(ms: number): Promise<string | null> {
+    this.answer?.(null);
+    this.listenForCommand(ms);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        // Speech under way when the window closes is still the answer.
+        if (!this.capturing) settle(null);
+      }, ms);
+      const settle = (text: string | null) => {
+        clearTimeout(timer);
+        if (this.answer === settle) this.answer = null;
+        resolve(text);
+      };
+      this.answer = settle;
+    });
   }
 
   /** Marshal speaks, dictation records or transcribes: the mic hears Marshal or a command already, not a wake phrase. */
@@ -384,6 +408,11 @@ export class WakeListener {
       this.endCapture();
     }
     // After endCapture: onNameOnly arms the follow-up window, which a capture under way refuses.
+    if (this.answer) {
+      // Only words heard in the answer window answer; a capture begun before it goes on as usual.
+      this.answer(followUp ? command || null : null);
+      if (followUp) return;
+    }
     if (command === "") this.deps.onNameOnly();
     else if (command !== null) this.deps.onCommand(command);
   }

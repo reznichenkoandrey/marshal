@@ -3773,6 +3773,8 @@ async function listenAfterSpeech(): Promise<string | null> {
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
   ]);
   if (!quiet || !(await openMicAllowed(openMicState()))) return null;
+  // The wake helper hears quiet voices and project names; the recorder's mic stalled AirPods playback.
+  if (wakeListener && wakeListenerEngine === "apple") return wakeListener.listenForAnswer(WAKE_FOLLOW_UP_MS);
   return dictationService.listenForAnswer();
 }
 

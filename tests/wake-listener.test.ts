@@ -253,5 +253,60 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     });
     expect(command).toBe("відкрий перекладач");
   }, 10_000);
+
+  it("apple engine: hears the answer to Marshal's own question and does not run it as a command", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+let timer = null;
+setTimeout(() => console.log("partial Snoriq"), 300);
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  if (line === "hold") timer = setInterval(() => console.log("level -60"), 100);
+  if (line === "end") {
+    clearInterval(timer);
+    console.log("final Snoriq");
+  }
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const commands: string[] = [];
+    const listener = new WakeListener({
+      engine: "apple",
+      binPath: bin,
+      transcribe: async () => "",
+      allowed: async () => true,
+      onCommand: (text) => commands.push(text),
+      onNameOnly: () => undefined,
+      onPhase: () => undefined
+    });
+    listener.start();
+    const answer = await listener.listenForAnswer(3_000);
+    listener.stop();
+    expect(answer).toBe("Snoriq");
+    expect(commands).toEqual([]);
+  }, 10_000);
+
+  it("apple engine: no answer in the window is null", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(bin, `#!${process.execPath}\nprocess.stdin.resume();\n`);
+    chmodSync(bin, 0o755);
+    const listener = new WakeListener({
+      engine: "apple",
+      binPath: bin,
+      transcribe: async () => "",
+      allowed: async () => true,
+      onCommand: () => undefined,
+      onNameOnly: () => undefined,
+      onPhase: () => undefined
+    });
+    listener.start();
+    const answer = await listener.listenForAnswer(300);
+    listener.stop();
+    expect(answer).toBeNull();
+  });
 });
 
