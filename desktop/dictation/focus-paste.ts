@@ -230,8 +230,8 @@ export function useClaudeAppDictation(focus: FocusProbeResult, enabled: boolean)
   return enabled && (focus.frontmostPath ?? "").endsWith("/Claude.app");
 }
 
-/** ⌘C / ⌘V / ⌘D, or a bare Return / Escape (dictating into a Claude Code session, #264). */
-export function sendKeystroke(key: "c" | "v" | "d" | "return" | "escape", options: PasteOptions = {}): Promise<void> {
+/** ⌘C / ⌘V / ⌘D, a bare Return / Escape (#264), or a media key: play/pause, next, previous (#541). */
+export function sendKeystroke(key: "c" | "v" | "d" | "return" | "escape" | "play" | "next" | "previous", options: PasteOptions = {}): Promise<void> {
   const binPath = options.binPath ?? DEFAULT_SEND_KEY_BIN;
   const timeoutMs = options.timeoutMs ?? PASTE_TIMEOUT_MS;
 

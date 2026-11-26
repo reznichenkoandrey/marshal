@@ -27,8 +27,12 @@ const FEATURES: ReadonlyArray<[name: string, words: boolean, description: string
   ["deck", true, "make slides; words = the topic and how many slides"],
   ["decks", false, "open the last slides"],
   ["join-meeting", false, "join the next meeting"],
-  ["skip", false, "stop talking"]
+  ["skip", false, "stop talking"],
+  ["play-pause", false, "the play/pause media key: pause or resume what is playing (YouTube, Music, Spotify)"],
+  ["next-track", false, "the next-track media key"],
+  ["previous-track", false, "the previous-track media key"]
 ];
+const MEDIA = new Set(["play-pause", "next-track", "previous-track"]);
 const FEATURE_WORDS = new Map(FEATURES.map(([name, words]) => [name, words]));
 
 const MAX_SAY = 400;
@@ -59,7 +63,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   '- {"type": "tell_session", "session": "<exact session name from the list>", "text": "<what the owner wants from that session, in their words>"}',
   '- {"type": "open_session", "session": "<exact session name from the list>"}',
   '- {"type": "peek_session", "session": "<exact session name from the list>"}',
-  '- {"type": "open_app", "app": "<exact name from Installed apps>"}',
+  '- {"type": "open_app", "app": "<exact name from Installed apps>", "media": "<optional: play-pause, next-track or previous-track, pressed after the app opens>"}',
   '- {"type": "recall", "project": "<exact name from Projects, or \"*\" when the owner named none>", "days": <1-30, how far back, default 7>}',
   '- {"type": "ask"} (say is your question; you then get the owner\'s spoken answer)',
   '- {"type": "start_session", "project": "<exact name from Projects>", "brief": "<the full task for a new Claude Code session>"}',
@@ -68,6 +72,8 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   ...FEATURES.map(([name, , description]) => `- ${name}: ${description}`),
   "",
   "Opening a program on this Mac is open_app with its exact name from Installed apps, even when a session has a similar name. Not in the list = say it is not installed.",
+  "Pause, resume, next or previous in a player: the media feature; it works on what is playing now, the app need not be in front. Open an app and resume or pause in it: open_app with media.",
+  "play-pause is one toggle key: Marshal cannot see whether something is playing, so say what you pressed, not what will happen.",
   "Sessions are Claude Code sessions working on the owner's projects; open_session only when the owner asks for a session.",
   "- A question about how sessions are doing: answer from the list only (working, idle, waiting for an answer or a permission).",
   "- A question about one session's work (what stage, what it is doing, is it done, what it asked): peek_session. You then get its last turns and answer from them.",
@@ -104,7 +110,7 @@ export type ConversationAction =
   | { kind: "tell"; session: string; text: string }
   | { kind: "open"; session: string }
   | { kind: "peek"; session: string }
-  | { kind: "app"; app: string }
+  | { kind: "app"; app: string; media: string | null }
   | { kind: "recall"; project: string; days: number | null }
   | { kind: "ask" }
   | { kind: "start"; project: string; brief: string };
@@ -169,7 +175,8 @@ function parseAction(value: unknown): ConversationAction | null | undefined {
   }
   if (action.type === "open_app") {
     const app = text(action.app, 200);
-    return app ? { kind: "app", app } : undefined;
+    const media = typeof action.media === "string" && MEDIA.has(action.media) ? action.media : null;
+    return app ? { kind: "app", app, media } : undefined;
   }
   const session = text(action.session, 200);
   if (!session) return undefined;
@@ -301,7 +308,8 @@ export type ConversationDeps = {
   /** The session's last turns as text; "missing" / "unreadable" when there is nothing Marshal may read. */
   peek: (session: string) => string | "missing" | "unreadable";
   /** Opens an installed app by its exact listed name; false when there is none. */
-  openApp: (app: string) => Promise<boolean>;
+  /** media: a media feature to press once the app is open. */
+  openApp: (app: string, media: string | null) => Promise<boolean>;
   speak: (text: string, lang: ConversationLang) => void;
   /** The project digest (#530); null when the project is not one Marshal may read. */
   recall: (project: string, days: number | null) => Promise<string | null>;
@@ -410,7 +418,7 @@ export class VoiceConversation {
       }
     }
     if (action.kind === "app") {
-      const opened = await this.deps.openApp(action.app).catch(() => false);
+      const opened = await this.deps.openApp(action.app, action.media).catch(() => false);
       this.deps.commands?.route({ kind: "feature", target: action.app, outcome: opened ? "answered" : "failed" });
       if (opened) {
         this.deps.speak(reply.say, lang);
