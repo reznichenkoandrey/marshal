@@ -4,7 +4,13 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { wakeCommand, WakeListener } from "../desktop/assistant/wake/wake-listener.ts";
+import { wakeCommand, wakeContextLine, WakeListener } from "../desktop/assistant/wake/wake-listener.ts";
+
+describe("wakeContextLine", () => {
+  it("drops duplicates, blanks and line breaks", () => {
+    expect(wakeContextLine(["Snoriq", " Снорік ", "", "Snoriq", "a\nb"])).toBe("context Snoriq\tСнорік\ta b");
+  });
+});
 
 describe("wakeCommand (#274)", () => {
   it("keeps what follows the name", () => {
@@ -158,11 +164,12 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
           resolve(text);
         },
         onNameOnly: () => reject(new Error("name only")),
-        onPhase: () => undefined
+        onPhase: () => undefined,
+        context: () => ["Snoriq", "Снорік", "Snoriq"]
       });
       listener.start();
     });
-    expect(command).toBe("відкрий перекладач. [hold,end]");
+    expect(command).toBe("відкрий перекладач. [context Snoriq\tСнорік,hold,end]");
   }, 10_000);
 
   it("apple engine: a quiet voice still counts while its text keeps coming (#433)", async () => {

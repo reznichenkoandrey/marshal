@@ -130,6 +130,21 @@ describe("buildRecall", () => {
     expect(activity).not.toContain("secret work");
   });
 
+  it("keeps a quiet project visible next to a busy one", () => {
+    const repo = path.join(roots[0], "Snoriq");
+    const marshal = path.join(roots[0], "marshal");
+    fs.mkdirSync(path.join(marshal, ".git"), { recursive: true });
+    write(path.join(projectsDir, repo.replace(/[^A-Za-z0-9]/gu, "-"), "old.jsonl"),
+      transcript(repo, [{ type: "user", message: { content: "зроби NightNormalizer" } }]), now - 3 * 24 * 60 * 60_000);
+    for (let index = 0; index < 30; index += 1) {
+      write(path.join(projectsDir, marshal.replace(/[^A-Za-z0-9]/gu, "-"), `m${index}.jsonl`),
+        transcript(marshal, [{ type: "user", message: { content: `marshal task ${index}` } }]), now - index * 60_000);
+    }
+    const activity = buildActivity({ projects: listProjects(roots), days: 7, now, roots, projectsDir });
+    expect(activity).toContain("first ask: зроби NightNormalizer");
+    expect(activity.match(/ marshal · /gu)).toHaveLength(4);
+  });
+
   it("says when there is nothing and when PRs are unknown", () => {
     const digest = buildRecall({ project: { name: "Snoriq", folder: path.join(roots[0], "Snoriq") }, days: 3, now, roots, prs: null, projectsDir, shotsDir });
     expect(digest).toContain("Handoff notes (newest first):\n- none");

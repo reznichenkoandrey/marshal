@@ -54,6 +54,7 @@ import {
   VoiceConversation,
   type TellResult
 } from "./assistant/conversation.ts";
+import { pronounceForUkrainian } from "./speech/speech-policy.ts";
 import { buildActivity, buildRecall, findProject, listProjects, parsePrList, recallDays, type RecallPr, type RecallProject } from "./assistant/recall.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
@@ -3499,6 +3500,8 @@ async function syncWakeListener(): Promise<void> {
     transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
     speaker: { enabled: () => loadSettings().assistantSpeakerCheck, verify: verifyWakeSpeaker },
+    // Both spellings: the owner says «Снорік», the folder is Snoriq.
+    context: () => ["Маршал", ...recallProjects().flatMap((project) => [project.name, pronounceForUkrainian(project.name)])],
     onCommand: (text) => handleVoiceCommand(text),
     // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {

@@ -24,6 +24,7 @@
 //                      as a 16 kHz mono 16-bit WAV before `final` is printed.
 //   cancel             drop it, listen again
 //   pause | resume     ignore the mic (Marshal speaking, dictation) / listen again
+//   context <w>\t<w>…  words to expect (project names), from the next stretch on
 // EOF on stdin (main gone) stops the helper.
 //
 // Usage:
@@ -122,9 +123,16 @@ final class Stretch {
     let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
     input = continuation
     let analyzer = analyzer
+    let words = contextWords
     var owner: Stretch?
     reader = Task {
       do {
+        // Without it «Снорік» came out as «парі»: the model does not know the owner's project names.
+        if !words.isEmpty {
+          let context = AnalysisContext()
+          context.contextualStrings[.general] = words
+          try await analyzer.setContext(context)
+        }
         try await analyzer.start(inputSequence: stream)
         for try await result in transcriber.results {
           let start = result.range.start.seconds
@@ -174,6 +182,7 @@ final class Stretch {
 
 let work = DispatchQueue(label: "speech-wake")
 var paused = false
+var contextWords = [String]()
 var ring = [Float]()
 // Audio of the stretch that closed on quiet just before main's `hold` arrived.
 var closedPcm = [Float]()
@@ -288,6 +297,8 @@ final class Listener {
       stretch = nil
     case "resume":
       paused = false
+    case "context":
+      contextWords = (words.count == 2 ? words[1] : "").split(separator: "\t").map(String.init)
     default:
       break
     }

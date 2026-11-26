@@ -147,6 +147,12 @@ export function wakeCommand(transcript: string): string | null {
   return transcript.trim().slice(match.index + match[0].length).trim();
 }
 
+/** The helper's `context` command: tab-separated words, no line breaks. */
+export function wakeContextLine(words: readonly string[]): string {
+  const clean = [...new Set(words.map((word) => word.replace(/[\t\r\n]+/gu, " ").trim()).filter(Boolean))];
+  return `context ${clean.join("\t")}`;
+}
+
 export type WakeListenerDeps = {
   transcribe: (wavPath: string) => Promise<string>;
   /** False on a call, while a meeting recording or captions run: the name is not meant for Marshal then. */
@@ -160,6 +166,8 @@ export type WakeListenerDeps = {
    * clip (null when the helper kept no audio). False drops the command without a word.
    */
   speaker?: { enabled: () => boolean; verify: (clip: string | null) => Promise<boolean> };
+  /** apple engine: words the dictation model should expect (project names), read again on every resume. */
+  context?: () => readonly string[];
   /** `sherpa` when omitted. */
   engine?: WakeEngine;
   binPath?: string;
@@ -184,6 +192,7 @@ export class WakeListener {
   private followUp = false;
   // apple engine: where the helper writes the held stretch's audio for the speaker check (#287).
   private clipPath: string | null = null;
+  private sentContext = "";
 
   constructor(private readonly deps: WakeListenerDeps) {}
 
@@ -222,6 +231,8 @@ export class WakeListener {
         if (!this.child && !this.stopped) this.start();
       }, RESTART_DELAY_MS).unref();
     });
+    this.sentContext = "";
+    this.sendContext();
     if (this.busy) this.send("pause");
   }
 
@@ -251,6 +262,16 @@ export class WakeListener {
     this.busy = busy;
     // A capture under way is the owner talking to us; it finishes first.
     if (!this.capturing) this.send(busy ? "pause" : "resume");
+    // A repo cloned since the last command is expected from the next one on, without a restart.
+    if (!busy) this.sendContext();
+  }
+
+  private sendContext(): void {
+    if (this.deps.engine !== "apple" || !this.deps.context) return;
+    const line = wakeContextLine(this.deps.context());
+    if (line === this.sentContext) return;
+    this.sentContext = line;
+    this.send(line);
   }
 
   private send(command: string): void {
