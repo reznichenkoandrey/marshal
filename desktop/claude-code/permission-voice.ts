@@ -86,9 +86,16 @@ const MAX_ANSWER_WORDS = 5;
 export function classifyPermissionAnswer(text: string): PermissionDecision | null {
   const words = text.toLowerCase().replace(/[^\p{L}\s'’]/gu, " ").replace(/’/g, "'").split(/\s+/).filter(Boolean);
   if (words.length === 0) return null;
+  // A long answer is the owner talking about something else: «…задачу, яку ми не закінчили» declined a prompt (live check 2026-11-26).
+  if (words.length > MAX_ANSWER_WORDS) return null;
   if (words.some((word) => NO.has(word))) return "deny";
-  if (words.length <= MAX_ANSWER_WORDS && words.some((word) => YES.has(word))) return "allow";
+  if (words.some((word) => YES.has(word))) return "allow";
   return null;
+}
+
+/** An answer this long is not a reply to the prompt but a command for Marshal. */
+export function isLongAnswer(text: string): boolean {
+  return text.trim().split(/\s+/u).filter(Boolean).length > MAX_ANSWER_WORDS;
 }
 
 /** stdout of the hook; empty = Claude Code shows its own prompt. */

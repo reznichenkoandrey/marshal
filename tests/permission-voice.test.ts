@@ -80,7 +80,8 @@ describe("classifyPermissionAnswer", () => {
   });
 
   it("decides nothing on unclear or long answers", () => {
-    for (const text of ["", "Відкрий перекладач", "Хм", "так от я думаю що можна було б зробити інакше"]) {
+    for (const text of ["", "Відкрий перекладач", "Хм", "так от я думаю що можна було б зробити інакше",
+      "у нас була задача три дні тому яку ми не закінчили"]) {
       expect(classifyPermissionAnswer(text), text).toBeNull();
     }
   });
