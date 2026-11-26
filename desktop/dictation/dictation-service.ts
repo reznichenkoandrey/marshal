@@ -495,7 +495,9 @@ export class DictationService extends EventEmitter {
         await Promise.race([soniox.pcmClosed, new Promise((resolve) => setTimeout(resolve, PCM_DRAIN_MAX_WAIT_MS))]);
         const text = await soniox.session.finish();
         debug("soniox text in", Date.now() - started, "ms");
-        if (text.trim()) return { text };
+        // The open mic after a question has no key press behind it: whisper on room noise
+        // invented a "yes" and a permission got allowed with nobody at the Mac.
+        if (text.trim() || this.mode === "answer") return { text };
         // Soniox hears nothing in a quiet voice now and then; whisper still may (#522).
         console.warn("[dictation] soniox returned no text, whisper fallback");
       } catch (err) {
