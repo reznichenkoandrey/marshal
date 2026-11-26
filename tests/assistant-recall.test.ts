@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildRecall, findProject, listProjects, parsePrList, recallDays } from "../desktop/assistant/recall.ts";
+import { buildActivity, buildRecall, findProject, listProjects, parsePrList, recallDays } from "../desktop/assistant/recall.ts";
 
 let home: string;
 let roots: string[];
@@ -113,6 +113,21 @@ describe("buildRecall", () => {
     const digest = buildRecall({ project: { name: "Snoriq", folder: repo }, days: 3, now, roots, prs: [], projectsDir, shotsDir });
     expect(digest).toContain("worktree Snoriq-clock");
     expect(digest).toContain("first ask: доробити годинник пристрою");
+  });
+
+  it("lists recent sessions of every project when none is named", () => {
+    const repo = path.join(roots[0], "Snoriq");
+    const marshal = path.join(roots[0], "marshal");
+    fs.mkdirSync(path.join(marshal, ".git"), { recursive: true });
+    write(path.join(projectsDir, repo.replace(/[^A-Za-z0-9]/gu, "-"), "e.jsonl"),
+      transcript(repo, [{ type: "user", message: { content: "зроби NightNormalizer" } }, { type: "custom-title", customTitle: "NightNormalizer" }]), now - 3 * 24 * 60 * 60_000);
+    write(path.join(projectsDir, marshal.replace(/[^A-Za-z0-9]/gu, "-"), "f.jsonl"), transcript(marshal, [{ type: "user", message: { content: "recall worktrees" } }]));
+    write(path.join(projectsDir, path.join(home, "work", "secret").replace(/[^A-Za-z0-9]/gu, "-"), "g.jsonl"),
+      transcript(path.join(home, "work", "secret"), [{ type: "user", message: { content: "secret work" } }]));
+    const activity = buildActivity({ projects: listProjects(roots), days: 7, now, roots, projectsDir });
+    expect(activity.indexOf("marshal · (untitled)")).toBeLessThan(activity.indexOf('Snoriq · "NightNormalizer"'));
+    expect(activity).toContain("first ask: зроби NightNormalizer");
+    expect(activity).not.toContain("secret work");
   });
 
   it("says when there is nothing and when PRs are unknown", () => {

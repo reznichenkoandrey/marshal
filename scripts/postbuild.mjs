@@ -185,6 +185,12 @@ if (process.platform === "darwin") {
       fallbackNote: "microphone selection dropdown will show 'system default' only"
     },
     {
+      src: path.join(root, "desktop", "speech", "pcm-player.swift"),
+      out: path.join(root, "dist", "desktop", "speech", "pcm-player"),
+      label: "pcm-player",
+      fallbackNote: "Soniox answers will start only after the whole phrase arrives"
+    },
+    {
       src: path.join(root, "desktop", "presence", "mic-users.swift"),
       out: path.join(root, "dist", "desktop", "presence", "mic-users"),
       label: "mic-users",

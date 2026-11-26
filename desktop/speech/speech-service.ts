@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   NO_EN_VOICE_MESSAGE,
@@ -22,12 +23,14 @@ import {
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
-import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate, splitSentences } from "./soniox.ts";
+import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
 import { encodeWavPcm16Mono } from "../captions/wav.ts";
+import { asarUnpacked } from "../utils/asar-paths.ts";
 
 const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG === "1";
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
+const PCM_PLAYER_PATH = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "pcm-player");
 // The cue for "heard you, thinking" (#507): a stock macOS sound, quiet, no asset of our own.
 const CUE_SOUND = "/System/Library/Sounds/Tink.aiff";
 const CUE_VOLUME = "0.5";
@@ -313,49 +316,73 @@ export class SpeechService {
   }
 
   /**
-   * Plays a Soniox phrase sentence by sentence with afplay. All sentences stream at once on one socket,
-   * so later ones are ready by the time the first ends. Streaming PCM into ffmpeg's audiotoolbox output
-   * was silent on AirPods (#522): the output exits before its queue plays.
+   * Plays a Soniox phrase while it streams, through the pcm-player helper: Soniox synthesizes about as
+   * fast as it speaks, so collecting the phrase first cost 4–8 s per answer (live check 2026-11-26).
+   * Without the helper, or when it fails before any sound, the collected phrase plays with afplay.
    */
   private async playSoniox(entry: Playback, text: string, rate: number): Promise<{ error?: string; started: boolean }> {
-    const sentences = splitSentences(text);
-    const parts = (sentences.length > 0 ? sentences : [text]).map((sentence) => {
-      const chunks: Buffer[] = [];
-      return { chunks, phrase: this.soniox.speak(sentence, sonioxSpeedForRate(rate), (pcm) => chunks.push(pcm)) };
+    const chunks: Buffer[] = [];
+    const player = fs.existsSync(PCM_PLAYER_PATH) ? this.startPcmPlayer(entry) : null;
+    const phrase = this.soniox.speak(text, sonioxSpeedForRate(rate), (pcm) => {
+      chunks.push(pcm);
+      if (player?.alive()) player.child.stdin?.write(pcm);
     });
-    const cancelAll = (): void => parts.forEach((part) => part.phrase.cancel());
-    // A rejected later sentence must not surface as an unhandled rejection while an earlier one plays.
-    parts.forEach((part) => part.phrase.done.catch(() => {}));
-    let started = false;
+    entry.stop = phrase.cancel;
     try {
-      for (const part of parts) {
-        entry.stop = cancelAll;
-        try {
-          await part.phrase.done;
-        } catch (err) {
-          return { error: err instanceof Error ? err.message : String(err), started };
-        } finally {
-          entry.stop = undefined;
-        }
-        if (entry.cut) return { started };
-        const pcm = Buffer.concat(part.chunks);
-        if (pcm.length === 0) return { error: "Soniox returned no audio.", started };
-        const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
-        const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
-        try {
-          await fs.promises.writeFile(wav, encodeWavPcm16Mono(samples, SONIOX_SAMPLE_RATE));
-          markVoice("audio");
-          started = true;
-          const error = await this.run(entry, AFPLAY_PATH, [wav]);
-          if (error || entry.cut) return { error, started };
-        } finally {
-          await fs.promises.rm(wav, { force: true });
-        }
-      }
-      return { started };
+      await phrase.done;
+    } catch (err) {
+      player?.child.kill();
+      return { error: err instanceof Error ? err.message : String(err), started: player?.started() ?? false };
     } finally {
-      cancelAll();
+      entry.stop = undefined;
     }
+    if (player) {
+      player.child.stdin?.end();
+      const error = await player.exited;
+      if (entry.cut || player.started()) return { error, started: player.started() };
+      console.warn("[speech] pcm-player failed, playing with afplay:", error ?? "no sound");
+    }
+    if (entry.cut) return { started: false };
+    const pcm = Buffer.concat(chunks);
+    if (pcm.length === 0) return { error: "Soniox returned no audio.", started: false };
+    const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+    const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
+    try {
+      await fs.promises.writeFile(wav, encodeWavPcm16Mono(samples, SONIOX_SAMPLE_RATE));
+      markVoice("audio");
+      return { error: await this.run(entry, AFPLAY_PATH, [wav]), started: true };
+    } finally {
+      await fs.promises.rm(wav, { force: true });
+    }
+  }
+
+  private startPcmPlayer(entry: Playback): { child: ChildProcess; alive: () => boolean; started: () => boolean; exited: Promise<string | undefined> } {
+    const child = spawn(PCM_PLAYER_PATH, [String(SONIOX_SAMPLE_RATE)], { stdio: ["pipe", "pipe", "pipe"] });
+    entry.child = child;
+    let started = false;
+    let alive = true;
+    let stderr = "";
+    child.stdin?.on("error", () => {});
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (!started && chunk.toString().includes("started")) {
+        started = true;
+        markVoice("audio");
+      }
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    const exited = new Promise<string | undefined>((resolve) => {
+      const done = (error?: string): void => {
+        if (!alive) return;
+        alive = false;
+        if (entry.child === child) entry.child = null;
+        resolve(error);
+      };
+      child.on("error", (err) => done(err.message));
+      child.on("exit", (code, signal) => done(code === 0 ? undefined : stderr.trim().split("\n").pop() || `pcm-player exited ${code ?? signal}`));
+    });
+    return { child, alive: () => alive, started: () => started, exited };
   }
 
   private async synthesize(entry: Playback, phrase: QueuedPhrase, wav: string, rate: number): Promise<string | undefined> {

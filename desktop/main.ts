@@ -54,7 +54,7 @@ import {
   VoiceConversation,
   type TellResult
 } from "./assistant/conversation.ts";
-import { buildRecall, findProject, listProjects, parsePrList, recallDays, type RecallPr, type RecallProject } from "./assistant/recall.ts";
+import { buildActivity, buildRecall, findProject, listProjects, parsePrList, recallDays, type RecallPr, type RecallProject } from "./assistant/recall.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import { guardMenuItems } from "./claude-code/chrome-guard.ts";
@@ -3610,9 +3610,10 @@ function conversation(): VoiceConversation {
       projects: recallProjects().map((project) => project.name)
     }),
     recall: async (name, days) => {
+      const roots = parseRoutingRoots(loadSettings().claudeCodeRoutingRoots);
+      if (name === "*") return buildActivity({ projects: recallProjects(), days: recallDays(days), now: Date.now(), roots });
       const project = findProject(recallProjects(), name);
       if (!project) return null;
-      const roots = parseRoutingRoots(loadSettings().claudeCodeRoutingRoots);
       return buildRecall({ project, days: recallDays(days), now: Date.now(), roots, prs: await recallPrs(project.folder) });
     },
     listen: async (question, lang) => {

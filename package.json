@@ -66,6 +66,7 @@
       "dist/desktop/dictation/insert-text",
       "dist/desktop/dictation/mic-list",
       "dist/desktop/presence/mic-users",
+      "dist/desktop/speech/pcm-player",
       "dist/desktop/assistant/wake/wake-listener",
       "dist/desktop/assistant/wake/speech-wake",
       "dist/desktop/assistant/speaker/speaker-embed",
