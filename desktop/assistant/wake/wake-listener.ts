@@ -147,6 +147,12 @@ export function wakeCommand(transcript: string): string | null {
   return transcript.trim().slice(match.index + match[0].length).trim();
 }
 
+/** The helper's `context` command: tab-separated words, no line breaks. */
+export function wakeContextLine(words: readonly string[]): string {
+  const clean = [...new Set(words.map((word) => word.replace(/[\t\r\n]+/gu, " ").trim()).filter(Boolean))];
+  return `context ${clean.join("\t")}`;
+}
+
 export type WakeListenerDeps = {
   transcribe: (wavPath: string) => Promise<string>;
   /** False on a call, while a meeting recording or captions run: the name is not meant for Marshal then. */
@@ -160,6 +166,8 @@ export type WakeListenerDeps = {
    * clip (null when the helper kept no audio). False drops the command without a word.
    */
   speaker?: { enabled: () => boolean; verify: (clip: string | null) => Promise<boolean> };
+  /** apple engine: words the dictation model should expect (project names), read again on every resume. */
+  context?: () => readonly string[];
   /** `sherpa` when omitted. */
   engine?: WakeEngine;
   binPath?: string;
@@ -182,8 +190,10 @@ export class WakeListener {
   // After the name alone: the next thing said is the command, no name needed (#433).
   private followUpUntil = 0;
   private followUp = false;
+  private answer: ((text: string | null) => void) | null = null;
   // apple engine: where the helper writes the held stretch's audio for the speaker check (#287).
   private clipPath: string | null = null;
+  private sentContext = "";
 
   constructor(private readonly deps: WakeListenerDeps) {}
 
@@ -222,10 +232,13 @@ export class WakeListener {
         if (!this.child && !this.stopped) this.start();
       }, RESTART_DELAY_MS).unref();
     });
+    this.sentContext = "";
+    this.sendContext();
     if (this.busy) this.send("pause");
   }
 
   stop(): void {
+    this.answer?.(null);
     this.stopped = true;
     const child = this.child;
     this.child = null;
@@ -245,12 +258,44 @@ export class WakeListener {
     this.followUpUntil = Date.now() + ms;
   }
 
+  /**
+   * apple engine: the owner's answer to Marshal's own question, heard by this helper with its
+   * project-name hints. The dictation recorder dropped a quiet voice and its mic switched AirPods
+   * to the headset profile, which stalled the next phrase (live check 2026-11-26). null = no answer.
+   */
+  listenForAnswer(ms: number): Promise<string | null> {
+    this.answer?.(null);
+    this.listenForCommand(ms);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        // Speech under way when the window closes is still the answer.
+        if (!this.capturing) settle(null);
+      }, ms);
+      const settle = (text: string | null) => {
+        clearTimeout(timer);
+        if (this.answer === settle) this.answer = null;
+        resolve(text);
+      };
+      this.answer = settle;
+    });
+  }
+
   /** Marshal speaks, dictation records or transcribes: the mic hears Marshal or a command already, not a wake phrase. */
   setBusy(busy: boolean): void {
     if (busy === this.busy) return;
     this.busy = busy;
     // A capture under way is the owner talking to us; it finishes first.
     if (!this.capturing) this.send(busy ? "pause" : "resume");
+    // A repo cloned since the last command is expected from the next one on, without a restart.
+    if (!busy) this.sendContext();
+  }
+
+  private sendContext(): void {
+    if (this.deps.engine !== "apple" || !this.deps.context) return;
+    const line = wakeContextLine(this.deps.context());
+    if (line === this.sentContext) return;
+    this.sentContext = line;
+    this.send(line);
   }
 
   private send(command: string): void {
@@ -363,6 +408,11 @@ export class WakeListener {
       this.endCapture();
     }
     // After endCapture: onNameOnly arms the follow-up window, which a capture under way refuses.
+    if (this.answer) {
+      // Only words heard in the answer window answer; a capture begun before it goes on as usual.
+      this.answer(followUp ? command || null : null);
+      if (followUp) return;
+    }
     if (command === "") this.deps.onNameOnly();
     else if (command !== null) this.deps.onCommand(command);
   }

@@ -71,7 +71,13 @@ while true {
 schedule(pending)
 if scheduledBytes == 0 { exit(0) }
 startIfReady(force: true)
-played.wait()
+// Opening the mic (AirPods switch profile) can stop the engine: its buffers then never report played,
+// and the wait hung forever with Marshal "speaking" and the wake phrase paused (live check 2026-11-26).
+let audioSeconds = Double(scheduledBytes / 2) / sampleRate
+if played.wait(timeout: .now() + audioSeconds + 2) == .timedOut {
+  FileHandle.standardError.write("playback stalled\n".data(using: .utf8)!)
+  exit(4)
+}
 // The last buffer is "played back" when handed to hardware; let the device finish it.
 Thread.sleep(forTimeInterval: 0.15)
 exit(0)

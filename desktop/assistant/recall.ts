@@ -336,7 +336,9 @@ export function buildRecall(options: RecallOptions): string {
   return digest.length > DIGEST_CHARS ? `${digest.slice(0, DIGEST_CHARS)}\n…(cut)` : digest;
 }
 
-const ACTIVITY_SESSIONS = 20;
+const ACTIVITY_SESSIONS = 24;
+// One busy project took all 20 rows, and Snoriq from 3 days ago never showed (live check 2026-11-26).
+const ACTIVITY_PER_PROJECT = 4;
 
 /**
  * Recent sessions across every allowed project, for a command that names none or whose project name
@@ -347,7 +349,12 @@ export function buildActivity(options: Omit<RecallOptions, "project" | "prs" | "
   const since = now - days * DAY_MS;
   const projectsDir = options.projectsDir ?? path.join(os.homedir(), ".claude", "projects");
   const found = options.projects
-    .flatMap((project) => readSessions(projectsDir, project.folder, roots, since).map((session) => ({ project, session })))
+    .flatMap((project) =>
+      readSessions(projectsDir, project.folder, roots, since)
+        .sort((a, b) => b.at - a.at)
+        .slice(0, ACTIVITY_PER_PROJECT)
+        .map((session) => ({ project, session }))
+    )
     .sort((a, b) => b.session.at - a.session.at)
     .slice(0, ACTIVITY_SESSIONS);
   const out = [`All projects, last ${days} days (since ${localDay(since)}). Sessions, newest first:`];

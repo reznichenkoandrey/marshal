@@ -4,7 +4,13 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { wakeCommand, WakeListener } from "../desktop/assistant/wake/wake-listener.ts";
+import { wakeCommand, wakeContextLine, WakeListener } from "../desktop/assistant/wake/wake-listener.ts";
+
+describe("wakeContextLine", () => {
+  it("drops duplicates, blanks and line breaks", () => {
+    expect(wakeContextLine(["Snoriq", " Снорік ", "", "Snoriq", "a\nb"])).toBe("context Snoriq\tСнорік\ta b");
+  });
+});
 
 describe("wakeCommand (#274)", () => {
   it("keeps what follows the name", () => {
@@ -158,11 +164,12 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
           resolve(text);
         },
         onNameOnly: () => reject(new Error("name only")),
-        onPhase: () => undefined
+        onPhase: () => undefined,
+        context: () => ["Snoriq", "Снорік", "Snoriq"]
       });
       listener.start();
     });
-    expect(command).toBe("відкрий перекладач. [hold,end]");
+    expect(command).toBe("відкрий перекладач. [context Snoriq\tСнорік,hold,end]");
   }, 10_000);
 
   it("apple engine: a quiet voice still counts while its text keeps coming (#433)", async () => {
@@ -246,5 +253,60 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     });
     expect(command).toBe("відкрий перекладач");
   }, 10_000);
+
+  it("apple engine: hears the answer to Marshal's own question and does not run it as a command", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+let timer = null;
+setTimeout(() => console.log("partial Snoriq"), 300);
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  if (line === "hold") timer = setInterval(() => console.log("level -60"), 100);
+  if (line === "end") {
+    clearInterval(timer);
+    console.log("final Snoriq");
+  }
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const commands: string[] = [];
+    const listener = new WakeListener({
+      engine: "apple",
+      binPath: bin,
+      transcribe: async () => "",
+      allowed: async () => true,
+      onCommand: (text) => commands.push(text),
+      onNameOnly: () => undefined,
+      onPhase: () => undefined
+    });
+    listener.start();
+    const answer = await listener.listenForAnswer(3_000);
+    listener.stop();
+    expect(answer).toBe("Snoriq");
+    expect(commands).toEqual([]);
+  }, 10_000);
+
+  it("apple engine: no answer in the window is null", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(bin, `#!${process.execPath}\nprocess.stdin.resume();\n`);
+    chmodSync(bin, 0o755);
+    const listener = new WakeListener({
+      engine: "apple",
+      binPath: bin,
+      transcribe: async () => "",
+      allowed: async () => true,
+      onCommand: () => undefined,
+      onNameOnly: () => undefined,
+      onPhase: () => undefined
+    });
+    listener.start();
+    const answer = await listener.listenForAnswer(300);
+    listener.stop();
+    expect(answer).toBeNull();
+  });
 });
 

@@ -54,6 +54,7 @@ import {
   VoiceConversation,
   type TellResult
 } from "./assistant/conversation.ts";
+import { pronounceForUkrainian } from "./speech/speech-policy.ts";
 import { buildActivity, buildRecall, findProject, listProjects, parsePrList, recallDays, type RecallPr, type RecallProject } from "./assistant/recall.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
@@ -104,6 +105,7 @@ import { planCommand, planEventSentence } from "./plan-runner/voice.ts";
 import { installStatusLine, uninstallStatusLine } from "./claude-code/statusline.ts";
 import {
   classifyPermissionAnswer,
+  isLongAnswer,
   describePermission,
   describeQuestion,
   isVoicePermission,
@@ -3499,6 +3501,9 @@ async function syncWakeListener(): Promise<void> {
     transcribe: (wavPath) => dictationService?.transcribeClip(wavPath) ?? Promise.resolve(""),
     allowed: () => openMicAllowed({ ...openMicState(), asleep: false }),
     speaker: { enabled: () => loadSettings().assistantSpeakerCheck, verify: verifyWakeSpeaker },
+    // Both spellings: the owner says «Снорік», the folder is Snoriq.
+    // «лог» came out as «лох» without a hint (live check 2026-11-26).
+    context: () => ["Маршал", "лог", "читай лог", ...recallProjects().flatMap((project) => [project.name, pronounceForUkrainian(project.name)])],
     onCommand: (text) => handleVoiceCommand(text),
     // Holos says a bare «Так?» as «Знак»; «Слухаю.» comes out clean (#433).
     onNameOnly: () => {
@@ -3510,6 +3515,7 @@ async function syncWakeListener(): Promise<void> {
         });
     },
     onPhase: (phase) => {
+      if (phase.dictating) ownerTalkAt = Date.now();
       setAssistantInputs(phase);
       // A cold Holos took ~3 s to say «Слухаю.»; words said meanwhile were lost to the paused helper.
       if (phase.dictating) speechService?.warmUp();
@@ -3531,6 +3537,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
 }
 
 function handleVoiceCommand(text: string): void {
+  ownerTalkAt = Date.now();
   markVoice("transcript");
   if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[assistant] heard ${JSON.stringify(text)}`);
   if (!text) {
@@ -3617,11 +3624,16 @@ function conversation(): VoiceConversation {
       return buildRecall({ project, days: recallDays(days), now: Date.now(), roots, prs: await recallPrs(project.folder) });
     },
     listen: async (question, lang) => {
+      // Our own clarifying question is part of the talk: a session's prompt must not cut into it.
+      ownerTalkAt = Date.now();
       announceToAssistant(question);
       markVoice("answer");
       const spoken = await speechService?.speak(question, { lang, force: true, key: "assistant:ask" });
       if (!spoken?.ok) return null;
-      return listenAfterSpeech();
+      const answer = await listenAfterSpeech();
+      ownerTalkAt = Date.now();
+      if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[conversation] answer ${JSON.stringify(answer)}`);
+      return answer;
     },
     startSession: async (name, brief) => {
       const project = findProject(recallProjects(), name);
@@ -3772,6 +3784,8 @@ async function listenAfterSpeech(): Promise<string | null> {
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
   ]);
   if (!quiet || !(await openMicAllowed(openMicState()))) return null;
+  // The wake helper hears quiet voices and project names; the recorder's mic stalled AirPods playback.
+  if (wakeListener && wakeListenerEngine === "apple") return wakeListener.listenForAnswer(WAKE_FOLLOW_UP_MS);
   return dictationService.listenForAnswer();
 }
 
@@ -3781,6 +3795,17 @@ async function askOwner(question: string): Promise<string | null> {
   if (!spoken.ok) return null;
   announceToAssistant(question);
   return listenAfterSpeech();
+}
+
+// A session's question must not land in the middle of the owner talking to Marshal:
+// the command was taken as the answer and declined a prompt (live check 2026-11-26).
+const OWNER_TALK_QUIET_MS = 20_000;
+let ownerTalkAt = 0;
+
+// A long answer is the owner talking to Marshal, not answering the prompt: it goes on as a command.
+function onUnclearAnswer(answer: string, uk: boolean): void {
+  if (isLongAnswer(answer)) handleVoiceCommand(answer);
+  else sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
 }
 
 // Permission-style hooks wait on this (#375, #381): one voice turn at a time;
@@ -3798,6 +3823,7 @@ async function queueVoiceTurn(
   const turn = permissionTurn.then(async (): Promise<string> => {
     if (late() || assistantInputs.asleep) return "";
     if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "";
+    if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return "";
     const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? path.basename(cwd);
     permissionAskedAt.set(sessionId, Date.now());
     return ask(name, uiLanguage(), late);
@@ -3816,7 +3842,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
       if (late()) return "";
       const decision = answer ? classifyPermissionAnswer(answer) : null;
       if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Підтвердив." : "Відмовив.") : decision === "allow" ? "Confirmed." : "Declined.");
-      else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+      else if (answer) onUnclearAnswer(answer, uk);
       return elicitationHookOutput(decision);
     });
   }
@@ -3835,7 +3861,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
         const chosen = answer ? matchVoiceAnswer(answer, q) : null;
         const value = chosen ? answerChoices(q, chosen) : null;
         if (value) sayAsAssistant(uk ? `Відповів: ${value}.` : `Answered: ${value}.`);
-        else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+        else if (answer) onUnclearAnswer(answer, uk);
         picks.push(chosen);
         if (!chosen) break;
       }
@@ -3845,7 +3871,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
     if (late()) return "";
     const decision = answer ? classifyPermissionAnswer(answer) : null;
     if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
-    else if (answer) sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
+    else if (answer) onUnclearAnswer(answer, uk);
     return permissionHookOutput(decision);
   });
 }
