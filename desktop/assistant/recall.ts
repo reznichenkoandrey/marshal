@@ -335,3 +335,28 @@ export function buildRecall(options: RecallOptions): string {
   const digest = out.join("\n");
   return digest.length > DIGEST_CHARS ? `${digest.slice(0, DIGEST_CHARS)}\n…(cut)` : digest;
 }
+
+const ACTIVITY_SESSIONS = 20;
+
+/**
+ * Recent sessions across every allowed project, for a command that names none or whose project name
+ * speech recognition lost («задачу в яку» for «задачу в Снорік», live check 2026-11-26).
+ */
+export function buildActivity(options: Omit<RecallOptions, "project" | "prs" | "shotsDir"> & { projects: readonly RecallProject[] }): string {
+  const { days, now, roots } = options;
+  const since = now - days * DAY_MS;
+  const projectsDir = options.projectsDir ?? path.join(os.homedir(), ".claude", "projects");
+  const found = options.projects
+    .flatMap((project) => readSessions(projectsDir, project.folder, roots, since).map((session) => ({ project, session })))
+    .sort((a, b) => b.session.at - a.session.at)
+    .slice(0, ACTIVITY_SESSIONS);
+  const out = [`All projects, last ${days} days (since ${localDay(since)}). Sessions, newest first:`];
+  if (found.length === 0) out.push("- none");
+  for (const { project, session } of found) {
+    const worktree = session.cwd === project.folder ? "" : ` · worktree ${path.basename(session.cwd)}`;
+    out.push(`- ${clock(session.at)} ${project.name} · ${session.title ? JSON.stringify(session.title) : "(untitled)"}${worktree}`);
+    if (session.firstAsk) out.push(`  first ask: ${cut(session.firstAsk, 150)}`);
+  }
+  return out.join("\n");
+}
+

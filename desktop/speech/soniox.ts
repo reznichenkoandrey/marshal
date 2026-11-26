@@ -92,16 +92,6 @@ export type SocketFactory = (url: string, key: string) => WebSocket;
 // standard WebSocket constructor has no headers.
 const defaultSocket: SocketFactory = (url, key) => new WebSocket(url, ["soniox-api-key", key]);
 
-/**
- * Splits a phrase into sentences so the first one plays while the rest synthesize: Soniox audio
- * only plays once its stream is complete, and a two-sentence answer waited ~4.5 s (live check 2026-11-26).
- */
-export function splitSentences(text: string): string[] {
-  return (text.match(/[^.!?…]+(?:[.!?…]+|$)/gu) ?? [])
-    .map((part) => part.trim())
-    .filter((part) => /[\p{L}\p{N}]/u.test(part));
-}
-
 export class SonioxTts {
   private socket: WebSocket | null = null;
   private opening: Promise<WebSocket> | null = null;

@@ -40,6 +40,9 @@ describe("parseConversationReply", () => {
   it("builds agent steps", () => {
     expect(parseConversationReply('{"say": "Шукаю.", "action": {"type": "recall", "project": "Snoriq", "days": 3}}')?.action)
       .toEqual({ kind: "recall", project: "Snoriq", days: 3 });
+    expect(parseConversationReply('{"say": "Шукаю.", "action": {"type": "recall", "days": 3}}')?.action)
+      .toEqual({ kind: "recall", project: "*", days: 3 });
+    expect(parseConversationReply('{"say": "Так?", "action": {"type": "start_session", "project": "*", "brief": "x"}}')).toBeNull();
     expect(parseConversationReply('{"say": "Який саме?", "action": {"type": "ask"}}')?.action).toEqual({ kind: "ask" });
     expect(parseConversationReply('{"say": "Відкриваю. Так?", "action": {"type": "start_session", "project": "Snoriq", "brief": "Finish #439"}}')?.action)
       .toEqual({ kind: "start", project: "Snoriq", brief: "Finish #439" });

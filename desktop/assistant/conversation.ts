@@ -60,7 +60,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   '- {"type": "open_session", "session": "<exact session name from the list>"}',
   '- {"type": "peek_session", "session": "<exact session name from the list>"}',
   '- {"type": "open_app", "app": "<exact name from Installed apps>"}',
-  '- {"type": "recall", "project": "<exact name from Projects>", "days": <1-30, how far back, default 7>}',
+  '- {"type": "recall", "project": "<exact name from Projects, or \"*\" when the owner named none>", "days": <1-30, how far back, default 7>}',
   '- {"type": "ask"} (say is your question; you then get the owner\'s spoken answer)',
   '- {"type": "start_session", "project": "<exact name from Projects>", "brief": "<the full task for a new Claude Code session>"}',
   "",
@@ -80,7 +80,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "- Answer from the recall only. Several candidates or anything unclear: ask, naming at most four options briefly. Never guess what the owner meant.",
   "- When it is clear what to do: start_session. brief is a complete task for Claude, in the owner's language: what to do and why, where the work stopped (session titles, branches, worktrees, PRs, handoff lines with their dates), traps from the notes, and what done looks like. say is one sentence naming the project and the task, ending with a question such as \"Відкриваю сесію в Snoriq: доробити NightNormalizer. Так?\" Marshal opens it only after the owner says yes.",
   "- A live session already works on it: open_session instead of a new one. After recall, tell_session is not available.",
-  "- No project named, or the name was misheard: ask which project, naming up to four likely ones from Projects. Never guess the project.",
+  "- No project named, or the name was misheard: recall with project \"*\". You get recent sessions of every project; then ask which one, naming up to three from that list (\"Три дні тому ти працював у Snoriq над NightNormalizer і в marshal над recall. Яку?\"), and recall that project.",
   "- Projects not in the list cannot be read: say so.",
   "- Every question to the owner is an ask action, so the microphone opens for the answer. A say that ends with a question and no ask leaves the owner talking to nobody.",
   "",
@@ -161,8 +161,8 @@ function parseAction(value: unknown): ConversationAction | null | undefined {
   }
   if (action.type === "ask") return { kind: "ask" };
   if (action.type === "recall" || action.type === "start_session") {
-    const project = text(action.project, 200);
-    if (!project) return undefined;
+    const project = text(action.project, 200) ?? (action.type === "recall" ? "*" : null);
+    if (!project || (project === "*" && action.type !== "recall")) return undefined;
     if (action.type === "recall") return { kind: "recall", project, days: typeof action.days === "number" ? action.days : null };
     const brief = text(action.brief, MAX_BRIEF);
     return brief ? { kind: "start", project, brief } : undefined;
