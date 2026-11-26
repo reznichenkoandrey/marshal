@@ -3632,6 +3632,7 @@ function conversation(): VoiceConversation {
       if (!spoken?.ok) return null;
       const answer = await listenAfterSpeech();
       ownerTalkAt = Date.now();
+      if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[conversation] answer ${JSON.stringify(answer)}`);
       return answer;
     },
     startSession: async (name, brief) => {
