@@ -55,7 +55,7 @@ describe("parseConversationReply", () => {
     expect(parseConversationReply('{"say": "Відкриваю.", "action": {"type": "open_session", "session": "snoriq"}}')?.action)
       .toEqual({ kind: "open", session: "snoriq" });
     expect(parseConversationReply('{"say": "Відкриваю.", "action": {"type": "open_app", "app": "Bybit Bot"}}')?.action)
-      .toEqual({ kind: "app", app: "Bybit Bot" });
+      .toEqual({ kind: "app", app: "Bybit Bot", media: null });
   });
 
   it("rejects anything outside the contract", () => {
@@ -210,12 +210,23 @@ describe("VoiceConversation", () => {
     const reply = '{"say": "Відкриваю Bybit Bot.", "action": {"type": "open_app", "app": "Bybit Bot"}}';
     const opened = harness({ ask: async () => reply });
     await opened.conversation.handle("відкрий байбіт бота", "uk");
-    expect(opened.deps.openApp).toHaveBeenCalledWith("Bybit Bot");
+    expect(opened.deps.openApp).toHaveBeenCalledWith("Bybit Bot", null);
     expect(opened.spoken).toEqual(["Відкриваю Bybit Bot."]);
 
     const missing = harness({ ask: async () => reply, openApp: async () => false });
     await missing.conversation.handle("відкрий байбіт бота", "uk");
     expect(missing.spoken).toEqual(["Не знайшов застосунок Bybit Bot."]);
+  });
+
+  it("opens an app and presses a media key after it; an unknown key is dropped (#541)", async () => {
+    const reply = (media: string) => `{"say": "Відкриваю YouTube.", "action": {"type": "open_app", "app": "YouTube", "media": "${media}"}}`;
+    const play = harness({ ask: async () => reply("play-pause") });
+    await play.conversation.handle("відкрий ютуб і зніми з паузи", "uk");
+    expect(play.deps.openApp).toHaveBeenCalledWith("YouTube", "play-pause");
+
+    const shell = harness({ ask: async () => reply("rm -rf") });
+    await shell.conversation.handle("відкрий ютуб", "uk");
+    expect(shell.deps.openApp).toHaveBeenCalledWith("YouTube", null);
   });
 
   it("drops an answer that a newer command or a key press made stale", async () => {

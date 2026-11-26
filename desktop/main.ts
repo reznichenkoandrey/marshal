@@ -3635,10 +3635,15 @@ function conversation(): VoiceConversation {
     runAction: assistantVoiceAction,
     tell: tellSession,
     // Only a name from the list the model was given: nothing else reaches `open`.
-    openApp: async (name) => {
+    openApp: async (name, media) => {
       const app = installedApps().get(name.toLowerCase());
       if (!app) return false;
       await execFileAsync("open", [app.path]);
+      if (media) {
+        // A running app is in front by now; give a launching one a moment to claim Now Playing.
+        await new Promise((resolve) => setTimeout(resolve, MEDIA_AFTER_OPEN_MS));
+        await assistantVoiceAction(media);
+      }
       return true;
     },
     peek: (name) => {
@@ -3669,24 +3674,30 @@ function conversation(): VoiceConversation {
 }
 
 const PEEK_CHARS = 4_000;
-const APP_DIRS = ["/Applications", "/Applications/Utilities", path.join(os.homedir(), "Applications"), "/System/Applications", "/System/Applications/Utilities"];
+const MEDIA_AFTER_OPEN_MS = 800;
+const APP_DIRS = ["/Applications", path.join(os.homedir(), "Applications"), "/System/Applications"];
 
 // Installed apps by lower-cased name; read on each turn, a few directory listings.
+// One folder deeper too: Chrome web apps live in ~/Applications/Chrome Apps.localized (#541).
 function installedApps(): Map<string, { name: string; path: string }> {
   const apps = new Map<string, { name: string; path: string }>();
-  for (const dir of APP_DIRS) {
-    let names: string[] = [];
+  const scan = (dir: string, depth: number) => {
+    let entries: fs.Dirent[] = [];
     try {
-      names = fs.readdirSync(dir);
+      entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      continue;
+      return;
     }
-    for (const name of names) {
-      if (!name.endsWith(".app")) continue;
-      const label = name.slice(0, -4);
-      if (!apps.has(label.toLowerCase())) apps.set(label.toLowerCase(), { name: label, path: path.join(dir, name) });
+    for (const entry of entries) {
+      if (!entry.name.endsWith(".app")) {
+        if (depth > 0 && entry.isDirectory()) scan(path.join(dir, entry.name), depth - 1);
+        continue;
+      }
+      const label = entry.name.slice(0, -4);
+      if (!apps.has(label.toLowerCase())) apps.set(label.toLowerCase(), { name: label, path: path.join(dir, entry.name) });
     }
-  }
+  };
+  for (const dir of APP_DIRS) scan(dir, 1);
   return apps;
 }
 
@@ -4128,6 +4139,19 @@ async function assistantVoiceAction(action: string): Promise<string> {
     case "skip":
       speechService?.skip();
       return "ok";
+    case "play-pause":
+    case "next-track":
+    case "previous-track":
+      // The media key goes to whatever owns Now Playing (YouTube in Chrome, Music, Spotify):
+      // the sound itself is the answer, so a working key says nothing (#541).
+      try {
+        await sendKeystroke(verb === "play-pause" ? "play" : verb === "next-track" ? "next" : "previous");
+        return "ok";
+      } catch (err) {
+        console.warn(`[assistant] media key ${verb} failed: ${err instanceof Error ? err.message : String(err)}`);
+        reply = t("Не вдалося натиснути медіаклавішу.", "Could not press the media key.");
+      }
+      break;
     case "next-meeting": {
       const meeting = calendarService?.nextMeeting() ?? null;
       const time = meeting?.start.toLocaleTimeString(uk ? "uk-UA" : "en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -4153,9 +4177,7 @@ async function assistantVoiceAction(action: string): Promise<string> {
         : t("Plan runner недоступний.", "The plan runner is not available.");
       break;
     default:
-      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, brainstorm, board-close, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
-      return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting.`;
-      return `Unknown action "${action}". Known: translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, skip, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
+      return `Unknown action "${action}". Known: plan, translator, translator-close, captions, record-call, record-screen, recordings, capture, settings, hub, hub-login, board, brainstorm, board-close, skip, play-pause, next-track, previous-track, next-meeting, join-meeting, workflows, workflow-add, workflow-run, workflow-stop, workflow-start.`;
   }
   sayAsAssistant(reply);
   return reply;

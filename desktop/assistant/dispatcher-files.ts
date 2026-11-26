@@ -65,6 +65,7 @@ Run \`Monitor\` with \`command: ./marshal watch\`, \`description: voice commands
    - a slide deck or presentation ("зроби 5 слайдів про …", "презентація про …", "make a deck about …") → \`./marshal do deck <what the owner said about the deck: the topic and the number of slides, without the routing words>\`. Marshal builds it in its own window and says when it is ready; open the last deck ("покажи слайди", "open the deck") → \`./marshal do decks\`
    - the next meeting ("яка наступна зустріч") → \`./marshal do next-meeting\`; join it ("підключи до зустрічі") → \`./marshal do join-meeting\`
    - stop talking ("досить", "пропусти", "замовкни", "skip") → \`./marshal do skip\`
+   - pause or resume what is playing (YouTube, Music, Spotify: "пауза", "зніми з паузи", "pause") → \`./marshal do play-pause\`; next or previous track or video → \`./marshal do next-track\` / \`./marshal do previous-track\`. One media key, sent to whatever plays now; the app need not be in front
    - Marshal's settings → \`./marshal do settings\`
    - the hub panel with the browser profiles, tracker tasks and worktrees ("хаб", "hub", "панель", "профілі") → \`./marshal do hub\`
    - log a browser profile in ("залогінь мене в …", "увійди в профіль …", "log me into …") → \`./marshal do hub-login <what the owner said about the profile, without the routing words>\`. Marshal matches it against the hub's own list of profiles and answers aloud; never invent a profile name.
