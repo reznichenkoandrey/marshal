@@ -49,11 +49,12 @@ import { openDesktopSession } from "./claude-code/desktop-session.ts";
 import { hostAppOf, replyRefusal, replyToSession } from "./claude-code/reply.ts";
 import { ClaudeProcessPool } from "./translator/backends/claude-cli-backend.ts";
 import {
+  AGENT_TURN_TIMEOUT_MS,
   CONVERSATION_SYSTEM_PROMPT,
-  TURN_TIMEOUT_MS,
   VoiceConversation,
   type TellResult
 } from "./assistant/conversation.ts";
+import { buildRecall, findProject, listProjects, parsePrList, recallDays, type RecallPr, type RecallProject } from "./assistant/recall.ts";
 import { probeFocusedElement, sendKeystroke } from "./dictation/focus-paste.ts";
 import { ClaudeHooksController } from "./claude-code/hooks-controller.ts";
 import { guardMenuItems } from "./claude-code/chrome-guard.ts";
@@ -3352,17 +3353,7 @@ function initAssistantDispatcher(): void {
     commands: assistantCommandLog(),
     desktop: {
       enabled: () => loadSettings().assistantTerminalHost === "claude-desktop",
-      open: (cwd, prompt, reveal) =>
-        openDesktopSession(cwd, prompt, reveal, {
-          openUrl: async (url) => {
-            await execFileAsync("open", [url]);
-          },
-          probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
-          sendKey: (key) => sendKeystroke(key),
-          activate: async (app) => {
-            await execFileAsync("open", ["-a", app]);
-          }
-        }),
+      open: (cwd, prompt, reveal) => openDesktopSession(cwd, prompt, reveal, desktopSessionDeps()),
       openUrl: async (url) => {
         await execFileAsync("open", [url]);
       }
@@ -3567,11 +3558,43 @@ function simpleVoice(): boolean {
   return loadSettings().assistantVoiceMode === "simple";
 }
 
-// Simple mode (#522): the model answers in one turn and picks at most one action from a closed list.
+function desktopSessionDeps() {
+  return {
+    openUrl: async (url: string) => {
+      await execFileAsync("open", [url]);
+    },
+    probe: () => probeFocusedElement({ appLevel: true, timeoutMs: 1_000 }),
+    sendKey: (key: Parameters<typeof sendKeystroke>[0]) => sendKeystroke(key),
+    activate: async (app: string) => {
+      await execFileAsync("open", ["-a", app]);
+    }
+  };
+}
+
+function recallProjects(): RecallProject[] {
+  return listProjects(parseRoutingRoots(loadSettings().claudeCodeRoutingRoots));
+}
+
+// gh is optional: without it (or offline) the digest says PRs are unknown.
+async function recallPrs(folder: string): Promise<RecallPr[] | null> {
+  try {
+    const { stdout } = await execFileAsync("gh", ["pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,state,headRefName"], {
+      cwd: folder,
+      timeout: 5_000
+    });
+    return parsePrList(stdout);
+  } catch {
+    return null;
+  }
+}
+
+// Simple mode (#522): the model answers in one turn and picks at most one action from a closed list;
+// a command about project work becomes a few steps: recall, a question, a new session (#530).
 function conversation(): VoiceConversation {
   voiceConversation ??= new VoiceConversation({
     ask: (prompt) => {
-      conversationPool ??= new ClaudeProcessPool(() => loadSettings().assistantDispatcherModel, CONVERSATION_SYSTEM_PROMPT, TURN_TIMEOUT_MS);
+      // The pool limit covers the longest step; the first turn is cut at TURN_TIMEOUT_MS by the conversation.
+      conversationPool ??= new ClaudeProcessPool(() => loadSettings().assistantDispatcherModel, CONVERSATION_SYSTEM_PROMPT, AGENT_TURN_TIMEOUT_MS);
       return conversationPool.ask(prompt);
     },
     facts: () => ({
@@ -3583,8 +3606,31 @@ function conversation(): VoiceConversation {
         waitingFor: session.waitingFor
       })),
       meeting: calendarService?.nextMeeting() ?? null,
-      apps: [...installedApps().values()].map((app) => app.name)
+      apps: [...installedApps().values()].map((app) => app.name),
+      projects: recallProjects().map((project) => project.name)
     }),
+    recall: async (name, days) => {
+      const project = findProject(recallProjects(), name);
+      if (!project) return null;
+      const roots = parseRoutingRoots(loadSettings().claudeCodeRoutingRoots);
+      return buildRecall({ project, days: recallDays(days), now: Date.now(), roots, prs: await recallPrs(project.folder) });
+    },
+    listen: async (question, lang) => {
+      announceToAssistant(question);
+      markVoice("answer");
+      const spoken = await speechService?.speak(question, { lang, force: true, key: "assistant:ask" });
+      if (!spoken?.ok) return null;
+      return listenAfterSpeech();
+    },
+    startSession: async (name, brief) => {
+      const project = findProject(recallProjects(), name);
+      if (!project) return "missing";
+      const result = await openDesktopSession(project.folder, brief, true, desktopSessionDeps());
+      if (result === "ok") return "ok";
+      console.log(`[conversation] session in ${project.name}: ${result}`);
+      // The deep link opened Claude with the brief in the composer, only Return was not pressed.
+      return "no-return";
+    },
     runAction: assistantVoiceAction,
     tell: tellSession,
     // Only a name from the list the model was given: nothing else reaches `open`.
