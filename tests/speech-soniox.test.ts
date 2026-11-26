@@ -7,7 +7,8 @@ import {
   buildSonioxConfig,
   parseSonioxMessage,
   sonioxApiKey,
-  sonioxSpeedForRate
+  sonioxSpeedForRate,
+  splitSentences
 } from "../desktop/speech/soniox.ts";
 
 class FakeSocket extends EventTarget {
@@ -90,6 +91,15 @@ describe("soniox engine choice", () => {
       sample_rate: 24_000,
       speed: 1
     });
+  });
+});
+
+describe("splitSentences", () => {
+  it("splits on sentence ends and keeps the punctuation", () => {
+    expect(splitSentences("Не бачу, яка саме задача. Назви проєкт, і я подивлюсь!")).toEqual(["Не бачу, яка саме задача.", "Назви проєкт, і я подивлюсь!"]);
+    expect(splitSentences("Слухаю")).toEqual(["Слухаю"]);
+    expect(splitSentences("Готово... Що далі?")).toEqual(["Готово...", "Що далі?"]);
+    expect(splitSentences(" . ")).toEqual([]);
   });
 });
 

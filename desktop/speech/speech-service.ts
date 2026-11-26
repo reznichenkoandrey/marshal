@@ -22,7 +22,7 @@ import {
 import { PIPER_VOICE_LABEL, buildPiperArgs, isPiperInstalled, piperPaths } from "./piper.ts";
 import { markVoice } from "../assistant/voice-timing.ts";
 import { HolosServer, isHolosInstalled, listHolosVoices, type HolosVoices } from "./holos.ts";
-import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate } from "./soniox.ts";
+import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, sonioxSpeedForRate, splitSentences } from "./soniox.ts";
 import { encodeWavPcm16Mono } from "../captions/wav.ts";
 
 const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG === "1";
@@ -313,32 +313,48 @@ export class SpeechService {
   }
 
   /**
-   * Collects the Soniox phrase and plays it with afplay. Streaming PCM into ffmpeg's audiotoolbox
-   * output was silent on AirPods (#522): the output exits before its queue plays. afplay is the path
-   * Holos and Piper already use; the cost is the rest of the phrase arriving, ~0.6 s.
+   * Plays a Soniox phrase sentence by sentence with afplay. All sentences stream at once on one socket,
+   * so later ones are ready by the time the first ends. Streaming PCM into ffmpeg's audiotoolbox output
+   * was silent on AirPods (#522): the output exits before its queue plays.
    */
   private async playSoniox(entry: Playback, text: string, rate: number): Promise<{ error?: string; started: boolean }> {
-    const chunks: Buffer[] = [];
-    const phrase = this.soniox.speak(text, sonioxSpeedForRate(rate), (pcm) => chunks.push(pcm));
-    entry.stop = phrase.cancel;
+    const sentences = splitSentences(text);
+    const parts = (sentences.length > 0 ? sentences : [text]).map((sentence) => {
+      const chunks: Buffer[] = [];
+      return { chunks, phrase: this.soniox.speak(sentence, sonioxSpeedForRate(rate), (pcm) => chunks.push(pcm)) };
+    });
+    const cancelAll = (): void => parts.forEach((part) => part.phrase.cancel());
+    // A rejected later sentence must not surface as an unhandled rejection while an earlier one plays.
+    parts.forEach((part) => part.phrase.done.catch(() => {}));
+    let started = false;
     try {
-      await phrase.done;
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err), started: false };
+      for (const part of parts) {
+        entry.stop = cancelAll;
+        try {
+          await part.phrase.done;
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err), started };
+        } finally {
+          entry.stop = undefined;
+        }
+        if (entry.cut) return { started };
+        const pcm = Buffer.concat(part.chunks);
+        if (pcm.length === 0) return { error: "Soniox returned no audio.", started };
+        const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+        const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
+        try {
+          await fs.promises.writeFile(wav, encodeWavPcm16Mono(samples, SONIOX_SAMPLE_RATE));
+          markVoice("audio");
+          started = true;
+          const error = await this.run(entry, AFPLAY_PATH, [wav]);
+          if (error || entry.cut) return { error, started };
+        } finally {
+          await fs.promises.rm(wav, { force: true });
+        }
+      }
+      return { started };
     } finally {
-      entry.stop = undefined;
-    }
-    if (entry.cut) return { started: false };
-    const pcm = Buffer.concat(chunks);
-    if (pcm.length === 0) return { error: "Soniox returned no audio.", started: false };
-    const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
-    const wav = path.join(os.tmpdir(), `marshal-speech-${process.pid}-${++this.wavCounter}.wav`);
-    try {
-      await fs.promises.writeFile(wav, encodeWavPcm16Mono(samples, SONIOX_SAMPLE_RATE));
-      markVoice("audio");
-      return { error: await this.run(entry, AFPLAY_PATH, [wav]), started: true };
-    } finally {
-      await fs.promises.rm(wav, { force: true });
+      cancelAll();
     }
   }
 

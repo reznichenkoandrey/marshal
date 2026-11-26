@@ -80,7 +80,9 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "- Answer from the recall only. Several candidates or anything unclear: ask, naming at most four options briefly. Never guess what the owner meant.",
   "- When it is clear what to do: start_session. brief is a complete task for Claude, in the owner's language: what to do and why, where the work stopped (session titles, branches, worktrees, PRs, handoff lines with their dates), traps from the notes, and what done looks like. say is one sentence naming the project and the task, ending with a question such as \"Відкриваю сесію в Snoriq: доробити NightNormalizer. Так?\" Marshal opens it only after the owner says yes.",
   "- A live session already works on it: open_session instead of a new one. After recall, tell_session is not available.",
+  "- No project named, or the name was misheard: ask which project, naming up to four likely ones from Projects. Never guess the project.",
   "- Projects not in the list cannot be read: say so.",
+  "- Every question to the owner is an ask action, so the microphone opens for the answer. A say that ends with a question and no ask leaves the owner talking to nobody.",
   "",
   "- Never invent sessions, meetings, results or facts. Not in the context = say you do not know.",
   "- Something you cannot do: say so in one sentence."
