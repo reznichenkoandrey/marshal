@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { config as loadDotenv } from "dotenv";
-import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences, screen } from "electron";
+import { app, BrowserWindow, clipboard, dialog, Menu, Notification, Tray, ipcMain, nativeImage, shell, globalShortcut, systemPreferences, screen, powerMonitor } from "electron";
 
 import { DesktopBackendClient } from "./backend-client.ts";
 import { CaptureService, type CaptureResult } from "./capture/capture-service.ts";
@@ -264,6 +264,8 @@ const WAKE_FOLLOW_UP_MS = 6_000;
 const PERMISSION_DEADLINE_MS = 50_000;
 // The prompt that follows an unanswered voice question needs no second announcement.
 const PERMISSION_ASKED_QUIET_MS = 60_000;
+// Voice approvals need the owner at the Mac: room talk with nobody there approved a permission (#528).
+const PERMISSION_OWNER_IDLE_S = Number(process.env.MARSHAL_PERMISSION_IDLE_S) || 120;
 const WAITING_COALESCE_MS = 2_000;
 const WAITING_SPEECH_KEY = "session:waiting";
 type WaitingSignalEntry = { project: string; confirmation: boolean; message: string };
@@ -3737,6 +3739,7 @@ async function queueVoiceTurn(
   const late = () => Date.now() - startedAt > PERMISSION_DEADLINE_MS;
   const turn = permissionTurn.then(async (): Promise<string> => {
     if (late() || assistantInputs.asleep) return "";
+    if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "";
     const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? path.basename(cwd);
     permissionAskedAt.set(sessionId, Date.now());
     return ask(name, uiLanguage(), late);
