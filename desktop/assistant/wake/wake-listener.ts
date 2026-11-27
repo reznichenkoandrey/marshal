@@ -34,7 +34,7 @@ const MODEL_FILES = ["encoder", "decoder", "joiner"].map((part) => `${part}-epoc
 const KEYWORDS = "▁MAR SH AL @MARSHAL\n";
 // After the name alone, this much quiet means "Маршал" was the whole utterance.
 const NAME_PAUSE_MS = 1_500;
-const DEBUG = process.env.MARSHAL_WAKE_DEBUG === "1";
+const DEBUG = process.env.MARSHAL_WAKE_DEBUG !== "0";
 const RESTART_DELAY_MS = 3_000;
 // Dying sooner than this after a start is a crash loop (no mic, broken model): no restart.
 const CRASH_LOOP_MS = 10_000;
@@ -265,11 +265,14 @@ export class WakeListener {
    */
   listenForAnswer(ms: number): Promise<string | null> {
     this.answer?.(null);
+    if (DEBUG) console.log(`[wake] answer window ${ms} ms${this.busy ? ", helper paused (Marshal busy)" : ""}${this.capturing ? ", already capturing" : ""}${this.child ? "" : ", helper not running"}`);
     this.listenForCommand(ms);
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         // Speech under way when the window closes is still the answer.
-        if (!this.capturing) settle(null);
+        if (this.capturing) return;
+        if (DEBUG) console.log("[wake] answer window closed, nothing heard");
+        settle(null);
       }, ms);
       const settle = (text: string | null) => {
         clearTimeout(timer);
@@ -294,6 +297,7 @@ export class WakeListener {
   setBusy(busy: boolean): void {
     if (busy === this.busy) return;
     this.busy = busy;
+    if (DEBUG) console.log(`[wake] ${busy ? "pause" : "resume"}${this.capturing ? " (after the capture)" : ""}`);
     // A capture under way is the owner talking to us; it finishes first.
     if (!this.capturing) this.send(busy ? "pause" : "resume");
     // A repo cloned since the last command is expected from the next one on, without a restart.

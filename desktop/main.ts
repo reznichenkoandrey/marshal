@@ -83,6 +83,7 @@ import {
 } from "./assistant/assistant-state.ts";
 import { describeWaiting, isQuestionWait, speakableProject, type WaitingSession } from "./assistant/waiting-speech.ts";
 import { markVoice } from "./assistant/voice-timing.ts";
+import { installFileLog } from "./file-log.ts";
 import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
 import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
 import { Workflows } from "./workflows/index.ts";
@@ -340,6 +341,7 @@ async function bootstrap(): Promise<void> {
       if (migration.performed) {
         console.log(`[marshal] userData migrated from ${migration.from}: ${migration.copied.join(", ")}`);
       }
+      installFileLog(path.join(userData, "logs"));
     }
 
     // Second-pass .env load — production-only fallback. The top-of-file
@@ -3533,7 +3535,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
   // Open at once too: the owner may go on before «Слухаю.» is synthesized.
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
   const spoken = await speechService.speak(ack, { key: "assistant:ask" });
-  if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[wake] ${ack} → ${spoken.ok ? "queued" : spoken.error}`);
+  if (process.env.MARSHAL_ASSISTANT_DEBUG !== "0") console.log(`[wake] ${ack} → ${spoken.ok ? "queued" : spoken.error}`);
   if (spoken.ok) announceToAssistant(ack);
   await Promise.race([speechService.whenQuiet(), new Promise((resolve) => setTimeout(resolve, ANSWER_QUIET_WAIT_MS))]);
   wakeListener?.listenForCommand(WAKE_FOLLOW_UP_MS);
@@ -3542,7 +3544,7 @@ async function listenForWakeCommand(ack: string): Promise<void> {
 function handleVoiceCommand(text: string): void {
   ownerTalkAt = Date.now();
   markVoice("transcript");
-  if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[assistant] heard ${JSON.stringify(text)}`);
+  if (process.env.MARSHAL_ASSISTANT_DEBUG !== "0") console.log(`[assistant] heard ${JSON.stringify(text)}`);
   if (!text) {
     void conversation().handle("", uiLanguage());
     return;
@@ -3636,7 +3638,7 @@ function conversation(): VoiceConversation {
       if (!spoken?.ok) return null;
       const answer = await listenAfterSpeech();
       ownerTalkAt = Date.now();
-      if (process.env.MARSHAL_ASSISTANT_DEBUG === "1") console.log(`[conversation] answer ${JSON.stringify(answer)}`);
+      if (process.env.MARSHAL_ASSISTANT_DEBUG !== "0") console.log(`[conversation] answer ${JSON.stringify(answer)}`);
       return answer;
     },
     startSession: async (name, brief) => {
@@ -3787,10 +3789,20 @@ async function listenAfterSpeech(cancelled: () => boolean = () => false): Promis
     speechService.whenQuiet().then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
   ]);
-  if (!quiet || cancelled() || !(await openMicAllowed(openMicState()))) return null;
+  if (!quiet) return voiceLog("no mic: Marshal still talking after the wait", null);
+  if (cancelled()) return voiceLog("no mic: answered elsewhere", null);
+  if (!(await openMicAllowed(openMicState()))) return voiceLog("no mic: call, recording or captions", null);
   // The wake helper hears quiet voices and project names; the recorder's mic stalled AirPods playback.
-  if (wakeListener && wakeListenerEngine === "apple") return wakeListener.listenForAnswer(WAKE_FOLLOW_UP_MS);
-  return dictationService.listenForAnswer();
+  const apple = wakeListener !== null && wakeListenerEngine === "apple";
+  console.log(`[voice] mic open for the answer (${apple ? "wake helper" : "recorder"})`);
+  const answer = apple ? await wakeListener!.listenForAnswer(WAKE_FOLLOW_UP_MS) : await dictationService.listenForAnswer();
+  return voiceLog(answer === null ? "no answer heard" : `answer ${JSON.stringify(answer)}`, answer);
+}
+
+// The owner's voice log (#554): what Marshal asked, what it heard and why a mic stayed shut.
+function voiceLog<T>(line: string, value: T): T {
+  console.log(`[voice] ${line}`);
+  return value;
 }
 
 const ASK_KEY = "assistant:ask";
@@ -3799,6 +3811,7 @@ const ASK_KEY = "assistant:ask";
 async function askOwner(question: string, cancelled: () => boolean = () => false): Promise<string | null> {
   if (!speechService || assistantInputs.asleep) return null;
   const spoken = await speechService.speak(question, { key: ASK_KEY });
+  console.log(`[voice] ask ${JSON.stringify(question)}${spoken.ok ? "" : ` not spoken: ${spoken.error}`}`);
   if (!spoken.ok || cancelled()) return null;
   announceToAssistant(question);
   return listenAfterSpeech(cancelled);
@@ -3860,15 +3873,15 @@ async function queueVoiceTurn(
   ask: (asker: Asker, lang: ReturnType<typeof uiLanguage>, late: () => boolean) => Promise<string>
 ): Promise<string> {
   const settings = loadSettings();
-  if (!settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
-  if (!isUnderRoots(cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return "";
+  if (!settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return voiceLog(`session prompt not asked: ${assistantInputs.asleep ? "asleep" : "assistant or speech off"}`, "");
+  if (!isUnderRoots(cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return voiceLog(`session prompt not asked: ${cwd} is outside the allowed folders`, "");
   const startedAt = Date.now();
   let answeredOnScreen = false;
   const late = () => answeredOnScreen || Date.now() - startedAt > PERMISSION_DEADLINE_MS;
   const turn = permissionTurn.then(async (): Promise<string> => {
-    if (late() || assistantInputs.asleep) return "";
-    if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "";
-    if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return "";
+    if (late() || assistantInputs.asleep) return voiceLog("session prompt not asked: answered, too late or asleep", "");
+    if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return voiceLog("session prompt not asked: owner away from the Mac", "");
+    if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return voiceLog("session prompt not asked: owner just talked to Marshal", "");
     // Project first, then a title the owner recognises by ear (#544); a folder slug is never said.
     const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? null;
     const asker = { project: projectOf(cwd), title: spokenSessionTitle(name, claudeHooks?.cachedDossier(sessionId, cwd) ?? null) };
@@ -3878,6 +3891,7 @@ async function queueVoiceTurn(
       (live) => live.some((session) => session.sessionId === sessionId && session.status === "waiting"),
       () => !done,
       () => {
+        console.log("[voice] session prompt answered on screen");
         answeredOnScreen = true;
         const unheard = speechService?.drop(ASK_KEY) === "queued";
         wakeListener?.cancelAnswer();
@@ -3911,6 +3925,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
   }
   const request = parsePermissionRequest(raw);
   if (!request) return "";
+  console.log(`[voice] permission request ${request.toolName} in ${request.cwd}`);
   const questions = voiceQuestions(request);
   if (!questions && !isVoicePermission(request)) return "";
   return queueVoiceTurn(request.sessionId, request.cwd, async (asker, lang, late) => {
@@ -3928,6 +3943,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
         picks.push(chosen);
         if (!chosen) break;
       }
+      console.log(`[voice] question picks ${JSON.stringify(picks)}`);
       return questionHookOutput(request, questions, picks);
     }
     const answer = await askOwner(describePermission(asker, request, lang), late);
@@ -3935,6 +3951,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
     const decision = answer ? classifyPermissionAnswer(answer) : null;
     if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
     else if (answer) onUnclearAnswer(answer, uk);
+    console.log(`[voice] permission ${decision ?? "left to the session"}`);
     return permissionHookOutput(decision);
   });
 }
@@ -4018,6 +4035,7 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
     const lang = uiLanguage();
     const asker: Asker = { project: projectOf(event.cwd), title: spokenSessionTitle(event.name, claudeHooks?.cachedDossier(event.sessionId, event.cwd) ?? null) };
     const key = `session:question:${event.sessionId}`;
+    console.log(`[voice] closing question from ${asker.project}, no mic (#547): ${JSON.stringify(event.question)}`);
     void speechService?.speak(describeClosingQuestion(asker, event.question, lang), { lang, key }).then((spoken) => {
       // The owner replied in the session: it is busy again.
       if (spoken.ok) dropWhenAnswered(key, (live) => live.some((session) => session.sessionId === event.sessionId && session.status === "idle"));
