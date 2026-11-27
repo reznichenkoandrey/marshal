@@ -56,6 +56,17 @@ describe("SpeechQueue.has", () => {
   });
 });
 
+describe("SpeechQueue.remove", () => {
+  it("drops every unspoken phrase with the key and says whether one was there (#551)", () => {
+    const queue = new SpeechQueue();
+    queue.enqueue({ text: "a", lang: "uk", key: "assistant:ask" });
+    queue.enqueue({ text: "b", lang: "uk" });
+    expect(queue.remove("assistant:ask")).toBe(true);
+    expect(queue.remove("assistant:ask")).toBe(false);
+    expect(queue.size).toBe(1);
+  });
+});
+
 describe("describeWaiting names a lone question's session (#381)", () => {
   it("says the session and project when one session waits for an answer", () => {
     expect(describeWaiting([{ project: "marshal", question: true, name: "Підготовка релізу" }], "uk"))

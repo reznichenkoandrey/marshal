@@ -252,6 +252,13 @@ export class DictationService extends EventEmitter {
     return answer;
   }
 
+  /** The question was answered on screen (#551): the open mic closes and what it heard is thrown away. */
+  cancelAnswer(): void {
+    if (!this.answerResolve) return;
+    this.settleAnswer(null);
+    this.handleHoldCancel("answer");
+  }
+
   /** A wake-phrase clip (#274): the same backend and prompt as dictation, filler dropped. */
   async transcribeClip(wavPath: string): Promise<string> {
     const result = await this.backend.transcribe(wavPath, { language: this.language, prompt: this.prompt });

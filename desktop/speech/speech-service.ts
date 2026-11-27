@@ -210,6 +210,25 @@ export class SpeechService {
     for (const resolve of this.quietWaiters.splice(0)) resolve();
   }
 
+  /** A phrase with this key is playing or waits in the queue. */
+  isActive(key: string): boolean {
+    return this.current?.phrase.key === key || this.queue.has(key);
+  }
+
+  /**
+   * Forgets the phrase with this key: what it asked is settled (#551). "cut" = it was
+   * playing and stopped mid-way, "queued" = removed unheard, "none" = nothing to drop.
+   */
+  drop(key: string): "cut" | "queued" | "none" {
+    if (this.current?.phrase.key === key && !this.current.cut) {
+      this.cut(false);
+      return "cut";
+    }
+    if (!this.queue.remove(key)) return "none";
+    if (!this.current) this.pump();
+    return "queued";
+  }
+
   /** Drops the phrase being spoken and moves on to the next one. */
   skip(): void {
     if (DEBUG && this.current) console.log(`[speech] skipped ${JSON.stringify(this.current.phrase.text)}`);

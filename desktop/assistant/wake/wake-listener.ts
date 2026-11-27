@@ -280,6 +280,16 @@ export class WakeListener {
     });
   }
 
+  /** The question was answered on screen (#551): the answer window closes with no answer. */
+  cancelAnswer(): void {
+    const settle = this.answer;
+    if (!settle) return;
+    settle(null);
+    this.followUpUntil = 0;
+    // Words already being heard were the answer: the capture ends here, not as a command.
+    if (this.capturing) this.answer = () => { this.answer = null; };
+  }
+
   /** Marshal speaks, dictation records or transcribes: the mic hears Marshal or a command already, not a wake phrase. */
   setBusy(busy: boolean): void {
     if (busy === this.busy) return;
