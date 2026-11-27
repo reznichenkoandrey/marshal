@@ -27,7 +27,7 @@ import { SONIOX_SAMPLE_RATE, SONIOX_VOICE_LABEL, SonioxTts, sonioxApiKey, soniox
 import { encodeWavPcm16Mono } from "../captions/wav.ts";
 import { asarUnpacked } from "../utils/asar-paths.ts";
 
-const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG === "1";
+const DEBUG = process.env.MARSHAL_ASSISTANT_DEBUG !== "0";
 const SAY_PATH = "/usr/bin/say";
 const AFPLAY_PATH = "/usr/bin/afplay";
 const PCM_PLAYER_PATH = path.join(asarUnpacked(path.dirname(fileURLToPath(import.meta.url))), "pcm-player");
@@ -159,7 +159,10 @@ export class SpeechService {
     if (!trimmed) return { ok: false, error: "Nothing to speak." };
     if (!this.isAvailable()) return { ok: false, error: "Spoken updates need macOS (`say` was not found)." };
     const settings = this.settings();
-    if (!settings.enabled && !options.force) return { ok: false, error: "Spoken updates are off in Settings." };
+    if (!settings.enabled && !options.force) {
+      if (DEBUG) console.log(`[speech] not spoken, updates off: ${JSON.stringify(trimmed)}`);
+      return { ok: false, error: "Spoken updates are off in Settings." };
+    }
     // Dropped, not held: a phrase spoken an hour later is stale, and the notification stays on screen.
     if (!options.force && (await this.onCall())) {
       if (DEBUG) console.log(`[speech] dropped on a call: ${JSON.stringify(trimmed)}`);
@@ -225,6 +228,7 @@ export class SpeechService {
       return "cut";
     }
     if (!this.queue.remove(key)) return "none";
+    if (DEBUG) console.log(`[speech] dropped unheard: ${key}`);
     if (!this.current) this.pump();
     return "queued";
   }

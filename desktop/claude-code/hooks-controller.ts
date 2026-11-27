@@ -102,6 +102,8 @@ export class ClaudeHooksController {
     this.service = new ClaudeHookService(path.join(userDataDir, "claude-code"), (event) => {
       if (this.ignoredFolder && event.cwd && path.resolve(event.cwd) === this.ignoredFolder) return;
       if (event.cwd && this.quietFolders.has(path.resolve(event.cwd))) return;
+      // The voice log (#554): which session stopped or waits, so a missed prompt can be traced.
+      console.log(`[claude-hooks] ${event.type === "stop" ? "stop" : `waiting (${event.reason})`} ${event.cwd} ${event.sessionId.slice(0, 8)}`);
       void this.notifier.handle(event);
       this.onSessionEvent();
       if (event.type === "stop") for (const listener of this.stopListeners) listener(event.sessionId, event.lastMessage);

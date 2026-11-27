@@ -1,4 +1,4 @@
-// Where a voice command's time goes (#448): MARSHAL_ASSISTANT_DEBUG=1 logs one
+// Where a voice command's time goes (#448): logged unless MARSHAL_ASSISTANT_DEBUG=0: one
 // line per stage, from the key-up to the first sound of the answer.
 
 export const VOICE_STAGES = ["key-up", "transcript", "sent", "answer", "audio"] as const;
@@ -38,7 +38,7 @@ export class VoiceTimeline {
   }
 }
 
-const timeline = process.env.MARSHAL_ASSISTANT_DEBUG === "1" ? new VoiceTimeline((line) => console.log(line)) : null;
+const timeline = process.env.MARSHAL_ASSISTANT_DEBUG !== "0" ? new VoiceTimeline((line) => console.log(line)) : null;
 
 export function markVoice(stage: VoiceStage): void {
   timeline?.mark(stage);
