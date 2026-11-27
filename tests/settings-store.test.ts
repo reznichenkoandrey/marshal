@@ -112,6 +112,7 @@ describe("saveSettings", () => {
       assistantDispatcher: true,
       assistantDispatcherModel: "  ",
       assistantGeneralDir: " ~/htdocs ",
+      ideasDir: " ~/ideas ",
       assistantGeneralPermissionMode: "nonsense" as unknown as "auto",
       assistantTerminalHost: "tmux" as unknown as "auto"
     });
@@ -184,6 +185,7 @@ describe("saveSettings", () => {
       assistantVoiceMode: "simple",
       planRunnerEnabled: false,
       assistantGeneralDir: "~/htdocs",
+      ideasDir: "~/ideas",
       assistantGeneralPermissionMode: "bypass",
       assistantTerminalHost: "claude-desktop"
     });

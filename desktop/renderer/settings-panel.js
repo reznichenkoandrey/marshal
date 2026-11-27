@@ -74,6 +74,7 @@ const dom = {
   settingsAssistantSonioxSttStatus: document.getElementById("settings-assistant-soniox-stt-status"),
   settingsAssistantBadge: document.getElementById("settings-assistant-badge"),
   settingsAssistantGeneralDir: document.getElementById("settings-assistant-general-dir"),
+  settingsIdeasDir: document.getElementById("settings-ideas-dir"),
   settingsAssistantGeneralMode: document.getElementById("settings-assistant-general-mode"),
   settingsAssistantModel: document.getElementById("settings-assistant-model"),
   settingsAssistantVoiceMode: document.getElementById("settings-assistant-voice-mode"),
@@ -512,6 +513,7 @@ async function openSettings() {
     if (dom.settingsAssistantGlow) dom.settingsAssistantGlow.checked = current.assistantGlow ?? true;
     if (dom.settingsAssistantBadge) dom.settingsAssistantBadge.checked = current.assistantWaitingBadge ?? true;
     if (dom.settingsAssistantGeneralDir) dom.settingsAssistantGeneralDir.value = current.assistantGeneralDir ?? "";
+    if (dom.settingsIdeasDir) dom.settingsIdeasDir.value = current.ideasDir ?? "";
     if (dom.settingsAssistantGeneralMode) dom.settingsAssistantGeneralMode.value = current.assistantGeneralPermissionMode ?? "bypass";
     if (dom.settingsAssistantModel) dom.settingsAssistantModel.value = current.assistantDispatcherModel ?? "haiku";
     if (dom.settingsAssistantVoiceMode) dom.settingsAssistantVoiceMode.value = current.assistantVoiceMode ?? "simple";
@@ -731,6 +733,7 @@ async function saveSettingsFromForm() {
     assistantGlow: dom.settingsAssistantGlow?.checked ?? true,
     assistantWaitingBadge: dom.settingsAssistantBadge?.checked ?? true,
     assistantGeneralDir: dom.settingsAssistantGeneralDir?.value.trim() ?? "",
+    ideasDir: dom.settingsIdeasDir?.value.trim() ?? "",
     assistantGeneralPermissionMode: dom.settingsAssistantGeneralMode?.value ?? "bypass",
     assistantDispatcherModel: dom.settingsAssistantModel?.value.trim() || "haiku",
     assistantVoiceMode: dom.settingsAssistantVoiceMode?.value ?? "simple",

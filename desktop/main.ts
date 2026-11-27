@@ -139,7 +139,8 @@ import {
   writeLastGreeted
 } from "./assistant/greeting.ts";
 import { matchSleepCommand } from "./assistant/sleep.ts";
-import { describeSessionStatus, matchLocalCommand, type LocalCommand } from "./assistant/local-command.ts";
+import { commandLanguage, describeSessionStatus, matchLocalCommand, type LocalCommand } from "./assistant/local-command.ts";
+import { appendIdea, ideaBrief, ideaLine, matchIdeaCommand, resolveIdeasDir, type IdeaLang } from "./assistant/ideas.ts";
 import { installWake, isWakeReady, WakeListener, wakeEngine, type WakeEngine } from "./assistant/wake/wake-listener.ts";
 import { checkSpeaker, enrolSpeaker, eraseProfile, installSpeaker, isSpeakerInstalled, loadProfile } from "./assistant/speaker/speaker-check.ts";
 import { MeetingLibrary } from "./meeting/meeting-library.ts";
@@ -3564,6 +3565,11 @@ function handleVoiceCommand(text: string): void {
     void answerLocally(text, local);
     return;
   }
+  const idea = matchIdeaCommand(text);
+  if (idea) {
+    void recordIdea(text, idea.idea, commandLanguage(text));
+    return;
+  }
   if (loadSettings().assistantCue) speechService?.cue();
   if (simpleVoice()) void conversation().handle(text, uiLanguage());
   else assistantDispatcher?.submit(text);
@@ -3778,6 +3784,47 @@ async function answerLocally(text: string, command: LocalCommand): Promise<void>
   log.route({ kind: "general", target: "marshal", outcome: "answered" });
   announceToAssistant(reply);
   await answerAloud(reply);
+}
+
+// "Маршал, ідея …" (#558): saved to INBOX.md first, then a Claude session takes it further.
+async function recordIdea(text: string, words: string, lang: IdeaLang): Promise<void> {
+  const log = assistantCommandLog();
+  log.add(text);
+  assistantDispatcher?.answeredLocally();
+  markVoice("answer");
+  const say = async (line: string) => {
+    announceToAssistant(line);
+    await speechService?.speak(line, { lang, force: true, key: "assistant:idea" });
+  };
+  const dir = resolveIdeasDir(loadSettings().ideasDir);
+  if (!dir) {
+    log.route({ kind: "feature", target: "idea", outcome: "failed" });
+    return say(ideaLine("noFolder", lang));
+  }
+  let idea = words;
+  if (!idea) {
+    ownerTalkAt = Date.now();
+    await say(ideaLine("ask", lang));
+    idea = (await listenAfterSpeech())?.trim() ?? "";
+    ownerTalkAt = Date.now();
+    if (!idea) return void log.route({ kind: "feature", target: "idea", outcome: "failed" });
+  }
+  let heading: string;
+  try {
+    heading = await appendIdea(dir, idea, new Date(), lang);
+  } catch (err) {
+    console.warn("[assistant] idea not saved:", err instanceof Error ? err.message : err);
+    log.route({ kind: "feature", target: "idea", outcome: "failed" });
+    return say(ideaLine("failed", lang));
+  }
+  log.route({ kind: "feature", target: "idea", outcome: "answered" });
+  void say(ideaLine("saved", lang));
+  const result = await openDesktopSession(dir, ideaBrief(idea, heading, lang), false, desktopSessionDeps()).catch((err: unknown) =>
+    err instanceof Error ? err : new Error(String(err))
+  );
+  if (result === "ok") return;
+  console.log(`[assistant] idea session: ${result instanceof Error ? result.message : result}`);
+  await say(ideaLine(result instanceof Error ? "savedNoSession" : "openedNoReturn", lang));
 }
 
 // No open mic after an answer: a command starts with the name or a key, never room talk (#455).

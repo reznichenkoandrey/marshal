@@ -244,6 +244,8 @@ export type MarshalSettings = {
   planRunnerEnabled: boolean;
   /** Where `general` works; empty = Marshal's own folder in userData. */
   assistantGeneralDir: string;
+  /** Folder "Маршал, ідея …" writes INBOX.md into and opens its session in (#558); empty = off. */
+  ideasDir: string;
   assistantGeneralPermissionMode: GeneralPermissionMode;
   /** Where the assistant's sessions open (#425): Harbor's System group or a minimised Terminal window each. */
   assistantTerminalHost: TerminalHost;
@@ -325,6 +327,7 @@ const DEFAULT_SETTINGS: MarshalSettings = {
   assistantVoiceMode: "simple",
   planRunnerEnabled: false,
   assistantGeneralDir: "",
+  ideasDir: "",
   assistantGeneralPermissionMode: "bypass",
   assistantTerminalHost: "claude-desktop"
 };
@@ -674,6 +677,7 @@ function normalize(input: Partial<MarshalSettings>): MarshalSettings {
       : DEFAULT_SETTINGS.assistantDispatcherModel,
     planRunnerEnabled: input.planRunnerEnabled === true,
     assistantGeneralDir: typeof input.assistantGeneralDir === "string" ? input.assistantGeneralDir.trim() : DEFAULT_SETTINGS.assistantGeneralDir,
+    ideasDir: typeof input.ideasDir === "string" ? input.ideasDir.trim() : DEFAULT_SETTINGS.ideasDir,
     assistantGeneralPermissionMode: input.assistantGeneralPermissionMode === "auto" || input.assistantGeneralPermissionMode === "default"
       ? input.assistantGeneralPermissionMode
       : DEFAULT_SETTINGS.assistantGeneralPermissionMode,
