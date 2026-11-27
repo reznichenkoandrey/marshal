@@ -14,6 +14,7 @@ import {
   matchVoiceAnswer,
   answerChoices,
   parseElicitationRequest,
+  describeClosingQuestion,
   describeElicitation,
   elicitationHookOutput,
   spokenSessionTitle,
@@ -333,5 +334,14 @@ describe("describeElicitation and elicitationHookOutput", () => {
     expect(JSON.parse(elicitationHookOutput("allow"))).toEqual({ hookSpecificOutput: { hookEventName: "Elicitation", action: "accept" } });
     expect(JSON.parse(elicitationHookOutput("deny"))).toEqual({ hookSpecificOutput: { hookEventName: "Elicitation", action: "decline" } });
     expect(elicitationHookOutput(null)).toBe("");
+  });
+});
+
+describe("describeClosingQuestion (#547)", () => {
+  it("leads with the project and the session's title", () => {
+    expect(describeClosingQuestion({ project: "Snoriq", title: "Snoriq MCP file issues" }, "Мерджити номер 1996?", "uk"))
+      .toBe("У проєкті Snoriq сесія «Snoriq MCP file issues» питає: Мерджити номер 1996?");
+    expect(describeClosingQuestion({ project: "100-balloons", title: null }, "", "uk")).toBe("У проєкті 100 balloons сесія питає тебе.");
+    expect(describeClosingQuestion({ project: "marshal", title: null }, "Merge now?", "en")).toBe("In marshal, a session asks: Merge now?");
   });
 });

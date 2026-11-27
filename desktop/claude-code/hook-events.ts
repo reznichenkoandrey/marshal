@@ -102,6 +102,31 @@ export function spokenTail(text: string, maxChars = 300): string | null {
   return plain !== "" && plain.length <= maxChars ? plain : null;
 }
 
+const MAX_QUESTION_WORDS = 30;
+
+/**
+ * The question an answer ends with, ready to say (#547): the last sentence of
+ * the closing paragraph when it ends with "?". Links keep their text, URLs and
+ * markup go, "#1996" is read as a number. "" = a question too long to say;
+ * null = the turn does not end with a question.
+ */
+export function closingQuestion(text: string, lang: "uk" | "en"): string | null {
+  const last = text.trim().split(/\n\s*\n/).pop()?.trim() ?? "";
+  if (last === "" || /```/.test(last)) return null;
+  const plain = last
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/[\w.-]+\/[\w.-]+#(\d+)/g, "#$1")
+    .replace(/#(\d+)/g, lang === "uk" ? "номер $1" : "number $1")
+    .replace(/^\s*(?:[-*+>]|\d+[.)])\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain.endsWith("?")) return null;
+  const question = plain.split(/(?<=[.!])\s+/).pop() ?? plain;
+  return question.split(" ").length <= MAX_QUESTION_WORDS ? question : "";
+}
+
 export function looksUkrainian(text: string): boolean {
   const letters = text.match(/\p{L}/gu) ?? [];
   const cyrillic = letters.filter((ch) => /\p{Script=Cyrillic}/u.test(ch)).length;

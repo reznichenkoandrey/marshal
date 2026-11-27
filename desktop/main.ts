@@ -108,6 +108,7 @@ import {
   isLongAnswer,
   describePermission,
   describeQuestion,
+  describeClosingQuestion,
   isVoicePermission,
   matchVoiceAnswer,
   answerChoices,
@@ -3612,7 +3613,8 @@ function conversation(): VoiceConversation {
         name: session.name,
         project: projectOf(session.cwd),
         status: session.status,
-        waitingFor: session.waitingFor
+        waitingFor: session.waitingFor,
+        question: session.status === "idle" ? sessionQuestions.get(session.sessionId) ?? null : null
       })),
       meeting: calendarService?.nextMeeting() ?? null,
       apps: [...installedApps().values()].map((app) => app.name),
@@ -3943,11 +3945,24 @@ function syncPlanRunner(before: boolean, now: boolean): void {
   if (!now) planRunner?.tick();
 }
 
+// The question each idle session ended its turn with (#547): voice mode routes "так, мерджи" to it.
+const sessionQuestions = new Map<string, string>();
+
 function speakSessionEvent(event: SpokenSessionEvent): void {
   assistantDispatcher?.noteSessionEvent(event.sessionId, event.kind);
   // A finished turn is spoken only when it answers a voice command; a waiting session blocks work, so always (#359).
   const asked = assistantDispatcher?.answersVoiceCommand(event.sessionId, event.kind === "finished") ?? false;
   if (asked && event.kind === "finished") assistantCommandLog().answered(event.name);
+  if (event.kind === "finished") sessionQuestions.delete(event.sessionId);
+  if (event.kind === "finished" && !asked && event.name !== GENERAL_NAME && event.question !== null) {
+    // A turn that ends with a question waits for the owner like a prompt does (#547); no microphone opens.
+    if (event.question) sessionQuestions.set(event.sessionId, event.question);
+    if (assistantInputs.asleep) return;
+    const lang = uiLanguage();
+    const asker: Asker = { project: projectOf(event.cwd), title: spokenSessionTitle(event.name, claudeHooks?.cachedDossier(event.sessionId, event.cwd) ?? null) };
+    void speechService?.speak(describeClosingQuestion(asker, event.question, lang), { lang, key: `session:question:${event.sessionId}` });
+    return;
+  }
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
   if (event.kind === "waiting" && assistantInputs.asleep) return;
   if (event.kind === "waiting" && Date.now() - (permissionAskedAt.get(event.sessionId) ?? 0) < PERMISSION_ASKED_QUIET_MS) return;
