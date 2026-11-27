@@ -81,7 +81,7 @@ import {
   sessionCounts,
   type AssistantInputs
 } from "./assistant/assistant-state.ts";
-import { describeWaiting, isQuestionWait, type WaitingSession } from "./assistant/waiting-speech.ts";
+import { describeWaiting, isQuestionWait, speakableProject, type WaitingSession } from "./assistant/waiting-speech.ts";
 import { markVoice } from "./assistant/voice-timing.ts";
 import { parseReminderPhrase, reminderText } from "./calendar/reminders.ts";
 import { TimedReminderStore } from "./calendar/timed-reminder-store.ts";
@@ -3954,8 +3954,9 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
   const uk = uiLanguage() === "uk";
   if (event.kind === "finished") {
     const summary = event.summary ?? (uk ? "готово" : "finished");
-    // `general` answers the owner's own question: its name is noise.
-    const text = event.name === GENERAL_NAME ? summary : `${event.name}: ${summary}`;
+    // `general` answers the owner's own question: its name is noise. A slug is never said (#544).
+    const label = spokenSessionTitle(event.name, claudeHooks?.cachedDossier(event.sessionId, event.cwd) ?? null) ?? speakableProject(projectOf(event.cwd));
+    const text = event.name === GENERAL_NAME ? summary : `${label}: ${summary}`;
     if (asked) void answerAloud(text, { key: `session:${event.name}` });
     else void speechService?.speak(text, { key: `session:${event.name}` });
     return;

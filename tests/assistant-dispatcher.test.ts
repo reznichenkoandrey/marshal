@@ -495,7 +495,7 @@ describe("spoken session events", () => {
     await notifier.handle({ type: "stop", sessionId: "s1", cwd: "/p", lastMessage: "line one\nline two" });
     await notifier.handle({ type: "attention", sessionId: "s1", cwd: "/p", reason: "confirmation", message: "Allow Bash?" });
     expect(spoken).toEqual([
-      { kind: "finished", sessionId: "s1", name: "marshal", summary: "Тести пройшли." },
+      { kind: "finished", sessionId: "s1", name: "marshal", cwd: "/p", summary: "Тести пройшли." },
       { kind: "waiting", sessionId: "s1", name: "marshal", cwd: "/p", message: "Allow Bash?", confirmation: true }
     ]);
   });

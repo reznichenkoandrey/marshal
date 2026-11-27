@@ -8,6 +8,7 @@
 import { isStrictYes } from "../computer-control/action-gate.ts";
 import type { CommandRoute } from "./command-log.ts";
 import { commandLanguage } from "./local-command.ts";
+import { speakableProject } from "./waiting-speech.ts";
 
 export type ConversationLang = "uk" | "en";
 
@@ -75,6 +76,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "Pause, resume, next or previous in a player: the media feature; it works on what is playing now, the app need not be in front. Open an app and resume or pause in it: open_app with media.",
   "play-pause is one toggle key: Marshal cannot see whether something is playing, so say what you pressed, not what will happen.",
   "Sessions are Claude Code sessions working on the owner's projects; open_session only when the owner asks for a session.",
+  "- In say, call a session by its name only when the name is words. A name without spaces (session_ab12, cpap-ed, an id) is never read out: say \"сесія в <project>\" instead. The action fields still take the exact name.",
   "- A question about how sessions are doing: answer from the list only (working, idle, waiting for an answer or a permission).",
   "- A question about one session's work (what stage, what it is doing, is it done, what it asked): peek_session. You then get its last turns and answer from them.",
   "- The owner wants a session to do something or asks something only that session knows: tell_session, and say a short confirmation such as \"Передаю marshal.\" The session's own answer is spoken later.",
@@ -296,7 +298,8 @@ const LINES: Record<ConversationLang, Record<Line, string>> = {
 };
 
 export function conversationLine(line: Line, lang: ConversationLang, name = ""): string {
-  return LINES[lang][line].replace("{name}", name);
+  // Underscores and dashes of a slug are read aloud letter by letter (#544).
+  return LINES[lang][line].replace("{name}", speakableProject(name));
 }
 
 export type ConversationDeps = {
