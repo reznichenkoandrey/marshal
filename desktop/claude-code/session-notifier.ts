@@ -32,6 +32,8 @@ export type NotifierDeps = {
   onCall?: () => Promise<boolean>;
 };
 
+const MENTIONS_MARSHAL = /маршал|marshal/iu;
+
 // Held results are checked only while something is held: no timer at idle (#281).
 const HOLD_CHECK_MS = 30_000;
 
@@ -54,8 +56,10 @@ export class SessionNotifier {
     const lang = this.deps.language?.() ?? "en";
 
     if (event.type === "stop") {
-      const direct = this.deps.voiceAnswer?.(event.sessionId, name) ? spokenTail(event.lastMessage) : null;
-      const summary = direct ?? shortAnswer(event.lastMessage) ?? (await this.deps.summarize(event.lastMessage));
+      // Read verbatim, a mention of Marshal sounds like Marshal speaking of itself in the third person (#549).
+      const verbatim = !MENTIONS_MARSHAL.test(event.lastMessage);
+      const direct = verbatim && this.deps.voiceAnswer?.(event.sessionId, name) ? spokenTail(event.lastMessage) : null;
+      const summary = direct ?? (verbatim ? shortAnswer(event.lastMessage) : null) ?? (await this.deps.summarize(event.lastMessage));
       const title = translate(lang, "claude.finished", { name });
       const body = summary ?? translate(lang, "claude.finishedFallback");
       if (shouldHoldNotification(false, (await this.deps.onCall?.()) ?? false)) this.hold(title, body);

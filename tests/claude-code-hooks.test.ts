@@ -300,3 +300,24 @@ describe("closingQuestion (#547)", () => {
     expect(closingQuestion(`${"слово ".repeat(40)}?`, "uk")).toBe("");
   });
 });
+
+describe("Marshal speaks of itself as I (#549)", () => {
+  it("sends an answer that mentions Marshal through the summary, not verbatim", async () => {
+    const summarize = vi.fn(async () => "Послухай, що я скажу, і перекажи мені.");
+    const notes: string[] = [];
+    const notifier = new SessionNotifier({
+      notify: (title, body) => notes.push(`${title} | ${body}`),
+      summarize,
+      voiceAnswer: () => true,
+      findSession: () => undefined,
+      focus: () => undefined
+    });
+    await notifier.handle({ type: "stop", sessionId: "s1", cwd: "/p/x", lastMessage: "Перекажи мені, що скаже Marshal." });
+    expect(summarize).toHaveBeenCalledOnce();
+    expect(notes).toEqual(["x: finished | Послухай, що я скажу, і перекажи мені."]);
+  });
+
+  it("tells the summary model to speak as Marshal", () => {
+    expect(buildSummaryRequest("x", "uk").system).toContain("first person");
+  });
+});

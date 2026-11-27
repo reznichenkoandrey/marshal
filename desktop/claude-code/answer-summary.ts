@@ -18,7 +18,10 @@ export type SummaryLanguage = "auto" | "uk" | "en";
 
 const SYSTEM_PROMPT =
   "You write one-line desktop notifications about what a coding assistant just reported to its user. " +
-  "Reply with a single line of at most 100 characters stating the outcome. No preamble, no quotes, no markdown.";
+  "Reply with a single line of at most 100 characters stating the outcome. No preamble, no quotes, no markdown. " +
+  // The owner hears the line in Marshal's voice (#549): Marshal talking about itself must say "I".
+  "The line reaches the user from Marshal, their voice assistant: where the answer mentions Marshal the assistant " +
+  "(not the marshal repository or project), write about it in the first person (\"я\" / \"I\").";
 // The conclusion of an answer is at its end; the head is usually the plan.
 const MAX_INPUT_CHARS = 6000;
 const TIMEOUT_MS = 8000;
