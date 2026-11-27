@@ -258,6 +258,13 @@
             </div>
 
             <div class="field">
+              <label for="settings-ideas-dir" data-i18n="settings.ideasDir">Ideas folder</label>
+              <input id="settings-ideas-dir" name="ideasDir" type="text"
+                placeholder="(off)" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.ideasDirOff" />
+              <p class="field-hint" data-i18n="settings.ideasDirHint">“Marshal, idea …” or “Marshal, note …” appends the idea to INBOX.md here and opens a Claude session in this folder that checks whether it is viable, plans it and builds a prototype, following the folder's own README.</p>
+            </div>
+
+            <div class="field">
               <label for="settings-assistant-general-mode" data-i18n="settings.permissionModeOfTheAssistant">Permission mode of the assistant's sessions</label>
               <select id="settings-assistant-general-mode" name="assistantGeneralPermissionMode">
                 <option value="bypass" data-i18n="settings.bypassTheClaudeDesktopDefault">Bypass — the Claude desktop default</option>
