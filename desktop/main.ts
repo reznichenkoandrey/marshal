@@ -3814,6 +3814,7 @@ async function askOwner(question: string, cancelled: () => boolean = () => false
   console.log(`[voice] ask ${JSON.stringify(question)}${spoken.ok ? "" : ` not spoken: ${spoken.error}`}`);
   if (!spoken.ok || cancelled()) return null;
   announceToAssistant(question);
+  noteSpoken(question);
   return listenAfterSpeech(cancelled);
 }
 
@@ -3865,6 +3866,45 @@ function onUnclearAnswer(answer: string, uk: boolean): void {
   else sayAsAssistant(uk ? "Не зрозумів, відповідь у сесії." : "Didn't get that, answer in the session.");
 }
 
+/** Why a session's question must not open the mic now; null = the owner is at the Mac and free to answer. */
+function ownerAwayReason(): string | null {
+  if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "owner away from the Mac";
+  if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return "owner just talked to Marshal";
+  return null;
+}
+
+/** What Marshal said on its own goes into the voice conversation, so "what did you ask?" has an answer (#553). */
+function noteSpoken(text: string): void {
+  conversation().note(text);
+}
+
+// The answer to a session's closing question (#553): short words go to that session verbatim,
+// as the owner's own reply; a long one is the owner talking to Marshal.
+async function answerClosingQuestion(sessionId: string, answer: string, asking: () => boolean): Promise<void> {
+  if (isLongAnswer(answer)) return handleVoiceCommand(answer);
+  const uk = uiLanguage() === "uk";
+  const session = listLiveSessions().find((live) => live.sessionId === sessionId);
+  if (!session || !asking() || replyRefusal(session, session.name)) {
+    console.log(`[voice] closing answer not sent: session ${session?.status ?? "gone"}`);
+    sayAsAssistant(uk ? "Не передав, сесія вже не чекає." : "Not sent, the session is no longer waiting.");
+    return;
+  }
+  const log = assistantCommandLog();
+  log.add(answer);
+  sessionQuestions.delete(sessionId);
+  sayAsAssistant(uk ? "Передаю." : "Sending.");
+  const result = await replyToSession(session, answer, replyDeps()).catch((err: unknown) => (err instanceof Error ? err.message : String(err)));
+  if (result !== "ok") {
+    console.warn(`[voice] closing answer to ${session.name} failed: ${result}`);
+    log.route({ kind: "session", target: session.name, outcome: "failed" });
+    sayAsAssistant(uk ? "Не вийшло передати, відповідай у сесії." : "Could not send it, answer in the session.");
+    return;
+  }
+  log.route({ kind: "session", target: session.name, outcome: "sent" });
+  // Its answer is what the owner waits for now: the Stop hook speaks it.
+  assistantDispatcher?.expectAnswer(session.sessionId);
+}
+
 // Permission-style hooks wait on this (#375, #381): one voice turn at a time;
 // "" = the session shows its own dialog. Gates and the deadline are shared.
 async function queueVoiceTurn(
@@ -3880,8 +3920,8 @@ async function queueVoiceTurn(
   const late = () => answeredOnScreen || Date.now() - startedAt > PERMISSION_DEADLINE_MS;
   const turn = permissionTurn.then(async (): Promise<string> => {
     if (late() || assistantInputs.asleep) return voiceLog("session prompt not asked: answered, too late or asleep", "");
-    if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return voiceLog("session prompt not asked: owner away from the Mac", "");
-    if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return voiceLog("session prompt not asked: owner just talked to Marshal", "");
+    const away = ownerAwayReason();
+    if (away) return voiceLog(`session prompt not asked: ${away}`, "");
     // Project first, then a title the owner recognises by ear (#544); a folder slug is never said.
     const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? null;
     const asker = { project: projectOf(cwd), title: spokenSessionTitle(name, claudeHooks?.cachedDossier(sessionId, cwd) ?? null) };
@@ -4035,10 +4075,19 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
     const lang = uiLanguage();
     const asker: Asker = { project: projectOf(event.cwd), title: spokenSessionTitle(event.name, claudeHooks?.cachedDossier(event.sessionId, event.cwd) ?? null) };
     const key = `session:question:${event.sessionId}`;
-    console.log(`[voice] closing question from ${asker.project}, no mic (#547): ${JSON.stringify(event.question)}`);
-    void speechService?.speak(describeClosingQuestion(asker, event.question, lang), { lang, key }).then((spoken) => {
-      // The owner replied in the session: it is busy again.
-      if (spoken.ok) dropWhenAnswered(key, (live) => live.some((session) => session.sessionId === event.sessionId && session.status === "idle"));
+    const text = describeClosingQuestion(asker, event.question, lang);
+    console.log(`[voice] closing question from ${asker.project}: ${JSON.stringify(event.question)}`);
+    // The owner replied in the session: it is busy again.
+    const asking = () => listLiveSessions().some((session) => session.sessionId === event.sessionId && session.status === "idle");
+    void speechService?.speak(text, { lang, key }).then(async (spoken) => {
+      if (!spoken.ok) return;
+      dropWhenAnswered(key, (live) => live.some((session) => session.sessionId === event.sessionId && session.status === "idle"));
+      noteSpoken(text);
+      // Marshal asked, so the answer needs no name: "так, зроби" went unheard (#553).
+      const skip = ownerAwayReason();
+      if (skip) return voiceLog(`no mic for the closing question: ${skip}`, undefined);
+      const answer = await listenAfterSpeech(() => !asking());
+      if (answer) await answerClosingQuestion(event.sessionId, answer, asking);
     });
     return;
   }
@@ -4095,9 +4144,12 @@ function flushWaitingSpeech(): void {
   const lang = uiLanguage();
   const generation = ++waitingPhraseGeneration;
   const ids = new Set(sessions.keys());
-  void speechService?.speak(describeWaiting([...sessions.values()], lang), { lang, key: WAITING_SPEECH_KEY }).then((spoken) => {
+  const text = describeWaiting([...sessions.values()], lang);
+  void speechService?.speak(text, { lang, key: WAITING_SPEECH_KEY }).then((spoken) => {
+    if (!spoken.ok) return;
+    noteSpoken(text);
     // A newer burst replaced this phrase: its own watcher decides.
-    if (spoken.ok) dropWhenAnswered(WAITING_SPEECH_KEY, (live) => live.some((session) => ids.has(session.sessionId) && session.status === "waiting"), () => generation === waitingPhraseGeneration);
+    dropWhenAnswered(WAITING_SPEECH_KEY, (live) => live.some((session) => ids.has(session.sessionId) && session.status === "waiting"), () => generation === waitingPhraseGeneration);
   });
 }
 
