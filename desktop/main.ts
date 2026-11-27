@@ -51,7 +51,9 @@ import { ClaudeProcessPool } from "./translator/backends/claude-cli-backend.ts";
 import {
   AGENT_TURN_TIMEOUT_MS,
   CONVERSATION_SYSTEM_PROMPT,
+  keepSpoken,
   VoiceConversation,
+  type SpokenLine,
   type TellResult
 } from "./assistant/conversation.ts";
 import { pronounceForUkrainian } from "./speech/speech-policy.ts";
@@ -3469,6 +3471,7 @@ async function greetOnLaunch(): Promise<void> {
   const result = await speechService.speak(text, { lang: facts.lang });
   if (!result.ok) return;
   announceToAssistant(text);
+  noteSpoken(text);
   writeLastGreeted(file, Date.now());
   // No open mic here: a launch nobody asked for turned room talk into commands (#453).
 }
@@ -3620,7 +3623,8 @@ function conversation(): VoiceConversation {
       })),
       meeting: calendarService?.nextMeeting() ?? null,
       apps: [...installedApps().values()].map((app) => app.name),
-      projects: recallProjects().map((project) => project.name)
+      projects: recallProjects().map((project) => project.name),
+      spoken: readSpokenLines()
     }),
     recall: async (name, days) => {
       const roots = parseRoutingRoots(loadSettings().claudeCodeRoutingRoots);
@@ -3873,9 +3877,29 @@ function ownerAwayReason(): string | null {
   return null;
 }
 
-/** What Marshal said on its own goes into the voice conversation, so "what did you ask?" has an answer (#553). */
+// What Marshal said on its own, kept in a file: a restart must not erase "what did you ask?" (#553).
+function spokenLinesPath(): string {
+  return path.join(app.getPath("userData"), "assistant", "spoken-lines.json");
+}
+
+function readSpokenLines(): SpokenLine[] {
+  try {
+    const lines: unknown = JSON.parse(fs.readFileSync(spokenLinesPath(), "utf8"));
+    return Array.isArray(lines)
+      ? lines.filter((line): line is SpokenLine => typeof line?.text === "string" && typeof line?.at === "number")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function noteSpoken(text: string): void {
-  conversation().note(text);
+  try {
+    fs.mkdirSync(path.dirname(spokenLinesPath()), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(spokenLinesPath(), JSON.stringify(keepSpoken(readSpokenLines(), text, Date.now())), { mode: 0o600 });
+  } catch (err) {
+    console.warn("[voice] spoken line not kept:", err instanceof Error ? err.message : err);
+  }
 }
 
 // The answer to a session's closing question (#553): short words go to that session verbatim,
