@@ -117,7 +117,9 @@ import {
   parsePermissionRequest,
   permissionHookOutput,
   questionHookOutput,
-  voiceQuestions
+  spokenSessionTitle,
+  voiceQuestions,
+  type Asker
 } from "./claude-code/permission-voice.ts";
 import type { SpokenSessionEvent } from "./claude-code/session-notifier.ts";
 import { createCallPresence, warmUpMicUsers } from "./presence/call-presence.ts";
@@ -3813,7 +3815,7 @@ function onUnclearAnswer(answer: string, uk: boolean): void {
 async function queueVoiceTurn(
   sessionId: string,
   cwd: string,
-  ask: (name: string, lang: ReturnType<typeof uiLanguage>, late: () => boolean) => Promise<string>
+  ask: (asker: Asker, lang: ReturnType<typeof uiLanguage>, late: () => boolean) => Promise<string>
 ): Promise<string> {
   const settings = loadSettings();
   if (!settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
@@ -3824,9 +3826,11 @@ async function queueVoiceTurn(
     if (late() || assistantInputs.asleep) return "";
     if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "";
     if (Date.now() - ownerTalkAt < OWNER_TALK_QUIET_MS) return "";
-    const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? path.basename(cwd);
+    // Project first, then a title the owner recognises by ear (#544); a folder slug is never said.
+    const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? null;
+    const asker = { project: projectOf(cwd), title: spokenSessionTitle(name, claudeHooks?.cachedDossier(sessionId, cwd) ?? null) };
     permissionAskedAt.set(sessionId, Date.now());
-    return ask(name, uiLanguage(), late);
+    return ask(asker, uiLanguage(), late);
   });
   permissionTurn = turn.catch(() => "");
   const deadline = new Promise<string>((resolve) => setTimeout(() => resolve(""), PERMISSION_DEADLINE_MS - (Date.now() - startedAt)));
@@ -3836,9 +3840,9 @@ async function queueVoiceTurn(
 async function answerPermissionByVoice(raw: string): Promise<string> {
   const elicitation = parseElicitationRequest(raw);
   if (elicitation) {
-    return queueVoiceTurn(elicitation.sessionId, elicitation.cwd, async (name, lang, late) => {
+    return queueVoiceTurn(elicitation.sessionId, elicitation.cwd, async (asker, lang, late) => {
       const uk = lang === "uk";
-      const answer = await askOwner(describeElicitation(name, elicitation, lang));
+      const answer = await askOwner(describeElicitation(asker, elicitation, lang));
       if (late()) return "";
       const decision = answer ? classifyPermissionAnswer(answer) : null;
       if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Підтвердив." : "Відмовив.") : decision === "allow" ? "Confirmed." : "Declined.");
@@ -3850,13 +3854,13 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
   if (!request) return "";
   const questions = voiceQuestions(request);
   if (!questions && !isVoicePermission(request)) return "";
-  return queueVoiceTurn(request.sessionId, request.cwd, async (name, lang, late) => {
+  return queueVoiceTurn(request.sessionId, request.cwd, async (asker, lang, late) => {
     const uk = lang === "uk";
     if (questions) {
       // Questions go one by one; the first unclear answer hands the whole call to the session.
       const picks: Array<number[] | null> = [];
       for (const q of questions) {
-        const answer = await askOwner(describeQuestion(name, q, lang));
+        const answer = await askOwner(describeQuestion(asker, q, lang));
         if (late()) return "";
         const chosen = answer ? matchVoiceAnswer(answer, q) : null;
         const value = chosen ? answerChoices(q, chosen) : null;
@@ -3867,7 +3871,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
       }
       return questionHookOutput(request, questions, picks);
     }
-    const answer = await askOwner(describePermission(name, request, lang));
+    const answer = await askOwner(describePermission(asker, request, lang));
     if (late()) return "";
     const decision = answer ? classifyPermissionAnswer(answer) : null;
     if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
@@ -3983,7 +3987,8 @@ function flushWaitingSpeech(): void {
     if (!waitingProjectsUnspoken.has(project) || quiet(session.sessionId)) continue;
     const signal = burst.get(session.sessionId) ?? lastWaitingSignal.get(session.sessionId);
     const question = isQuestionWait({ confirmation: signal?.confirmation ?? true, message: signal?.message ?? "", waitingFor: session.waitingFor });
-    sessions.set(session.sessionId, { project, question, name: session.name });
+    const name = spokenSessionTitle(session.name, claudeHooks?.cachedDossier(session.sessionId, session.cwd) ?? null) ?? undefined;
+    sessions.set(session.sessionId, { project, question, name });
   }
   for (const [sessionId, signal] of burst) {
     lastWaitingSignal.set(sessionId, signal);

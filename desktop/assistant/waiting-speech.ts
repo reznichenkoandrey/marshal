@@ -5,7 +5,7 @@
 
 import type { UiLanguage } from "../i18n/catalog.ts";
 
-/** `name` is the registry session name, when known; spoken only for a lone question. */
+/** `name` is a title worth saying (`spokenSessionTitle`), when known; spoken only for a lone question. */
 export type WaitingSession = { project: string; question: boolean; name?: string };
 
 export type WaitingSignal = {
@@ -44,7 +44,7 @@ function ukForm(count: number): "one" | "few" | "many" {
 }
 
 function ukSessions(count: number, question: boolean, name: string | null): string {
-  if (name && count === 1) return `сесія ${name} чекає ${question ? "відповіді" : "дозволу"}`;
+  if (name && count === 1) return `сесія «${name}» чекає ${question ? "відповіді" : "дозволу"}`;
   const form = ukForm(count);
   const noun = form === "one" ? "сесія" : form === "few" ? "сесії" : "сесій";
   const verb = form === "one" ? "чекає" : "чекають";
@@ -52,7 +52,7 @@ function ukSessions(count: number, question: boolean, name: string | null): stri
 }
 
 function enSessions(count: number, question: boolean, name: string | null): string {
-  if (name && count === 1) return `session ${name} needs ${question ? "an answer" : "permission"}`;
+  if (name && count === 1) return `session “${name}” needs ${question ? "an answer" : "permission"}`;
   const noun = count === 1 ? "session needs" : "sessions need";
   return `${EN_NUMBERS[count] ?? String(count)} ${noun} ${question ? "an answer" : "permission"}`;
 }
@@ -74,7 +74,7 @@ export function describeWaiting(sessions: readonly WaitingSession[], lang: UiLan
   const uk = lang === "uk";
   return [...projects].map(([project, { questions, permissions, questionNames }]) => {
     const parts: string[] = [];
-    const lone = questions === 1 && questionNames.length === 1 ? speakableProject(questionNames[0]) : null;
+    const lone = questions === 1 && questionNames.length === 1 ? questionNames[0] : null;
     if (questions) parts.push(uk ? ukSessions(questions, true, lone) : enSessions(questions, true, lone));
     if (permissions) parts.push(uk ? ukSessions(permissions, false, null) : enSessions(permissions, false, null));
     const name = speakableProject(project);
