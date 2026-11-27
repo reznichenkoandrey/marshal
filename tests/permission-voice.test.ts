@@ -16,6 +16,7 @@ import {
   parseElicitationRequest,
   describeElicitation,
   elicitationHookOutput,
+  spokenSessionTitle,
   type PermissionRequest,
   type VoiceQuestion
 } from "../desktop/claude-code/permission-voice.ts";
@@ -51,18 +52,57 @@ describe("parsePermissionRequest", () => {
   });
 });
 
+const snoriq = { project: "Snoriq", title: "Аудит розрахунку нічних метрик" };
+const bare = { project: "100-balloons_hyva", title: null };
+
 describe("describePermission", () => {
-  it("names the action briefly, without paths", () => {
-    expect(describePermission("marshal", request("Bash", { command: "npm test", description: "Run tests" }), "uk"))
-      .toBe("marshal хоче запустити: Run tests. Дозволити?");
-    expect(describePermission("marshal", request("Bash", { command: "/usr/bin/git push origin feature/a b c d e f" }), "en"))
-      .toBe("marshal wants to run git push origin a b c. Allow?");
-    expect(describePermission("marshal", request("Edit", { file_path: "/Users/me/htdocs/marshal/desktop/main.ts" }), "uk"))
-      .toBe("marshal хоче змінити main.ts. Дозволити?");
-    expect(describePermission("marshal", request("WebFetch", { url: "https://github.com/x/y" }), "en"))
-      .toBe("marshal wants to open github.com. Allow?");
-    expect(describePermission("snoriq", request("mcp__figma__use_figma", {}), "uk"))
-      .toBe("snoriq хоче викликати use_figma з figma. Дозволити?");
+  it("leads with the project and the session title, then the action in plain words", () => {
+    expect(describePermission(snoriq, request("Bash", { command: "git push origin main" }), "uk"))
+      .toBe("У проєкті Snoriq сесія «Аудит розрахунку нічних метрик» просить дозвіл запушити зміни. Дозволити?");
+    expect(describePermission(bare, request("Bash", { command: "npm test" }), "uk"))
+      .toBe("У проєкті 100 balloons hyva сесія просить дозвіл запустити тести. Дозволити?");
+    expect(describePermission({ project: "marshal", title: "Voice wording" }, request("Bash", { command: "npm test" }), "en"))
+      .toBe("In marshal, session “Voice wording” asks permission to run the tests. Allow?");
+    expect(describePermission(bare, request("Bash", { command: "ls" }), "en"))
+      .toBe("In 100 balloons hyva, a session asks permission to run ls. Allow?");
+  });
+
+  it("names known commands past cd, env and full paths", () => {
+    const say = (command: string, description?: string) =>
+      describePermission(bare, request("Bash", { command, ...(description ? { description } : {}) }), "uk");
+    expect(say("cd ~/htdocs/x && FOO=1 /usr/bin/git push -u origin feature/a")).toContain("запушити зміни");
+    expect(say("gh pr merge 12 --squash")).toContain("змерджити PR");
+    expect(say("rm -rf dist")).toContain("видалити файли");
+    expect(say("pnpm install")).toContain("встановити залежності");
+    expect(say("curl -s https://example.com | jq .")).toContain("звернутися в інтернет");
+    expect(say("./scripts/deploy.sh --prod", "Deploy to production")).toContain("виконати команду «Deploy to production»");
+    expect(say("./scripts/deploy.sh --prod")).toContain("виконати команду deploy.sh");
+  });
+
+  it("says files, sites and MCP tools without ids or underscores", () => {
+    const say = (tool: string, input: Record<string, unknown> = {}, lang: "uk" | "en" = "uk") => describePermission(bare, request(tool, input), lang);
+    expect(say("Edit", { file_path: "/Users/me/htdocs/marshal/desktop/main.ts" })).toContain("просить дозвіл змінити файл main.ts.");
+    expect(say("WebFetch", { url: "https://github.com/x/y" }, "en")).toContain("asks permission to open github.com.");
+    expect(say("mcp__plugin_engineering_github__create_issue")).toContain("просить дозвіл створити issue у github.");
+    expect(say("mcp__figma__get_design_context", {}, "en")).toContain("asks permission to look at design context in figma.");
+    expect(say("mcp__figma__use_figma")).toContain("просить дозвіл скористатися figma.");
+    expect(say("mcp__smart-browser__browser_click")).toContain("просить дозвіл керувати smart browser.");
+    expect(say("mcp__1a59c906-04da-521d-bda7-7f71b9f9e01c__batch")).toContain("керувати програмою через конектор.");
+    expect(say("mcp__a6baaa8f-e1b8-4b30-9612-3d2499af47c8__send_message")).toContain("просить дозвіл надіслати message.");
+  });
+});
+
+describe("spokenSessionTitle", () => {
+  it("says a human title, never a slug", () => {
+    expect(spokenSessionTitle("Підготовка релізу проєкту", null)).toBe("Підготовка релізу проєкту");
+    expect(spokenSessionTitle("cpap-ed", null)).toBeNull();
+    expect(spokenSessionTitle(null, null)).toBeNull();
+    expect(spokenSessionTitle("one two three four five six seven eight nine", null)).toBe("one two three four five six seven eight…");
+  });
+
+  it("falls back to the dossier's Feature line without branches and paths", () => {
+    const dossier = "Project: marshal\nFeature: voice permission wording on feature/voice-permission-wording (#544)\nNow: tests";
+    expect(spokenSessionTitle("fix_auth_flow", dossier)).toBe("voice permission wording on (#544)");
   });
 });
 
@@ -141,13 +181,13 @@ describe("voiceQuestions", () => {
 describe("describeQuestion", () => {
   it("says the question and numbered options briefly", () => {
     const q = { question: colour.question, labels: ["Red", "Blue"] };
-    expect(describeQuestion("marshal", q, "en")).toBe("marshal asks: Which colour do you prefer for the badge? Options — 1: Red, 2: Blue.");
-    expect(describeQuestion("marshal", q, "uk")).toContain("marshal питає:");
+    expect(describeQuestion({ project: "marshal", title: null }, q, "en")).toBe("In marshal, a session asks: Which colour do you prefer for the badge? Options — 1: Red, 2: Blue.");
+    expect(describeQuestion(snoriq, q, "uk")).toContain("У проєкті Snoriq сесія «Аудит розрахунку нічних метрик» питає:");
   });
 
   it("clips a long question", () => {
     const long = { question: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen", labels: ["a", "b"] };
-    expect(describeQuestion("s", long, "en")).toContain("twelve…");
+    expect(describeQuestion(bare, long, "en")).toContain("twelve…");
   });
 });
 
@@ -284,9 +324,9 @@ describe("parseElicitationRequest", () => {
 describe("describeElicitation and elicitationHookOutput", () => {
   const req = { sessionId: "e1", cwd: "/x", server: "github", message: "Create the issue now?" };
 
-  it("says the request and the server briefly", () => {
-    expect(describeElicitation("marshal", req, "en")).toBe("marshal (github) asks to confirm: Create the issue now? Allow?");
-    expect(describeElicitation("marshal", req, "uk")).toBe("marshal (github) просить підтвердити: Create the issue now? Дозволити?");
+  it("says the request briefly, project first", () => {
+    expect(describeElicitation({ project: "marshal", title: null }, req, "en")).toBe("In marshal, a session asks to confirm: Create the issue now? Allow?");
+    expect(describeElicitation(snoriq, req, "uk")).toBe("У проєкті Snoriq сесія «Аудит розрахунку нічних метрик» просить підтвердити: Create the issue now? Дозволити?");
   });
 
   it("accepts on a yes, declines on a no, prints nothing when unclear", () => {

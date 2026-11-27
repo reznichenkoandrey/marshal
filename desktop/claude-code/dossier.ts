@@ -195,6 +195,11 @@ export class DossierKeeper {
     return result;
   }
 
+  /** The stored dossier as is: no rebuild, so a caller that cannot wait for a model gets it at once. */
+  cached(sessionId: string): string | null {
+    return this.load()[sessionId]?.text ?? null;
+  }
+
   /** Rebuild one session's dossier if the policy says so; concurrent calls share one build. */
   refresh(session: Pick<ClaudeSession, "sessionId" | "name" | "cwd">): Promise<void> {
     const pending = this.building.get(session.sessionId);

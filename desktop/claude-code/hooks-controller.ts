@@ -157,6 +157,11 @@ export class ClaudeHooksController {
     return this.setInstalled(true);
   }
 
+  /** A session's last dossier without rebuilding it; null outside the folders that may be read (#303). */
+  cachedDossier(sessionId: string, cwd: string): string | null {
+    return inRoutingRoots({ cwd }) ? this.dossiers.cached(sessionId) : null;
+  }
+
   /** For the dispatcher's `./marshal context`: the same scope and dossiers as #286. */
   async routingContext(sessions: readonly ClaudeSession[]): Promise<string> {
     if (!loadSettings().claudeCodeContextRouting) return "off";
