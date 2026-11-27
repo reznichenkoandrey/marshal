@@ -12,7 +12,7 @@ import { shouldHoldNotification } from "../presence/call-policy.ts";
 
 /** What the owner hears (#318): a finished turn's summary, or that a session waits. */
 export type SpokenSessionEvent =
-  | { kind: "finished"; sessionId: string; name: string; summary: string | null }
+  | { kind: "finished"; sessionId: string; name: string; cwd: string; summary: string | null }
   | { kind: "waiting"; sessionId: string; name: string; cwd: string; message: string; confirmation: boolean };
 
 export type NotifierDeps = {
@@ -59,7 +59,7 @@ export class SessionNotifier {
       const body = summary ?? translate(lang, "claude.finishedFallback");
       if (shouldHoldNotification(false, (await this.deps.onCall?.()) ?? false)) this.hold(title, body);
       else this.deps.notify(title, body, onClick);
-      this.deps.speak?.({ kind: "finished", sessionId: event.sessionId, name, summary });
+      this.deps.speak?.({ kind: "finished", sessionId: event.sessionId, name, cwd: event.cwd, summary });
       return;
     }
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildConversationPrompt,
+  conversationLine,
   ConversationHistory,
   HISTORY_TTL_MS,
   parseConversationReply,
@@ -297,5 +298,11 @@ describe("VoiceConversation", () => {
     await conversation.handle("що в снорік?", "uk");
     expect(deps.recall).toHaveBeenCalledTimes(5);
     expect(spoken.at(-1)).toBe("Не зрозумів, повтори.");
+  });
+});
+
+describe("conversationLine never reads a slug's separators (#544)", () => {
+  it("says underscores and dashes as spaces", () => {
+    expect(conversationLine("busy", "uk", "session_ab12")).toBe("session ab12 зараз працює, скажи пізніше.");
   });
 });
