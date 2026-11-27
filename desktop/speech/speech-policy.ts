@@ -289,6 +289,13 @@ export class SpeechQueue<T extends SpeechItem = SpeechItem> {
     return this.items.some((pending) => pending.key === key);
   }
 
+  /** True when a phrase with this key was waiting and is now gone. */
+  remove(key: string): boolean {
+    const before = this.items.length;
+    this.items = this.items.filter((pending) => pending.key !== key);
+    return this.items.length !== before;
+  }
+
   take(): T | undefined {
     return this.items.shift();
   }

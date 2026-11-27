@@ -289,6 +289,43 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     expect(commands).toEqual([]);
   }, 10_000);
 
+  it("apple engine: an answer cancelled mid-capture is null and its words are no command (#551)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
+    const bin = path.join(dir, "fake-speech");
+    writeFileSync(
+      bin,
+      `#!${process.execPath}
+let timer = null;
+setTimeout(() => console.log("partial так"), 200);
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  if (line === "hold") timer = setInterval(() => console.log("level -60"), 100);
+  if (line === "end") {
+    clearInterval(timer);
+    console.log("final так");
+  }
+});
+`
+    );
+    chmodSync(bin, 0o755);
+    const commands: string[] = [];
+    const listener = new WakeListener({
+      engine: "apple",
+      binPath: bin,
+      transcribe: async () => "",
+      allowed: async () => true,
+      onCommand: (text) => commands.push(text),
+      onNameOnly: () => undefined,
+      onPhase: () => undefined
+    });
+    listener.start();
+    const answer = listener.listenForAnswer(3_000);
+    setTimeout(() => listener.cancelAnswer(), 500);
+    expect(await answer).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    listener.stop();
+    expect(commands).toEqual([]);
+  }, 10_000);
+
   it("apple engine: no answer in the window is null", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "marshal-wake-"));
     const bin = path.join(dir, "fake-speech");

@@ -3781,24 +3781,64 @@ async function answerAloud(text: string, options: { key?: string } = {}): Promis
 }
 
 // Opens the mic once Marshal stops talking, no key needed (#375); null when nobody answered.
-async function listenAfterSpeech(): Promise<string | null> {
+async function listenAfterSpeech(cancelled: () => boolean = () => false): Promise<string | null> {
   if (!speechService || !dictationService || assistantInputs.asleep) return null;
   const quiet = await Promise.race([
     speechService.whenQuiet().then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ANSWER_QUIET_WAIT_MS))
   ]);
-  if (!quiet || !(await openMicAllowed(openMicState()))) return null;
+  if (!quiet || cancelled() || !(await openMicAllowed(openMicState()))) return null;
   // The wake helper hears quiet voices and project names; the recorder's mic stalled AirPods playback.
   if (wakeListener && wakeListenerEngine === "apple") return wakeListener.listenForAnswer(WAKE_FOLLOW_UP_MS);
   return dictationService.listenForAnswer();
 }
 
-async function askOwner(question: string): Promise<string | null> {
+const ASK_KEY = "assistant:ask";
+
+/** `cancelled`: the question was settled elsewhere (#551), so no mic opens for it. */
+async function askOwner(question: string, cancelled: () => boolean = () => false): Promise<string | null> {
   if (!speechService || assistantInputs.asleep) return null;
-  const spoken = await speechService.speak(question, { key: "assistant:ask" });
-  if (!spoken.ok) return null;
+  const spoken = await speechService.speak(question, { key: ASK_KEY });
+  if (!spoken.ok || cancelled()) return null;
   announceToAssistant(question);
-  return listenAfterSpeech();
+  return listenAfterSpeech(cancelled);
+}
+
+const ANSWERED_POLL_MS = 500;
+
+/**
+ * Watches the registry while a voice prompt about sessions is live (#551), never otherwise
+ * (#281): once `pending` held and then stops holding, the owner answered on screen.
+ */
+function watchAnsweredOnScreen(
+  pending: (live: ReturnType<typeof listLiveSessions>) => boolean,
+  alive: () => boolean,
+  onAnswered: () => void
+): void {
+  let seen = false;
+  const timer = setInterval(() => {
+    if (!alive()) return clearInterval(timer);
+    if (pending(listLiveSessions())) {
+      seen = true;
+      return;
+    }
+    if (!seen) return;
+    clearInterval(timer);
+    onAnswered();
+  }, ANSWERED_POLL_MS);
+  timer.unref();
+}
+
+/** The owner heard (part of) a prompt they then answered on screen: one short line, not the rest. */
+function sayAnsweredOnScreen(): void {
+  sayAsAssistant(uiLanguage() === "uk" ? "Бачу, відповів." : "I see, you answered.");
+}
+
+/** A phrase about sessions goes once none of them waits for the owner any more (#551). */
+function dropWhenAnswered(key: string, pending: (live: ReturnType<typeof listLiveSessions>) => boolean, alive: () => boolean = () => true): void {
+  watchAnsweredOnScreen(pending, () => alive() && (speechService?.isActive(key) ?? false), () => {
+    if (speechService?.drop(key) === "cut") sayAnsweredOnScreen();
+  });
 }
 
 // A session's question must not land in the middle of the owner talking to Marshal:
@@ -3823,7 +3863,8 @@ async function queueVoiceTurn(
   if (!settings.assistantDispatcher || !settings.speechEnabled || assistantInputs.asleep) return "";
   if (!isUnderRoots(cwd, parseRoutingRoots(settings.claudeCodeRoutingRoots))) return "";
   const startedAt = Date.now();
-  const late = () => Date.now() - startedAt > PERMISSION_DEADLINE_MS;
+  let answeredOnScreen = false;
+  const late = () => answeredOnScreen || Date.now() - startedAt > PERMISSION_DEADLINE_MS;
   const turn = permissionTurn.then(async (): Promise<string> => {
     if (late() || assistantInputs.asleep) return "";
     if (powerMonitor.getSystemIdleTime() > PERMISSION_OWNER_IDLE_S) return "";
@@ -3832,7 +3873,23 @@ async function queueVoiceTurn(
     const name = listLiveSessions().find((session) => session.sessionId === sessionId)?.name ?? null;
     const asker = { project: projectOf(cwd), title: spokenSessionTitle(name, claudeHooks?.cachedDossier(sessionId, cwd) ?? null) };
     permissionAskedAt.set(sessionId, Date.now());
-    return ask(asker, uiLanguage(), late);
+    let done = false;
+    watchAnsweredOnScreen(
+      (live) => live.some((session) => session.sessionId === sessionId && session.status === "waiting"),
+      () => !done,
+      () => {
+        answeredOnScreen = true;
+        const unheard = speechService?.drop(ASK_KEY) === "queued";
+        wakeListener?.cancelAnswer();
+        dictationService?.cancelAnswer();
+        if (!unheard) sayAnsweredOnScreen();
+      }
+    );
+    try {
+      return await ask(asker, uiLanguage(), late);
+    } finally {
+      done = true;
+    }
   });
   permissionTurn = turn.catch(() => "");
   const deadline = new Promise<string>((resolve) => setTimeout(() => resolve(""), PERMISSION_DEADLINE_MS - (Date.now() - startedAt)));
@@ -3844,7 +3901,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
   if (elicitation) {
     return queueVoiceTurn(elicitation.sessionId, elicitation.cwd, async (asker, lang, late) => {
       const uk = lang === "uk";
-      const answer = await askOwner(describeElicitation(asker, elicitation, lang));
+      const answer = await askOwner(describeElicitation(asker, elicitation, lang), late);
       if (late()) return "";
       const decision = answer ? classifyPermissionAnswer(answer) : null;
       if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Підтвердив." : "Відмовив.") : decision === "allow" ? "Confirmed." : "Declined.");
@@ -3862,7 +3919,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
       // Questions go one by one; the first unclear answer hands the whole call to the session.
       const picks: Array<number[] | null> = [];
       for (const q of questions) {
-        const answer = await askOwner(describeQuestion(asker, q, lang));
+        const answer = await askOwner(describeQuestion(asker, q, lang), late);
         if (late()) return "";
         const chosen = answer ? matchVoiceAnswer(answer, q) : null;
         const value = chosen ? answerChoices(q, chosen) : null;
@@ -3873,7 +3930,7 @@ async function answerPermissionByVoice(raw: string): Promise<string> {
       }
       return questionHookOutput(request, questions, picks);
     }
-    const answer = await askOwner(describePermission(asker, request, lang));
+    const answer = await askOwner(describePermission(asker, request, lang), late);
     if (late()) return "";
     const decision = answer ? classifyPermissionAnswer(answer) : null;
     if (decision) sayAsAssistant(uk ? (decision === "allow" ? "Дозволив." : "Відмовив.") : decision === "allow" ? "Allowed." : "Declined.");
@@ -3960,7 +4017,11 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
     if (assistantInputs.asleep) return;
     const lang = uiLanguage();
     const asker: Asker = { project: projectOf(event.cwd), title: spokenSessionTitle(event.name, claudeHooks?.cachedDossier(event.sessionId, event.cwd) ?? null) };
-    void speechService?.speak(describeClosingQuestion(asker, event.question, lang), { lang, key: `session:question:${event.sessionId}` });
+    const key = `session:question:${event.sessionId}`;
+    void speechService?.speak(describeClosingQuestion(asker, event.question, lang), { lang, key }).then((spoken) => {
+      // The owner replied in the session: it is busy again.
+      if (spoken.ok) dropWhenAnswered(key, (live) => live.some((session) => session.sessionId === event.sessionId && session.status === "idle"));
+    });
     return;
   }
   if (event.kind === "finished" && !asked && (event.name !== GENERAL_NAME || assistantInputs.asleep)) return;
@@ -3983,6 +4044,8 @@ function speakSessionEvent(event: SpokenSessionEvent): void {
 // One sentence per burst of waiting events, by project (#385). The registry has the
 // count and "input needed" for AskUserQuestion; it may lag the hook, so the burst's
 // own sessions count even before the registry lists them as waiting.
+let waitingPhraseGeneration = 0;
+
 function flushWaitingSpeech(): void {
   waitingFlush = null;
   const burst = new Map(waitingSignals);
@@ -4012,7 +4075,12 @@ function flushWaitingSpeech(): void {
   }
   if (sessions.size === 0) return;
   const lang = uiLanguage();
-  void speechService?.speak(describeWaiting([...sessions.values()], lang), { lang, key: WAITING_SPEECH_KEY });
+  const generation = ++waitingPhraseGeneration;
+  const ids = new Set(sessions.keys());
+  void speechService?.speak(describeWaiting([...sessions.values()], lang), { lang, key: WAITING_SPEECH_KEY }).then((spoken) => {
+    // A newer burst replaced this phrase: its own watcher decides.
+    if (spoken.ok) dropWhenAnswered(WAITING_SPEECH_KEY, (live) => live.some((session) => ids.has(session.sessionId) && session.status === "waiting"), () => generation === waitingPhraseGeneration);
+  });
 }
 
 function hubService(): SmartHubService {
