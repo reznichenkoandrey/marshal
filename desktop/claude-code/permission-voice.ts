@@ -258,6 +258,12 @@ export function describeQuestion(asker: Asker, q: VoiceQuestion, lang: UiLanguag
     : `${who(asker, lang)} asks: ${clip(q.question, MAX_SPOKEN_QUESTION_WORDS)} Options — ${options}.${hint}`;
 }
 
+/** A turn that ended with a question (#547); "" = too long to say, so only that the session asks. */
+export function describeClosingQuestion(asker: Asker, question: string, lang: UiLanguage): string {
+  if (lang === "uk") return question ? `${who(asker, lang)} питає: ${question}` : `${who(asker, lang)} питає тебе.`;
+  return question ? `${who(asker, lang)} asks: ${question}` : `${who(asker, lang)} has a question for you.`;
+}
+
 const ORDINALS: ReadonlyArray<ReadonlySet<string>> = [
   new Set(["1", "один", "одна", "одну", "перший", "перша", "першу", "перше", "першого", "one", "first"]),
   new Set(["2", "два", "дві", "другий", "друга", "другу", "друге", "другого", "two", "second"]),

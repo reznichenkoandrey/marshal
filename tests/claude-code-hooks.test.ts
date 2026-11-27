@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildSummaryRequest } from "../desktop/claude-code/answer-summary.ts";
-import { EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, spokenTail, type HookEvent } from "../desktop/claude-code/hook-events.ts";
+import { closingQuestion, EventDeduper, eventKey, isFreshSpoolEntry, parseHookPayload, spokenTail, type HookEvent } from "../desktop/claude-code/hook-events.ts";
 import {
   addMarshalHooks,
   hasMarshalHooks,
@@ -287,5 +287,16 @@ describe("answer summary prompt", () => {
     expect(buildSummaryRequest("Усі тести проходять, PR відкрито.", "auto").user).toContain("Write it in Ukrainian.");
     expect(buildSummaryRequest("All tests pass.", "auto").user).toContain("Write it in English.");
     expect(buildSummaryRequest("All tests pass.", "uk").user).toContain("Write it in Ukrainian.");
+  });
+});
+
+describe("closingQuestion (#547)", () => {
+  it("takes the last sentence of a closing question, ready to say", () => {
+    const text = "**Ризик:** PR змінює `mcp-tools.service.ts`.\n\nМерджити #1996, коли гейт стане зеленим: «так, мерджи» чи «почекай»?";
+    expect(closingQuestion(text, "uk")).toBe("Мерджити номер 1996, коли гейт стане зеленим: «так, мерджи» чи «почекай»?");
+    expect(closingQuestion("Done. Merge [owner/repo#12](https://github.com/owner/repo/pull/12) now?", "en")).toBe("Merge number 12 now?");
+    expect(closingQuestion("Тести зелені. Готово.", "uk")).toBeNull();
+    expect(closingQuestion("```\nwhy?\n```", "en")).toBeNull();
+    expect(closingQuestion(`${"слово ".repeat(40)}?`, "uk")).toBe("");
   });
 });

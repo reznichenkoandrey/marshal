@@ -306,3 +306,10 @@ describe("conversationLine never reads a slug's separators (#544)", () => {
     expect(conversationLine("busy", "uk", "session_ab12")).toBe("session ab12 зараз працює, скажи пізніше.");
   });
 });
+
+describe("a session's closing question in the prompt (#547)", () => {
+  it("shows what an idle session asked the owner", () => {
+    const sessions = [{ name: "Snoriq MCP", project: "Snoriq", status: "idle", waitingFor: null, question: "Мерджити номер 1996?" }];
+    expect(buildConversationPrompt("так, мерджи", { ...facts, sessions }, [])).toContain('- Snoriq MCP | Snoriq | idle, asked the owner: "Мерджити номер 1996?"');
+  });
+});

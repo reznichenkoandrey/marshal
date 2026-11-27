@@ -79,6 +79,7 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "- In say, call a session by its name only when the name is words. A name without spaces (session_ab12, cpap-ed, an id) is never read out: say \"сесія в <project>\" instead. The action fields still take the exact name.",
   "- A question about how sessions are doing: answer from the list only (working, idle, waiting for an answer or a permission).",
   "- A question about one session's work (what stage, what it is doing, is it done, what it asked): peek_session. You then get its last turns and answer from them.",
+  "- A session that asked the owner a question (state \"asked the owner\") and the owner's words answer it (\"так, мерджи\", \"почекай\"), even without the session's name: tell_session to that session with the owner's words. Two sessions asked and the words fit both: ask which.",
   "- The owner wants a session to do something or asks something only that session knows: tell_session, and say a short confirmation such as \"Передаю marshal.\" The session's own answer is spoken later.",
   "- A follow-up without a session name continues with the session the conversation was about.",
   "- Your last reply asked a question (which session, which app): the owner's answer completes that earlier request. Do the action they asked for then, with their earlier words: naming a session after \"tell the session X\" is tell_session, not open_session.",
@@ -98,7 +99,8 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "- Something you cannot do: say so in one sentence."
 ].join("\n");
 
-export type ConversationSession = { name: string; project: string; status: string | null; waitingFor: string | null };
+/** `question`: what an idle session asked the owner at the end of its turn (#547). */
+export type ConversationSession = { name: string; project: string; status: string | null; waitingFor: string | null; question?: string | null };
 export type ConversationFacts = {
   now: Date;
   sessions: readonly ConversationSession[];
@@ -122,7 +124,7 @@ export type ConversationReply = { say: string; action: ConversationAction | null
 
 function sessionState(session: ConversationSession): string {
   if (session.status === "waiting") return `waiting for the owner${session.waitingFor ? ` (${session.waitingFor})` : ""}`;
-  if (session.status === "idle") return "idle";
+  if (session.status === "idle") return session.question ? `idle, asked the owner: "${session.question}"` : "idle";
   if (session.status === "busy" || session.status === "shell") return "working";
   return "unknown";
 }
