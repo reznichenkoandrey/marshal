@@ -212,7 +212,7 @@ export class WakeListener {
       return;
     }
     if (!apple) writeFileSync(paths.keywords, KEYWORDS);
-    // ponytail: the AudioQueue binds to the default input at start; a new default mic needs a restart (toggle in Settings).
+    // ponytail: the sherpa helper binds to the default input at start; a new default mic needs a restart (toggle in Settings). speech-wake follows it (#560).
     const args = apple ? [] : ["--lib", paths.lib, "--model", paths.model, "--keywords", paths.keywords];
     const child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"] });
     this.child = child;
