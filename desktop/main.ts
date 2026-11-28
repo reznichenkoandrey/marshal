@@ -270,6 +270,8 @@ let callOfferNotice: Notification | null = null;
 const ANSWER_QUIET_WAIT_MS = 30_000;
 // After «Маршал» alone, how long the next words still count as the command.
 const WAKE_FOLLOW_UP_MS = 6_000;
+// Answering Marshal's own question takes thought: a third option of the owner's own started after 6 s (#562).
+const WAKE_ANSWER_MS = 12_000;
 // The hook gives up at 58 s (curl) / 60 s (Claude Code); answer well before that.
 const PERMISSION_DEADLINE_MS = 50_000;
 // The prompt that follows an unanswered voice question needs no second announcement.
@@ -3846,7 +3848,7 @@ async function listenAfterSpeech(cancelled: () => boolean = () => false): Promis
   // The wake helper hears quiet voices and project names; the recorder's mic stalled AirPods playback.
   const apple = wakeListener !== null && wakeListenerEngine === "apple";
   console.log(`[voice] mic open for the answer (${apple ? "wake helper" : "recorder"})`);
-  const answer = apple ? await wakeListener!.listenForAnswer(WAKE_FOLLOW_UP_MS) : await dictationService.listenForAnswer();
+  const answer = apple ? await wakeListener!.listenForAnswer(WAKE_ANSWER_MS) : await dictationService.listenForAnswer();
   return voiceLog(answer === null ? "no answer heard" : `answer ${JSON.stringify(answer)}`, answer);
 }
 
@@ -3949,10 +3951,9 @@ function noteSpoken(text: string): void {
   }
 }
 
-// The answer to a session's closing question (#553): short words go to that session verbatim,
-// as the owner's own reply; a long one is the owner talking to Marshal.
+// The answer to a session's closing question (#553): it goes to that session verbatim, as the
+// owner's own reply, whatever its length. A third option of the owner's own is rarely short (#562).
 async function answerClosingQuestion(sessionId: string, answer: string, asking: () => boolean): Promise<void> {
-  if (isLongAnswer(answer)) return handleVoiceCommand(answer);
   const uk = uiLanguage() === "uk";
   const session = listLiveSessions().find((live) => live.sessionId === sessionId);
   if (!session || !asking() || replyRefusal(session, session.name)) {
