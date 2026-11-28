@@ -15,7 +15,7 @@ import { CaptureHistoryWindow } from "./capture/capture-history-window.ts";
 import { parseDeckRequest } from "./decks/deck-generator.ts";
 import { DeckWindow } from "./decks/deck-window.ts";
 import { CaptureArchive } from "./capture/capture-archive.ts";
-import { pickProfile, readProfiles, SmartHubService, type HubProfile, type HubState } from "./smart-tools/hub.ts";
+import { groupProfileRows, hubHotkeyFromEnv, paletteUrl, pickProfile, readProfileRows, readProfiles, SmartHubService, type HubProfile, type HubProfileRow, type HubState } from "./smart-tools/hub.ts";
 import { SmartHubWindow } from "./smart-tools/hub-window.ts";
 import { FloatingToolbar } from "./capture/floating-toolbar.ts";
 import { ScrollCapture } from "./capture/scroll-capture.ts";
@@ -295,6 +295,9 @@ let waitingSessionCount = 0;
 let assistantMemory: AssistantStrip["memory"] = null;
 let commandLog: CommandLog | null = null;
 let assistantHotkey: string | null = null;
+let hubHotkey: string | null = null;
+// The hub's profiles as of the last tray right-click; null = no hub answering (#565).
+let hubProfileRows: HubProfileRow[] | null = null;
 const MEETING_TOGGLE_ACCELERATOR = "CommandOrControl+Alt+Shift+M";
 let captionsService: LiveCaptionsService | null = null;
 let speechService: SpeechService | null = null;
@@ -423,6 +426,7 @@ async function bootstrap(): Promise<void> {
       initAssistantDispatcher();
       initPlanRunner();
       registerAssistantHotkey();
+      registerHubHotkey();
       initAmbient();
       if (!Object.keys(process.env).some((key) => key.startsWith("MARSHAL_E2E"))) void syncWakeListener();
       void initExtensionBridge();
@@ -2758,6 +2762,7 @@ function buildTrayMenu(): Electron.Menu {
     { label: t(assistantInputs.asleep ? "tray.wakeAssistant" : "tray.sleepAssistant"), click: () => setAssistantAsleep(!assistantInputs.asleep) },
     { label: t("tray.openTranslator"), click: () => openTranslator() },
     { label: t("tray.openHub"), click: () => void openSmartHub() },
+    { label: t("tray.openAs"), submenu: openAsMenu() },
     ...(claudeHooks ? [{ label: t("tray.chromeGuard"), submenu: chromeGuardMenu() }] : []),
     ...automationIdeasTrayItems(settings.automationIdeas),
     { label: t("tray.myDay"), click: () => void showDayReview() },
@@ -3131,9 +3136,12 @@ function createTray(): void {
   tray.on("right-click", () => {
     void callMonitor.check();
     tray?.popUpContextMenu(buildTrayMenu());
+    // The menu above drew the cached list; the next one gets this answer.
+    void refreshHubProfiles();
   });
 
   void refreshTrayState();
+  void refreshHubProfiles();
 }
 
 function openAssistantHome(): void {
@@ -3247,18 +3255,7 @@ function countWaitingSessions(): void {
 function registerAssistantHotkey(): void {
   const accelerator = assistantHotkeyFromEnv(process.env.MARSHAL_ASSISTANT_HOTKEY);
   if (!accelerator) return;
-  const taken = [
-    MEETING_TOGGLE_ACCELERATOR,
-    captionsAccelerators.toggle,
-    captionsAccelerators.ocr,
-    "CommandOrControl+Alt+3",
-    "CommandOrControl+Alt+4",
-    "CommandOrControl+Alt+6",
-    "CommandOrControl+Shift+2",
-    TRANSLATOR_HOTKEY,
-    process.env.MARSHAL_LAYOUT_SWITCH_HOTKEY ?? DEFAULT_LAYOUT_SWITCH_HOTKEY
-  ];
-  const conflict = findAcceleratorConflict(accelerator, taken);
+  const conflict = findAcceleratorConflict(accelerator, marshalAccelerators());
   if (conflict) {
     console.warn(`[assistant] hotkey ${accelerator} collides with Marshal's own ${conflict}; not registered`);
     return;
@@ -3272,6 +3269,42 @@ function registerAssistantHotkey(): void {
   }
   if (registered) assistantHotkey = accelerator;
   console.log(`[assistant] hotkey ${accelerator} ${registered ? "registered" : "could not register — another app owns it"}`);
+}
+
+/** Global accelerators Marshal itself holds, so a configurable hotkey cannot take one of them. */
+function marshalAccelerators(): string[] {
+  return [
+    MEETING_TOGGLE_ACCELERATOR,
+    captionsAccelerators.toggle,
+    captionsAccelerators.ocr,
+    "CommandOrControl+Alt+3",
+    "CommandOrControl+Alt+4",
+    "CommandOrControl+Alt+6",
+    "CommandOrControl+Shift+2",
+    TRANSLATOR_HOTKEY,
+    process.env.MARSHAL_LAYOUT_SWITCH_HOTKEY ?? DEFAULT_LAYOUT_SWITCH_HOTKEY,
+    ...(assistantHotkey ? [assistantHotkey] : [])
+  ];
+}
+
+/** `MARSHAL_HUB_HOTKEY` shows the hub with its ⌘K palette open, from any app (#565). */
+function registerHubHotkey(): void {
+  const accelerator = hubHotkeyFromEnv(process.env.MARSHAL_HUB_HOTKEY);
+  if (!accelerator) return;
+  const conflict = findAcceleratorConflict(accelerator, marshalAccelerators());
+  if (conflict) {
+    console.warn(`[smart-hub] hotkey ${accelerator} collides with Marshal's own ${conflict}; not registered`);
+    return;
+  }
+  let registered = false;
+  try {
+    registered = globalShortcut.register(accelerator, () => void openHubPalette());
+  } catch (err) {
+    console.warn(`[smart-hub] hotkey "${accelerator}" is invalid:`, err instanceof Error ? err.message : err);
+    return;
+  }
+  if (registered) hubHotkey = accelerator;
+  console.log(`[smart-hub] hotkey ${accelerator} ${registered ? "registered" : "could not register — another app owns it"}`);
 }
 
 // A window behind another app is raised, not closed (#336).
@@ -4242,6 +4275,76 @@ async function openSmartHub(): Promise<string> {
   smartHubWindow ??= new SmartHubWindow(app.getPath("userData"));
   smartHubWindow.open(hub.url, hub.token);
   return uiLanguage() === "uk" ? "Відкрив хаб." : "The hub is open.";
+}
+
+/** The panel with its palette open, `query` typed in (#565). */
+async function openHubPalette(query = ""): Promise<void> {
+  const hub = await hubService().ensure();
+  if (hub.kind !== "running") {
+    hubUnavailable(hub.kind);
+    return;
+  }
+  smartHubWindow ??= new SmartHubWindow(app.getPath("userData"));
+  smartHubWindow.open(hub.url, hub.token, paletteUrl(hub.url, query));
+}
+
+async function refreshHubProfiles(): Promise<void> {
+  const service = hubService();
+  const hub = await service.peek();
+  hubProfileRows = hub ? readProfileRows(await service.stateOf(hub)) : null;
+}
+
+/** Tray → "Open as…": the hub's own list, grouped by identity and project. Marshal names no profile itself. */
+function openAsMenu(): Electron.MenuItemConstructorOptions[] {
+  const search: Electron.MenuItemConstructorOptions = {
+    label: t("tray.openAsSearch"),
+    ...(hubHotkey ? { accelerator: hubHotkey, registerAccelerator: false } : {}),
+    click: () => void openHubPalette()
+  };
+  if (hubProfileRows === null) {
+    return [{ label: t("tray.openAsHubOff"), click: () => void openSmartHub().then(() => refreshHubProfiles()) }];
+  }
+  if (hubProfileRows.length === 0) return [{ label: t("tray.openAsEmpty"), enabled: false }, search];
+  const items: Electron.MenuItemConstructorOptions[] = [];
+  for (const group of groupProfileRows(hubProfileRows)) {
+    if (items.length > 0) items.push({ type: "separator" });
+    items.push({ label: identityLabel(group.identity), enabled: false });
+    for (const { project, rows } of group.projects) {
+      items.push({
+        label: project,
+        submenu: rows.map((row) => ({ label: profileRowLabel(row), click: () => void openHubProfile(row) }))
+      });
+    }
+  }
+  return [...items, { type: "separator" }, search];
+}
+
+function identityLabel(identity: string): string {
+  if (identity === "personal") return t("tray.identityPersonal");
+  if (identity === "work") return t("tray.identityWork");
+  return identity;
+}
+
+function profileRowLabel(row: HubProfileRow): string {
+  if (row.state === "stale") return t("tray.profileStale", { name: row.label });
+  if (row.state === "missing") return t("tray.profileNoPassword", { name: row.label });
+  if (row.state === "hand") return t("tray.profileByHand", { name: row.label });
+  return row.label;
+}
+
+async function openHubProfile(row: HubProfileRow): Promise<void> {
+  if (row.action === "palette") return openHubPalette(row.name);
+  const service = hubService();
+  const hub = await service.ensure();
+  if (hub.kind !== "running") {
+    hubUnavailable(hub.kind);
+    return;
+  }
+  const result = await service.act(hub, row.action, row.name);
+  if (!result.ok && Notification.isSupported()) {
+    new Notification({ title: t("notify.hubActionFailed", { name: row.name }), body: result.error, silent: true }).show();
+  }
+  void refreshHubProfiles();
 }
 
 /**

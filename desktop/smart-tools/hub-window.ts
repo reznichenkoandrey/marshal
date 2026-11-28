@@ -37,7 +37,8 @@ export class SmartHubWindow {
     this.state = this.readState();
   }
 
-  open(url: string, token: string): void {
+  /** `target` is a page on the hub's origin, such as the palette URL; the hub's root by default. */
+  open(url: string, token: string, target: string = url): void {
     const origin = new URL(url).origin;
     const partition = session.fromPartition("smart-hub");
     // Only one listener per session: re-registering picks up this run's port
@@ -50,8 +51,9 @@ export class SmartHubWindow {
       this.win.show();
       app.focus({ steal: true });
       this.win.focus();
-      if (this.win.webContents.getURL().startsWith(origin)) return;
-      void this.win.loadURL(url);
+      // Same document, new hash: the panel opens its palette on hashchange.
+      if (target === url && this.win.webContents.getURL().startsWith(origin)) return;
+      void this.win.loadURL(target);
       return;
     }
 
@@ -96,7 +98,7 @@ export class SmartHubWindow {
       this.win?.focus();
     });
 
-    void this.win.loadURL(url);
+    void this.win.loadURL(target);
   }
 
   isOpen(): boolean {
