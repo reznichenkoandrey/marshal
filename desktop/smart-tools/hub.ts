@@ -31,6 +31,8 @@ export const TOKEN_HEADER = "X-Smart-Hub-Token";
 const START_TIMEOUT_MS = 20_000;
 const START_POLL_MS = 200;
 const PROBE_TIMEOUT_MS = 1_500;
+// The hub gives a login up to 300 s before it answers.
+const ACTION_TIMEOUT_MS = 310_000;
 
 export type HubState =
   | { kind: "missing" }
@@ -154,6 +156,98 @@ function normalizeWords(text: string): string[] {
     .filter(Boolean);
 }
 
+/** `MARSHAL_HUB_HOTKEY`: an accelerator, or `off` for none. Three modifiers, since ⌘⌥K is Figma's. */
+export const DEFAULT_HUB_HOTKEY = "CommandOrControl+Alt+Shift+K";
+
+export function hubHotkeyFromEnv(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_HUB_HOTKEY;
+  return trimmed.toLowerCase() === "off" ? null : trimmed;
+}
+
+/** The panel's ⌘K palette, reached through the URL hash the hub listens for. */
+export function paletteUrl(url: string, query = ""): string {
+  const base = url.replace(/[/#]+$/u, "");
+  return query ? `${base}/#open=${encodeURIComponent(query)}` : `${base}/#open`;
+}
+
+export type HubProfileState = "ok" | "stale" | "missing" | "hand" | "out";
+export type HubProfileAction = "open" | "login" | "palette";
+export type HubProfileRow = {
+  name: string;
+  project: string;
+  label: string;
+  identity: string;
+  state: HubProfileState;
+  action: HubProfileAction;
+};
+export type HubProfileGroup = { identity: string; projects: { project: string; rows: HubProfileRow[] }[] };
+
+/**
+ * Rows for the tray's "Open as…" menu (#565), out of the hub's object form of
+ * `GET /api/state`; a bare string carries no state and is skipped. A click does
+ * what the panel does: a live session opens, a stored password logs in, and
+ * anything that needs a decision (the production gate, a missing password, a
+ * sign-in by hand) goes to the hub's palette, where its own confirm rules apply.
+ */
+export function readProfileRows(state: unknown): HubProfileRow[] {
+  const list = (state as { profiles?: unknown } | null)?.profiles;
+  if (!Array.isArray(list)) return [];
+  const rows: HubProfileRow[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!name) continue;
+    const text = (key: string): string => (typeof record[key] === "string" ? (record[key] as string).trim() : "");
+    const project = text("project") || name.split("/")[0];
+    const label = [text("env"), text("role")].filter(Boolean).join("/") || name.slice(project.length + 1) || name;
+    const state = profileState(record);
+    rows.push({ name, project, label, identity: text("identity") || "any", state, action: profileAction(record, state) });
+  }
+  return rows;
+}
+
+function profileState(record: Record<string, unknown>): HubProfileState {
+  if (record.stale === true) return "stale";
+  if (record.logged_in === true) return "ok";
+  if (record.secret_state === "missing") return "missing";
+  if (record.secret_state === "by_hand") return "hand";
+  return "out";
+}
+
+function profileAction(record: Record<string, unknown>, state: HubProfileState): HubProfileAction {
+  if (record.gated === true) return "palette";
+  if (state === "ok" || record.secret_state === "system_browser") return "open";
+  return record.secret_state === "stored" ? "login" : "palette";
+}
+
+const IDENTITY_ORDER = ["personal", "work"];
+
+/** Identity first (personal, work, then the rest), then project, both stable. */
+export function groupProfileRows(rows: HubProfileRow[]): HubProfileGroup[] {
+  const byIdentity = new Map<string, Map<string, HubProfileRow[]>>();
+  for (const row of rows) {
+    const projects = byIdentity.get(row.identity) ?? new Map<string, HubProfileRow[]>();
+    byIdentity.set(row.identity, projects);
+    const list = projects.get(row.project) ?? [];
+    projects.set(row.project, list);
+    list.push(row);
+  }
+  const rank = (identity: string): number => {
+    const index = IDENTITY_ORDER.indexOf(identity);
+    return index === -1 ? IDENTITY_ORDER.length : index;
+  };
+  return [...byIdentity.entries()]
+    .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([identity, projects]) => ({
+      identity,
+      projects: [...projects.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([project, list]) => ({ project, rows: list }))
+    }));
+}
+
 export function clampWindowState(parsed: unknown, defaults: HubWindowState, min: { width: number; height: number }): HubWindowState {
   const input = (parsed ?? {}) as Partial<HubWindowState>;
   const size = (value: unknown, fallback: number, floor: number): number =>
@@ -204,6 +298,34 @@ export class SmartHubService {
       this.starting = null;
     });
     return this.starting;
+  }
+
+  /** A hub that already answers, without starting one: the tray must not spawn a server to draw a menu. */
+  async peek(): Promise<Extract<HubState, { kind: "running" }> | null> {
+    const cred = this.credentials();
+    if (!cred) return null;
+    const url = hubUrl(cred.port);
+    return (await this.fetchState(url, cred.token)) !== null ? { kind: "running", url, token: cred.token } : null;
+  }
+
+  /**
+   * `POST /api/open|login/<name>` — the hub runs the browser CLI, which reads
+   * the Keychain itself. Resolves with the hub's own error text on a refusal.
+   */
+  async act(hub: Extract<HubState, { kind: "running" }>, verb: "open" | "login", name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    try {
+      const response = await fetch(`${hub.url}/api/${verb}/${encodeURIComponent(name)}`, {
+        method: "POST",
+        headers: { [TOKEN_HEADER]: hub.token, "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS)
+      });
+      if (response.ok) return { ok: true };
+      const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+      return { ok: false, error: typeof body?.error === "string" ? body.error : `HTTP ${response.status}` };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   }
 
   /** Parsed `GET /api/state` of a running hub, or null when it stopped answering. */

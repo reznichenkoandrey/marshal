@@ -5,11 +5,16 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   clampWindowState,
+  DEFAULT_HUB_HOTKEY,
   findOnPath,
+  groupProfileRows,
+  hubHotkeyFromEnv,
   hubUrl,
   isPrivateMode,
+  paletteUrl,
   parsePort,
   pickProfile,
+  readProfileRows,
   readProfiles,
   SmartHubService,
   type HubProfile
@@ -242,4 +247,80 @@ describe("starting and reusing the server (#416)", () => {
       service.stop();
     }
   }, 30_000);
+});
+
+describe("tray \"Open as\" rows (#565)", () => {
+  const row = (fields: Record<string, unknown>) => ({ project: "acme", env: "dev", role: "admin", identity: "work", ...fields });
+
+  it("opens a live session and logs in a stored password", () => {
+    const rows = readProfileRows({
+      profiles: [
+        row({ name: "acme/dev/admin", logged_in: true, secret_state: "stored" }),
+        row({ name: "acme/dev/editor", role: "editor", logged_in: false, secret_state: "stored" })
+      ]
+    });
+    expect(rows.map((r) => [r.label, r.state, r.action])).toEqual([
+      ["dev/admin", "ok", "open"],
+      ["dev/editor", "out", "login"]
+    ]);
+  });
+
+  it("logs a stale session in again, even when it still counts as logged in", () => {
+    const [stale] = readProfileRows({ profiles: [row({ name: "acme/dev/admin", logged_in: true, stale: true, secret_state: "stored" })] });
+    expect([stale.state, stale.action]).toEqual(["stale", "login"]);
+  });
+
+  it("sends anything that needs a decision to the hub's palette", () => {
+    const rows = readProfileRows({
+      profiles: [
+        row({ name: "acme/prod/admin", env: "prod", logged_in: true, gated: true, secret_state: "stored" }),
+        row({ name: "acme/dev/a", role: "a", secret_state: "missing" }),
+        row({ name: "acme/dev/b", role: "b", secret_state: "by_hand" })
+      ]
+    });
+    expect(rows.map((r) => [r.state, r.action])).toEqual([
+      ["ok", "palette"],
+      ["missing", "palette"],
+      ["hand", "palette"]
+    ]);
+  });
+
+  it("opens the person's own Chrome instead of logging it in", () => {
+    const [own] = readProfileRows({ profiles: [row({ name: "acme/dev/me", secret_state: "system_browser" })] });
+    expect(own.action).toBe("open");
+  });
+
+  it("skips entries without a name and falls back on the name for a label", () => {
+    const rows = readProfileRows({ profiles: ["acme/dev/admin", null, { project: "x" }, { name: "solo/main" }] });
+    expect(rows.map((r) => [r.project, r.label, r.identity])).toEqual([["solo", "main", "any"]]);
+  });
+
+  it("groups personal before work before the rest, projects alphabetically", () => {
+    const rows = readProfileRows({
+      profiles: [
+        row({ name: "zeta/dev/admin", project: "zeta" }),
+        row({ name: "beta/dev/admin", project: "beta", identity: "any" }),
+        row({ name: "acme/dev/admin" }),
+        row({ name: "home/main/me", project: "home", env: "main", role: "me", identity: "personal" })
+      ]
+    });
+    expect(groupProfileRows(rows).map((g) => [g.identity, g.projects.map((p) => p.project)])).toEqual([
+      ["personal", ["home"]],
+      ["work", ["acme", "zeta"]],
+      ["any", ["beta"]]
+    ]);
+  });
+});
+
+describe("hub palette and hotkey (#565)", () => {
+  it("puts the query in the hash the panel listens for", () => {
+    expect(paletteUrl("http://127.0.0.1:7777")).toBe("http://127.0.0.1:7777/#open");
+    expect(paletteUrl("http://127.0.0.1:7777/", "acme/dev admin")).toBe("http://127.0.0.1:7777/#open=acme%2Fdev%20admin");
+  });
+
+  it("reads MARSHAL_HUB_HOTKEY", () => {
+    expect(hubHotkeyFromEnv(undefined)).toBe(DEFAULT_HUB_HOTKEY);
+    expect(hubHotkeyFromEnv(" off ")).toBeNull();
+    expect(hubHotkeyFromEnv("Control+Alt+P")).toBe("Control+Alt+P");
+  });
 });
